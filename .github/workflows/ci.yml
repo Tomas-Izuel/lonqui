@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Valores dummy, NO secretos. Alcanzan para que las validaciones Zod de
+  # src/lib/env.server.ts y env.client.ts pasen: el build evalúa esos módulos
+  # aunque nunca abra una conexión real.
+  NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+  SUPABASE_SECRET_KEY: ci-placeholder-secret-key
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+
+jobs:
+  build:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: npm
+
+      - run: npm ci
+
+      # `PageProps`, `LayoutProps` y `RouteContext` son globales que Next
+      # genera en `.next/types/` al correr dev/build/typegen. En un checkout
+      # limpio no existen y `tsc --noEmit` falla antes del build.
+      - run: npx next typegen
+
+      - run: npm run typecheck
+      - run: npm run lint
+
+      # Los tests de tests/db/ se saltean solos sin el stack: acá corren los
+      # unitarios; los de base van en el job de abajo.
+      - run: npm test
+
+      - run: npm run build
+
+  db:
+    name: migraciones · drift de tipos · tests de Postgres
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: npm
+
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Levantar el stack local
+        run: npx supabase start
+
+      - name: Aplicar migraciones + seed
+        run: npx supabase db reset
+
+      # El drift entre database.types.ts y las migraciones es silencioso: una
+      # columna que cambia de tipo no avisa en ningún lado hasta que algo
+      # explota. Si difiere, falla.
+      - name: Regenerar tipos y compararlos contra lo commiteado
+        run: |
+          npx supabase gen types typescript --local --schema public > /tmp/database.types.generated.ts
+          if ! diff -q src/lib/supabase/database.types.ts /tmp/database.types.generated.ts > /dev/null; then
+            echo "::error::src/lib/supabase/database.types.ts está desactualizado respecto de las migraciones."
+            echo "Corré 'npm run db:types' y commiteá el resultado. Diff:"
+            diff src/lib/supabase/database.types.ts /tmp/database.types.generated.ts || true
+            exit 1
+          fi
+
+      # Con el stack arriba, tests/db/ deja de saltearse: RLS por rol, grants,
+      # append-only de auditoría, idempotencia de cuotas.
+      - name: Tests de invariantes de Postgres
+        run: npm test
+
+      - name: Parar el stack
+        if: always()
+        run: npx supabase stop
+
+  # El deploy de migraciones a producción (`supabase db push` en main, después
+  # de que pasen los dos jobs de arriba) se agrega cuando exista el proyecto
+  # hosted. Mismo esquema que Burger Shop: needs [build, db], concurrency
+  # serializada sin cancel, y NUNCA `supabase config push` (config.toml
+  # describe solo el stack local).

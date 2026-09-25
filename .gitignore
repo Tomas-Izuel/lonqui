@@ -1,0 +1,55 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# El gestor de este repo es npm: package-lock.json es el único lockfile.
+bun.lock
+bun.lockb
+pnpm-lock.yaml
+pnpm-workspace.yaml
+yarn.lock
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+
+# env files
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Generado por el CLI de Supabase
+supabase/.temp/
+
+# Relevamiento del club: el contrato, la transcripción de la reunión y los
+# Excel reales con nombres, montos y datos de MENORES. Ley 25.326: datos
+# personales que no tienen por qué vivir en el historial de git, ni en un
+# remoto, ni en un fork. Quedan solo en la máquina del desarrollador.
+/docs/relevamiento/
+
+# Backups de la base (pg_dump): nunca al repo.
+*.dump
+/backups/
+
+# Log efímero de una ronda de decisión de impeccable.
+.impeccable/questions/

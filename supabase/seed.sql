@@ -1,0 +1,4 @@
+-- Seed del stack LOCAL. Corre con `npm run db:reset`.
+--
+-- Solo datos inventados. Los Excel reales de docs/relevamiento/ tienen datos
+-- personales de menores (Ley 25.326) y no se usan como fixtures.
