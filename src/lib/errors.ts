@@ -30,6 +30,19 @@ export function isDomainError(err: unknown): err is DomainError {
   return err instanceof DomainError
 }
 
+/**
+ * El rol de la sesión no alcanza para la operación. Es una `DomainError` (403)
+ * porque el mensaje es interfaz: la persona tiene que entender que no le
+ * corresponde, no que algo se rompió. La defensa real sigue siendo RLS; esto
+ * es la re-verificación del servidor para responder claro.
+ */
+export class PermissionError extends DomainError {
+  constructor(message = 'No tenés permiso para hacer esto') {
+    super(message, { status: 403 })
+    this.name = 'PermissionError'
+  }
+}
+
 export type ApiErrorBody = {
   error: string
   field?: string

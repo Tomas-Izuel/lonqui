@@ -2,7 +2,20 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * Tokens de la dirección visual (2026-09-25): el estándar de la categoría
+ * (canon), vara Linear + panel de Mercado Pago. Contrato completo en
+ * `.impeccable/surfaces/route.md`; valores medidos y decisiones en
+ * `DESIGN.md`. Tema claro fijo — no hay toggle oscuro en este slice
+ * (CLAUDE.md, "Diseño"), así que no existe una variante `.dark`.
+ *
+ * El naranja institucional (#F26A1B, `--brand`) es SOLO para marcas no
+ * textuales: el escudo, el indicador del ítem de navegación activo y el
+ * anillo de foco. Sobre blanco da 3,06:1, no pasa 4,5:1 para texto — por eso
+ * la acción primaria y los links usan `--primary` (#C2410C, 5,18:1) en su
+ * lugar. Medido con la fórmula WCAG 2.x (luminancia relativa sRGB), ver
+ * DESIGN.md para la tabla completa.
+ */
 
 @theme inline {
     --font-heading: var(--font-sans);
@@ -15,15 +28,11 @@
     --color-sidebar-primary: var(--sidebar-primary);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -32,12 +41,20 @@
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
     --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
     --color-popover-foreground: var(--popover-foreground);
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    /* Naranja institucional: escudo, indicador activo, foco. Nunca texto. */
+    --color-brand: var(--brand);
+    --color-brand-foreground: var(--brand-foreground);
+    /* Estados de cuenta (llegan del todo en el slice 2, pero el token vive acá). */
+    --color-status-up-to-date: var(--status-up-to-date);
+    --color-status-in-debt: var(--status-in-debt);
+    --color-status-inactive: var(--status-inactive);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -48,72 +65,53 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-}
+    --background: #FFFFFF;
+    --foreground: #111827;
+    --card: #FFFFFF;
+    --card-foreground: #111827;
+    --popover: #FFFFFF;
+    --popover-foreground: #111827;
 
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    /* Acción primaria y links: NO el naranja institucional (falla contraste
+       de texto). #C2410C sobre blanco = 5,18:1; hover #9A3412 = 7,31:1. */
+    --primary: #C2410C;
+    --primary-foreground: #FFFFFF;
+    --primary-hover: #9A3412;
+
+    --secondary: #F7F7F8;
+    --secondary-foreground: #111827;
+    --muted: #F7F7F8;
+    --muted-foreground: #6B7280;
+    --accent: #F7F7F8;
+    --accent-foreground: #111827;
+    --destructive: #B91C1C;
+    --destructive-foreground: #FFFFFF;
+    --border: #E5E7EB;
+    --input: #E5E7EB;
+
+    /* Foco: el naranja institucional SÍ puede ir acá (no es texto). */
+    --ring: #F26A1B;
+    --radius: 0.5rem; /* 8px */
+
+    /* Marca del club: escudo, indicador de ítem activo. Nunca texto. */
+    --brand: #F26A1B;
+    --brand-foreground: #FFFFFF;
+
+    /* Estado de cuenta (preparado para el slice 2) y estado del socio. */
+    --status-up-to-date: #15803D;
+    --status-in-debt: #B91C1C;
+    --status-inactive: #6B7280;
+
+    /* Barra lateral / navegación: segunda capa neutra, más fría que el
+       contenido (operate.md: "a second neutral layer for sidebars"). */
+    --sidebar: #F7F7F8;
+    --sidebar-foreground: #111827;
+    --sidebar-primary: #C2410C;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #FFFFFF;
+    --sidebar-accent-foreground: #111827;
+    --sidebar-border: #E5E7EB;
+    --sidebar-ring: #F26A1B;
 }
 
 @layer base {
@@ -121,9 +119,35 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-base;
     }
   html {
     @apply font-sans;
     }
+
+  /* Superficies que no dibujamos pero igual llevan el diseño (craft-floor):
+     selección de texto, caret y focus ring con la identidad del club. */
+  ::selection {
+    background-color: color-mix(in oklch, var(--primary), transparent 78%);
+    color: var(--foreground);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Mobile first: sin delay de doble-tap en botones/links, y sin el flash
+     gris nativo al tocar (ya tenemos hover/active propios). */
+  a, button, [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  /* Botón primario con hover exacto de marca (#9A3412): el `hover:bg-primary/80`
+     por defecto de shadcn da una mezcla con blanco, no la sombra pedida. */
+  [data-slot="button"][data-variant="default"]:hover {
+    background-color: var(--primary-hover);
+  }
 }

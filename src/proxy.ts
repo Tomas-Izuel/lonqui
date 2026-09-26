@@ -22,6 +22,13 @@ function requiredEnv(name: 'NEXT_PUBLIC_SUPABASE_URL' | 'NEXT_PUBLIC_SUPABASE_PU
 }
 
 export async function proxy(request: NextRequest) {
+  // `(panel)/layout.tsx` necesita el pathname pedido para armar
+  // `/login?next=<ruta>` (D10), y un Server Component no tiene forma nativa
+  // de leerlo (Next: "Layouts do not access pathname"). Es metadata, no una
+  // decisión de autorización: viaja como header, la decisión sigue en
+  // session.controller.ts.
+  request.headers.set('x-pathname', request.nextUrl.pathname + request.nextUrl.search)
+
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(

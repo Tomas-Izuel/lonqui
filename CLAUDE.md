@@ -89,7 +89,7 @@ Mismo stack que Burger Shop, sin Mercado Pago (llega en la Fase 3).
 | Zod | v4 — `z.url()`, no `z.string().url()`. Los errores son `error.issues` |
 | Supabase | Postgres 17 + Auth + Storage. `@supabase/ssr`, `supabase-js`. Local en `127.0.0.1:54321` |
 | Mail | Resend + `@react-email/components` (plantillas TSX). Hace falta para el reseteo de contraseña, ver Email |
-| Tests | vitest 3.2. Node ≥ 20.9, npm 11 |
+| Tests | vitest 3.2. Node ≥ 22 (supabase-js ya no soporta 20), npm 11. `pg` para los tests de `tests/db/` |
 
 En la UI: `react-hook-form` + `@hookform/resolvers` (todos los formularios),
 `recharts` (panel), `sonner` (toasts), `lucide-react` (íconos). Antes de sumar
@@ -221,11 +221,36 @@ eso, va en una policy, un grant, un trigger o un CHECK — nunca solo en
 TypeScript. El contrato lo promete textual (6.1): *"un usuario no puede acceder
 a información fuera de su rol aun manipulando la aplicación"*.
 
+- **Dos guards en `session.controller.ts`, y no son intercambiables:**
+  `requirePanelAccess(...roles)` para pages y controllers de lectura
+  (**redirige**: al login, a `/cambiar-contrasena` o al inicio) y
+  `requireRole(...roles)` para Server Actions (**tira** `PermissionError`; un
+  redirect adentro del try/catch de una action se tragaría como error). Toda
+  page del panel pasa por `requirePanelAccess`, directo o vía su controller:
+  **los layouts de Next no se vuelven a ejecutar al navegar del lado del
+  cliente**, así que el chequeo de `(panel)/layout.tsx` solo cubre la carga
+  completa. Sin esto, a alguien a quien le restablecen la contraseña con la
+  sesión abierta el próximo click le muestra un padrón vacío por RLS.
 - Los helpers de rol (`private.current_role()`, `private.has_role(...)`) viven en
   el schema `private` como `SECURITY DEFINER`. Una función `SECURITY DEFINER` en
   `public` es callable por `anon`.
 - **Los grants son por columna** donde haga falta. Un grant de tabla es
   todo-o-nada, y una policy `FOR ALL` no distingue qué columna se escribe.
+- **La sesión no vence nunca, a propósito.** Decisión de Tomás (2026-09-25): a
+  un usuario no técnico lo frustra que lo saquen, y el costo de seguridad es
+  bajo porque el acceso lo corta RLS, no la sesión. Un usuario desactivado o
+  con contraseña restablecida deja de ver datos al instante aunque siga
+  logueado. En concreto:
+  - El access token dura 1 h (`jwt_expiry`, no subirlo) y se renueva solo con
+    el refresh token, que no vence; `proxy.ts` refresca en cada navegación.
+  - Cookies de `@supabase/ssr` con su default de 400 días. No acortar `maxAge`.
+  - En el proyecto hosted (Pro), **"Time-box user sessions" e "Inactivity
+    timeout" quedan en 0 (apagados)** y "Single session per user" apagado: la
+    misma persona entra desde el celular y la compu.
+  - Lo único que cierra la sesión es "Cerrar sesión". Cambiar la contraseña
+    **no** saca al usuario: la sesión actual sigue viva y va directo al panel
+    (Supabase puede cerrar las sesiones de OTROS dispositivos, eso está bien).
+    Nunca llamar a `signOut()` después de un cambio de contraseña.
 - **Sin registro público.** `[auth].enable_signup = false`. Los usuarios los crea
   un `admin` desde `/usuarios` vía Admin API. El rol vive en una tabla nuestra,
   no en `user_metadata` (que el propio usuario puede editar).
@@ -507,6 +532,16 @@ desde el celular.
 La identidad es la del club: **naranja y blanco**. Vive en el color, la
 tipografía y el logo; la estructura es la convención de la categoría, sin
 rarezas.
+
+**Dirección decidida (2026-09-25): el estándar de la categoría**, elegido a
+propósito frente a direcciones más expresivas. La vara de terminación es
+**Linear** (precisión, calma, estados claros) y el **panel de Mercado Pago**
+(claridad para usuarios argentinos no técnicos). El contrato de dirección vive
+en `.impeccable/surfaces/route.md` y todas las superficies lo heredan.
+
+**Mobile first es indispensable.** Toda pantalla se diseña y se verifica
+primero a 390px, con una mano; el escritorio es una adaptación de lo móvil,
+nunca al revés. Una pantalla que solo se probó en desktop no está terminada.
 
 `PRODUCT.md` tiene la verdad de producto; los briefs por superficie van en
 `.impeccable/surfaces/`. La dirección visual se decide **una vez**, en el primer

@@ -1,0 +1,87 @@
+'use client'
+
+import { useActionState, useEffect, useTransition } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { TextField, PasswordField } from '@/views/shared/form-fields'
+import { signIn } from '@/controllers/auth.actions'
+import type { ActionResult } from '@/lib/action-result'
+
+const loginSchema = z.object({
+  email: z.email('Ingresá un email válido'),
+  password: z.string().min(1, 'Ingresá tu contraseña'),
+})
+
+type LoginValues = z.infer<typeof loginSchema>
+
+/**
+ * Login: `react-hook-form` valida el formato antes de tocar el servidor;
+ * `useActionState` maneja el resultado de `signIn` (error genérico —nunca
+ * revela si el email existe—, o redirect en éxito, que hace el propio
+ * Server Action). `next` viaja en el form para volver a la ruta pedida.
+ */
+export function LoginForm({ next }: { next?: string }) {
+  const [state, formAction, isActionPending] = useActionState<ActionResult | null, FormData>(signIn, null)
+  const [isTransitionPending, startTransition] = useTransition()
+  const pending = isActionPending || isTransitionPending
+
+  const form = useForm<LoginValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' },
+  })
+
+  useEffect(() => {
+    if (!state || state.ok) return
+    if (state.field === 'email' || state.field === 'password') {
+      form.setError(state.field, { message: state.error })
+      form.setFocus(state.field)
+    }
+    // Sin `field`: es el error genérico de credenciales, se muestra arriba del botón.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo cuando cambia el resultado del action
+  }, [state])
+
+  function onValid(values: LoginValues) {
+    const formData = new FormData()
+    formData.set('email', values.email)
+    formData.set('password', values.password)
+    formData.set('next', next ?? '')
+    startTransition(() => formAction(formData))
+  }
+
+  const genericError = state && !state.ok && !state.field ? state.error : null
+
+  return (
+    <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-4">
+      <TextField
+        control={form.control}
+        name="email"
+        label="Email"
+        type="email"
+        inputMode="email"
+        autoComplete="username"
+        spellCheck={false}
+        autoFocus
+        disabled={pending}
+      />
+      <PasswordField control={form.control} name="password" label="Contraseña" autoComplete="current-password" disabled={pending} />
+
+      {genericError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {genericError}
+        </p>
+      ) : null}
+
+      <Button type="submit" disabled={pending} className="mt-1 h-11 w-full">
+        {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
+        {pending ? 'Ingresando…' : 'Ingresar'}
+      </Button>
+
+      <p className="text-center text-sm text-muted-foreground">
+        ¿Te olvidaste la contraseña? Pedile una nueva a un administrador del club.
+      </p>
+    </form>
+  )
+}

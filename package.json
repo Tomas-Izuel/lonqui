@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "npm@11.16.0",
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev",
@@ -17,7 +17,8 @@
     "db:start": "npx supabase start",
     "db:stop": "npx supabase stop",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "screens": "node scripts/capture-screens.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -43,10 +44,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "pg": "^8.23.0",
+    "playwright": "^1.63.0",
     "shadcn": "^4.21.0",
     "supabase": "^2.115.0",
     "tailwindcss": "^4",

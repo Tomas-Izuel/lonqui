@@ -92,6 +92,13 @@ nunca en este contrato: a lo sumo un botón que abre la conversación.
   transacción". "Dar de baja", no "Eliminar".
 - La historia es sagrada: nada en la interfaz sugiere que un pago o un socio se
   pueden "borrar". Se anulan y se dan de baja, con motivo.
+- **Dirección visual: el estándar de la categoría**, elegido a propósito
+  (2026-09-25) frente a direcciones más expresivas. La convención es el
+  compromiso: un panel administrativo moderno, sin metáforas ni rarezas. La
+  vara de terminación es **Linear** (precisión, calma, estados claros) y el
+  **panel de Mercado Pago** (claridad para usuarios argentinos no técnicos).
+- **Mobile first, indispensable.** Toda pantalla se diseña y se verifica
+  primero en el celular (390px, una mano); el escritorio es una adaptación.
 
 ## Evidence on Hand
 

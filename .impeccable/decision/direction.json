@@ -1,0 +1,124 @@
+{
+  "title": "Dirección visual — Club Naranja y Blanco",
+  "question": "El sorteo asignó la Señalética de cancha. Quedate con ella, tomá una alternativa o volvé a tirar.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Señalética de cancha",
+      "kicker": "THE ROLL",
+      "lineage": "Carteles de sector, franjas de color y numeración de estadio: lo que se lee a 30 metros y al sol",
+      "thesis": "Cada pantalla es un sector señalizado: un cartel grande dice dónde estás y una franja de color dice cómo está cada socio.",
+      "palette": ["#FFFFFF", "#16181D", "#F36B21", "#B8430A", "#1E7F4F", "#C0262D"],
+      "materials": ["placas de señalética planas", "grotesca de ruta (Barlow)", "franjas de estado a todo el ancho"],
+      "viewport": "Buscador gigante '¿A quién buscás?' arriba; el resultado es la placa del socio: nombre enorme y una franja AL DÍA / DEBE 3 MESES · $30.000 a todo el ancho; botón 'Registrar pago' al alcance del pulgar.",
+      "risk": "Si la escala de cartel se aplica a todo, las tablas pierden densidad; hay que reservarla para lo que se busca de un vistazo.",
+      "raised": [
+        {"from": "challenger-folio", "raise": "La tira de 12 meses de cuota con celdas idénticas: cualquier año se compara con otro de un vistazo."},
+        {"from": "challenger-precisionist", "raise": "Un solo estado activo por pantalla (sector actual, fila elegida); nada compite con él."},
+        {"from": "challenger-datamatics", "raise": "Todos los montos y DNI en numerales tabulares, alineados a la derecha, un solo ritmo numérico."},
+        {"from": "challenger-nixie", "raise": "Las cifras del panel tienen posición fija: cambian en su lugar, nunca se reacomodan."},
+        {"from": "challenger-miura", "raise": "La fila del socio se despliega en el lugar hasta la ficha completa, sin saltar de pantalla."}
+      ]
+    },
+    {
+      "id": "model-pick",
+      "label": "Talonario de cuotas",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "El talonario de recibos numerado y la libreta de socio del club de barrio",
+      "thesis": "Cada pago es un recibo con número, fecha y sello; el estado de cuenta es la libreta que el socio conoce de toda la vida.",
+      "palette": ["#FBFAF7", "#1C2433", "#2B4C8C", "#E8641E", "#1E7F4F"],
+      "materials": ["papel con troquel", "tinta azul carbónico", "sello 'PAGADO' naranja"],
+      "viewport": "La ficha del socio como hoja de libreta: fila de meses con sello en los pagos; 'Registrar pago' arranca un recibo nuevo del talonario.",
+      "risk": "Es la metáfora a la que llegan casi todas las corridas de este rubro; mal dosificado se ve retro o precario."
+    },
+    {
+      "id": "challenger-folio",
+      "label": "Folio botánico",
+      "verdict": "declined",
+      "lineage": "Láminas botánicas de escala fija por estación",
+      "thesis": "La vida del socio como láminas a escala fija: alta, activo, baja.",
+      "palette": ["#F3EDE0", "#5A4A3A", "#3F6B3A", "#B2342A"],
+      "materials": ["láminas crema", "filetes sepia"],
+      "viewport": "Ficha del socio como secuencia de láminas por etapa.",
+      "case": "Se fusiona mal: la Comisión no se reconoce en un herbario y el crema con serif es el cliché de siempre.",
+      "risk": "Lindo y ajeno; lento para una tarea operativa.",
+      "kept": "Secuencia a escala fija y comparable: la tira de 12 meses."
+    },
+    {
+      "id": "challenger-precisionist",
+      "label": "Lámina precisionista",
+      "verdict": "declined",
+      "lineage": "Pintura industrial de planos duros",
+      "thesis": "Planos superpuestos; el activo recibe la luz.",
+      "palette": ["#F4F1EA", "#3E4651", "#A5502A"],
+      "materials": ["planos planos", "sombra dura"],
+      "viewport": "Secciones como planos que se corren.",
+      "case": "Se fusiona mal: la sombra dura sin blur choca con el piso de calidad y no dice nada del club.",
+      "risk": "Decorativo en una herramienta de tarea.",
+      "kept": "Un único estado activo, inequívoco."
+    },
+    {
+      "id": "challenger-datamatics",
+      "label": "Campo de datos",
+      "verdict": "declined",
+      "lineage": "Instalaciones de datos en blanco y negro puro",
+      "thesis": "Columnas de números a densidad máxima.",
+      "palette": ["#000000", "#FFFFFF"],
+      "materials": ["barras finas", "monoespaciada"],
+      "viewport": "Padrón como campo tabular denso.",
+      "case": "Se fusiona mal: prohíbe el naranja del club y la densidad espanta a usuarios no técnicos.",
+      "risk": "Ilegible para la Comisión.",
+      "kept": "Disciplina tabular estricta en montos y DNI."
+    },
+    {
+      "id": "challenger-nixie",
+      "label": "Contador nixie",
+      "verdict": "declined",
+      "lineage": "Contadores de laboratorio con tubos naranjas",
+      "thesis": "Las cifras del club como dígitos naranjas encendidos.",
+      "palette": ["#141414", "#FF7A1A", "#8A8F96"],
+      "materials": ["chasis negro", "vidrio"],
+      "viewport": "Panel con bancos de dígitos para socios y cobranza.",
+      "case": "Tiene el naranja, pero el fondo negro se pierde al sol en la cancha y es un laboratorio, no un club.",
+      "risk": "Fondo oscuro ilegible en exterior.",
+      "kept": "Cada cifra con posición fija que cambia en su lugar."
+    },
+    {
+      "id": "challenger-miura",
+      "label": "Pliego Miura",
+      "verdict": "declined",
+      "lineage": "Pliegues desplegables de ingeniería espacial",
+      "thesis": "Un paquete chico que se despliega en una hoja completa.",
+      "palette": ["#FFFFFF", "#C9A227", "#8A8580", "#9DB7D5"],
+      "materials": ["papel plegado", "foil dorado"],
+      "viewport": "Ficha compacta que se abre en pliego.",
+      "case": "Se fusiona mal: el oro y los pliegues no son del club; la mecánica sí sirve.",
+      "risk": "Coreografía de más para una ficha.",
+      "kept": "Fila que se despliega en el lugar hasta la ficha."
+    },
+    {
+      "id": "challenger-storm",
+      "label": "Tormenta de letras",
+      "verdict": "declined",
+      "lineage": "Mundos tipográficos surreales",
+      "thesis": "Las palabras como clima.",
+      "palette": ["#FFFFFF", "#111111", "#B8BCC2"],
+      "materials": ["grotesca monumental"],
+      "viewport": "Títulos que se deshacen en partículas.",
+      "case": "Se fusiona mal: la transformación del texto es lo opuesto a la claridad que necesita un voluntario.",
+      "risk": "Ruido puro en una herramienta de gestión.",
+      "kept": "La tipografía carga la jerarquía por escala, sin adornos."
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "canon": true,
+  "canonCard": {
+    "label": "El estándar de la categoría",
+    "thesis": "Un panel administrativo moderno, ejecutado impecable: barra lateral, tablas limpias, naranja como color de acción.",
+    "palette": ["#FFFFFF", "#F6F7F9", "#111827", "#EA580C"],
+    "materials": ["grilla limpia", "componentes estándar"],
+    "viewport": "Barra lateral con secciones, tabla del padrón con filtros, botón naranja 'Nuevo socio'.",
+    "risk": "Indistinguible de cualquier panel SaaS, por diseño."
+  },
+  "steer": true
+}

@@ -53,3 +53,9 @@ supabase/.temp/
 
 # Log efímero de una ronda de decisión de impeccable.
 .impeccable/questions/
+
+# Artefactos regenerables de impeccable: capturas (`npm run screens`) y caché
+# del hook. Los briefs y el contrato de dirección (.impeccable/surfaces/) sí
+# se commitean.
+.impeccable/review/
+.impeccable/hook.cache.json

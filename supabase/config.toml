@@ -234,7 +234,10 @@ double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = false
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
-secure_password_change = true
+# LONQUI: false a propósito. La contraseña actual la verifica
+# updateUser({ password, current_password }); el reauth por código mandaría un
+# mail, y la Fase 1 no tiene mail. En hosted se configura en el dashboard.
+secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
 max_frequency = "1s"
 # Number of characters used in the email OTP.

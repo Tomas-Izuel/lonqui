@@ -3,8 +3,8 @@
 # Reset completo de la base LOCAL: migraciones + seed + tipos.
 #
 # `supabase db reset` recrea la base entera, incluido el schema `auth`: se lleva
-# puestos todos los usuarios. Cuando exista el bootstrap de usuarios de
-# desarrollo (primer pipeline de la Fase 1), se llama al final de este script.
+# puestos todos los usuarios. Por eso al final corre el bootstrap del admin
+# de desarrollo (scripts/bootstrap-admin.mjs, con DEV_ADMIN_* de .env.local).
 #
 set -euo pipefail
 
@@ -25,6 +25,12 @@ npx supabase db reset
 
 echo "→ Regenerando tipos de TypeScript desde el schema..."
 npx supabase gen types typescript --local --schema public > src/lib/supabase/database.types.ts
+
+# `db reset` recrea el schema auth: sin esto no queda ningún usuario para entrar.
+if [ -f scripts/bootstrap-admin.mjs ]; then
+  echo "→ Creando el admin de desarrollo..."
+  node --env-file=.env.local scripts/bootstrap-admin.mjs "$@"
+fi
 
 # `db reset` NO relee supabase/config.toml: eso se lee al arrancar los
 # contenedores.
