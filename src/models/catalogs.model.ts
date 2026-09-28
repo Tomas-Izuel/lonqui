@@ -243,6 +243,13 @@ export async function updateCategory(id: number, patch: UpdateCategoryInput): Pr
  * viaja en el resultado para que la UI avise ("hay 12 socios activos en esta
  * categoría"); la baja **no se impide** — es una decisión de la Comisión, no
  * del sistema (00-architecture.md §6.1, pregunta C6 pendiente).
+ *
+ * Revisión 3 (§13.2): `members.category_id` ya no existe (un socio puede
+ * tener más de una categoría). El conteo es de INSCRIPCIONES ABIERTAS en
+ * `member_categories` de socios activos, vía un embed `!inner` que filtra por
+ * el `status` del socio embebido (mismo patrón que `searchMembers` de
+ * `members.model.ts`: las dos condiciones —`category_id` y `status`— se
+ * evalúan sobre la misma fila unida, no de forma independiente).
  */
 export async function setCategoryActive(
   id: number,
@@ -264,10 +271,11 @@ export async function setCategoryActive(
   }
 
   const { count, error: countError } = await supabase
-    .from('members')
-    .select('id', { count: 'exact', head: true })
+    .from('member_categories')
+    .select('id, members!inner(status)', { count: 'exact', head: true })
     .eq('category_id', id)
-    .eq('status', 'active')
+    .is('left_on', null)
+    .eq('members.status', 'active')
 
   if (countError) throw countError
 

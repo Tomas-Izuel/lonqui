@@ -88,7 +88,16 @@ export function ChangePasswordForm({ mode, next }: { mode: 'mandatory' | 'volunt
         <p className="text-sm text-muted-foreground">Te asignaron una contraseña temporal. Elegí una tuya para seguir.</p>
       ) : null}
 
-      <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-4">
+      {/* `method="POST"` + `action={formAction}`: mismo patrón que `LoginForm`,
+          progressive enhancement sin JS. `next` viaja también como input
+          oculto para que la sumisión nativa (sin JS) lo conserve. En
+          mayúscula por lo mismo que en `LoginForm`: con `action` de función,
+          el SSR de React fuerza `method="POST"` (viene de `$$FORM_ACTION` de
+          la Server Action) sin importar lo que se le pase acá, y el cliente
+          hidrata con el string literal del JSX — en minúscula, mismatch de
+          hidratación en cada carga. */}
+      <form onSubmit={form.handleSubmit(onValid)} noValidate method="POST" action={formAction} className="flex flex-col gap-4">
+        <input type="hidden" name="next" value={effectiveNext ?? ''} />
         <PasswordField
           control={form.control}
           name="currentPassword"

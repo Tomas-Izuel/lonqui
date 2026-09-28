@@ -1,13 +1,9 @@
 import type { Metadata } from 'next'
 import { requireSession } from '@/controllers/session.controller'
 import { ChangePasswordForm } from '@/views/auth/change-password-form'
+import { isInternalRedirectPath } from '@/lib/safe-redirect'
 
 export const metadata: Metadata = { title: 'Cambiar contraseña — Club Naranja y Blanco' }
-
-function sanitizeNext(next: string | undefined): string | undefined {
-  if (!next || !next.startsWith('/') || next.startsWith('//')) return undefined
-  return next
-}
 
 export default async function CambiarContrasenaPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   // Sin sesión, `requireSession()` ya manda a `/login` (sin `next`: esta
@@ -22,7 +18,7 @@ export default async function CambiarContrasenaPage({ searchParams }: { searchPa
   let next: string | undefined
   if (mode === 'voluntary') {
     const params = await searchParams
-    next = sanitizeNext(params.next)
+    next = isInternalRedirectPath(params.next) ? params.next : undefined
   }
 
   return (

@@ -24,10 +24,14 @@ const createUserSchema = z.object({
 
 type CreateUserValues = z.infer<typeof createUserSchema>
 
-const ROLE_OPTIONS: { value: AppRole; label: string }[] = (['admin', 'editor', 'consulta'] as const).map((role) => ({
-  value: role,
-  label: `${appRoleLabels[role]} — ${appRoleDescriptions[role]}`,
-}))
+// El trigger muestra solo el nombre del rol (nunca la descripción: un
+// desplegable de una sola línea que se pisaba con el borde del diálogo,
+// hallazgo directo de Tomás); la descripción va como texto de ayuda debajo
+// del campo (`SelectField` la toma de `option.description` cuando hay un
+// valor elegido) y, acá, también como segunda línea dentro de cada opción.
+const ROLE_OPTIONS: { value: AppRole; label: string; description: string }[] = (['admin', 'editor', 'consulta'] as const).map(
+  (role) => ({ value: role, label: appRoleLabels[role], description: appRoleDescriptions[role] }),
+)
 
 export function CreateUserDialog({
   open,
@@ -83,7 +87,7 @@ export function CreateUserDialog({
             El sistema genera una contraseña temporal; pasásela a la persona, le va a pedir cambiarla al entrar.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-4">
+        <form onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4">
           <TextField
             control={form.control}
             name="email"

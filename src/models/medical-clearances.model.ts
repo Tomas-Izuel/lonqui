@@ -2,6 +2,7 @@ import 'server-only'
 
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { DomainError } from '@/lib/errors'
 import type { MedicalClearance } from '@/models/types'
 
 /**
@@ -73,6 +74,15 @@ export const updateClearanceSchema = z
   .strict()
 export type UpdateClearanceInput = z.infer<typeof updateClearanceSchema>
 
+/** Para `getMedicalClearanceUrl` (Major 4 del review): firma la URL al click, no al render de la ficha. */
+export const getMedicalClearanceUrlSchema = z
+  .object({
+    memberId: z.number().int().positive(),
+    clearanceId: z.number().int().positive(),
+  })
+  .strict()
+export type GetMedicalClearanceUrlInput = z.infer<typeof getMedicalClearanceUrlSchema>
+
 // -----------------------------------------------------------------------------
 // Rutas de Storage
 // -----------------------------------------------------------------------------
@@ -121,6 +131,20 @@ export async function listMedicalClearances(memberId: number): Promise<MedicalCl
   return (data ?? []).map(mapClearance)
 }
 
+/** Un apto puntual, para `getMedicalClearanceUrl`: la action verifica que sea del socio pedido antes de firmar. */
+export async function getMedicalClearanceById(id: number): Promise<MedicalClearance | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('medical_clearances')
+    .select('id, member_id, expires_on, storage_path, original_filename, notes, created_at')
+    .eq('id', id)
+    .maybeSingle()
+  if (error) throw error
+
+  return data ? mapClearance(data) : null
+}
+
 /**
  * Inserta la fila. `storagePath` null = apto cargado solo con la fecha (sin
  * adjunto); con valor = el que confirma una subida ya verificada en Storage.
@@ -151,6 +175,7 @@ export async function createMedicalClearance(input: {
   return { id: data.id }
 }
 
+/** `.select().maybeSingle()` para distinguir un id inexistente (0 filas) de un éxito real (Minor 11 del review). */
 export async function updateMedicalClearance(id: number, patch: UpdateClearanceInput): Promise<void> {
   const supabase = await createClient()
 
@@ -158,6 +183,7 @@ export async function updateMedicalClearance(id: number, patch: UpdateClearanceI
   if (patch.expiresOn !== undefined) update.expires_on = patch.expiresOn
   if (patch.notes !== undefined) update.notes = patch.notes ?? null
 
-  const { error } = await supabase.from('medical_clearances').update(update).eq('id', id)
+  const { data, error } = await supabase.from('medical_clearances').update(update).eq('id', id).select('id').maybeSingle()
   if (error) throw error
+  if (!data) throw new DomainError('El apto físico no existe', { status: 404 })
 }

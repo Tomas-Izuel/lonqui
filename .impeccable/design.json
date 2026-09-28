@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-27T22:04:48+00:00",
+  "title": "Design System: Club Naranja y Blanco — Gestión",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta",
+        "canonical": "oklch(21.0% 0.032 264.7)",
+        "tonalRamp": [
+          "#050B18",
+          "#1C2434",
+          "#374051",
+          "#555E70",
+          "#747D91",
+          "#959FB3",
+          "#BDC8DD",
+          "#E7EFFE"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Tinta secundaria",
+        "canonical": "oklch(55.1% 0.023 264.4)",
+        "tonalRamp": [
+          "#070B15",
+          "#1E2430",
+          "#3A404C",
+          "#575E6B",
+          "#767D8C",
+          "#979FAD",
+          "#C0C8D7",
+          "#E7EFFF"
+        ]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Fondo",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#242424",
+          "#404040",
+          "#5D5D5D",
+          "#7D7D7D",
+          "#9E9E9E",
+          "#C7C7C7",
+          "#EEEEEE"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Superficie",
+        "canonical": "oklch(97.6% 0.001 286.4)",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#242425",
+          "#404040",
+          "#5D5D5E",
+          "#7D7D7E",
+          "#9E9E9F",
+          "#C7C7C8",
+          "#EEEEEF"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Borde",
+        "canonical": "oklch(92.8% 0.006 264.5)",
+        "tonalRamp": [
+          "#0A0B0E",
+          "#232427",
+          "#3E4043",
+          "#5C5E61",
+          "#7B7D81",
+          "#9C9EA2",
+          "#C5C7CB",
+          "#ECEEF2"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Naranja quemado",
+        "canonical": "oklch(55.3% 0.174 38.4)",
+        "tonalRamp": [
+          "#1B0300",
+          "#431101",
+          "#6F2205",
+          "#9F360D",
+          "#CF4D1E",
+          "#F67145",
+          "#FFB299",
+          "#FFE9E2"
+        ]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Naranja quemado profundo",
+        "canonical": "oklch(47.0% 0.143 37.3)",
+        "tonalRamp": [
+          "#1B0300",
+          "#450E00",
+          "#721F02",
+          "#9D3716",
+          "#C2593A",
+          "#E87B5B",
+          "#FEB29C",
+          "#FEE9E3"
+        ]
+      },
+      "brand": {
+        "role": "primary",
+        "displayName": "Naranja institucional",
+        "canonical": "oklch(68.2% 0.186 44.8)",
+        "tonalRamp": [
+          "#190500",
+          "#401500",
+          "#6A2903",
+          "#983E08",
+          "#C6571A",
+          "#F87024",
+          "#FCB494",
+          "#FEEAE1"
+        ]
+      },
+      "destructive": {
+        "role": "error",
+        "displayName": "Rojo de consecuencia",
+        "canonical": "oklch(50.5% 0.190 27.5)",
+        "tonalRamp": [
+          "#1E0001",
+          "#4B0002",
+          "#7C0408",
+          "#B00C13",
+          "#D73F37",
+          "#FF6458",
+          "#FDB1A7",
+          "#FEE9E6"
+        ]
+      },
+      "status-up-to-date": {
+        "role": "status",
+        "displayName": "Verde al día",
+        "canonical": "oklch(52.7% 0.137 150.1)",
+        "tonalRamp": [
+          "#011003",
+          "#012D10",
+          "#054D21",
+          "#0F7034",
+          "#31934F",
+          "#57B66F",
+          "#81E097",
+          "#C7FFD1"
+        ]
+      },
+      "status-in-debt": {
+        "role": "status",
+        "displayName": "Rojo con deuda",
+        "canonical": "oklch(50.5% 0.190 27.5)",
+        "tonalRamp": [
+          "#1E0001",
+          "#4B0002",
+          "#7C0408",
+          "#B00C13",
+          "#D73F37",
+          "#FF6458",
+          "#FDB1A7",
+          "#FEE9E6"
+        ]
+      },
+      "status-inactive": {
+        "role": "status",
+        "displayName": "Gris de baja",
+        "canonical": "oklch(55.1% 0.023 264.4)",
+        "tonalRamp": [
+          "#070B15",
+          "#1E2430",
+          "#3A404C",
+          "#575E6B",
+          "#767D8C",
+          "#979FAD",
+          "#C0C8D7",
+          "#E7EFFF"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Título de página (PageHeader), 20px en móvil."
+      },
+      "headline-desktop": {
+        "displayName": "Headline (sm+)",
+        "purpose": "El mismo título desde 640px, 24px."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Título de Panel, diálogos y sheets."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Valor de inputs en móvil, buscadores, copy base."
+      },
+      "body-sm": {
+        "displayName": "Body chico",
+        "purpose": "Tamaño de trabajo: tablas, descripciones, botones, navegación lateral."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Cápsulas, etiquetas de filtros, barra inferior. Piso de la escala."
+      },
+      "data": {
+        "displayName": "Datos",
+        "purpose": "Numerales tabulares en montos, DNI, fechas y columnas numéricas."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-low",
+        "value": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1), 0 0 0 1px rgb(17 24 39 / 0.1)",
+        "purpose": "Menús desplegables, selects, popovers."
+      },
+      {
+        "name": "floating-high",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "purpose": "Sheets laterales y submenús."
+      },
+      {
+        "name": "dialog-ring",
+        "value": "0 0 0 1px rgb(17 24 39 / 0.1)",
+        "purpose": "Diálogos, sobre velo negro al 10% con blur leve."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px rgb(242 106 27 / 0.5)",
+        "purpose": "Foco de controles, con borde al naranja institucional; más outline global de 2px con 2px de offset."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Hover y foco de controles y filas (transition-colors por defecto)."
+      },
+      {
+        "name": "overlay",
+        "value": "100ms fade + zoom 95%",
+        "purpose": "Entrada y salida de menús, popovers y diálogos."
+      },
+      {
+        "name": "sheet",
+        "value": "200ms ease-in-out slide",
+        "purpose": "Sheets laterales."
+      },
+      {
+        "name": "press",
+        "value": "translateY(1px)",
+        "purpose": "Botón presionado."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "base",
+        "value": "390px",
+        "purpose": "Referencia de diseño (móvil, una mano)."
+      },
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px",
+        "purpose": "Aparece la barra lateral; DataList pasa a tabla; inputs bajan a 14px."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botón primario",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "La única acción que hace algo en cada pantalla. 44px.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"M12 5v14\"/></svg>Ficha de ingreso</button>",
+      "css": ".ds-btn-primary { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: #C2410C; color: #FFFFFF; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms, box-shadow 150ms; } .ds-btn-primary:hover { background: #9A3412; } .ds-btn-primary:focus-visible { outline: 2px solid #F26A1B; outline-offset: 2px; box-shadow: 0 0 0 3px rgb(242 106 27 / 0.5); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
+    },
+    {
+      "name": "Botón outline",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Acción secundaria: cancelar, adjuntar, WhatsApp, cargar más.",
+      "html": "<button class=\"ds-btn-outline\">Cancelar</button>",
+      "css": ".ds-btn-outline { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; color: #111827; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms; } .ds-btn-outline:hover { background: #F7F7F8; } .ds-btn-outline:focus-visible { outline: 2px solid #F26A1B; outline-offset: 2px; border-color: #F26A1B; } .ds-btn-outline:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Botón de consecuencia",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Confirma una baja o desactivación; tinte suave, nunca bloque rojo.",
+      "html": "<button class=\"ds-btn-destructive\">Dar de baja</button>",
+      "css": ".ds-btn-destructive { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; height: 44px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: rgb(185 28 28 / 0.1); color: #B91C1C; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms; } .ds-btn-destructive:hover { background: rgb(185 28 28 / 0.2); } .ds-btn-destructive:focus-visible { outline: 2px solid #F26A1B; outline-offset: 2px; box-shadow: 0 0 0 3px rgb(185 28 28 / 0.2); }"
+    },
+    {
+      "name": "Campo de texto",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Input de 44px con etiqueta arriba; 16px en móvil.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">DNI</span><input class=\"ds-input\" inputmode=\"numeric\" placeholder=\"Sin puntos\" /></label>",
+      "css": ".ds-field { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: flex; flex-direction: column; gap: 6px; max-width: 320px; } .ds-field-label { font-size: 14px; font-weight: 500; color: #111827; } .ds-input { font-family: Geist, ui-sans-serif, system-ui, sans-serif; height: 44px; padding: 4px 10px; border: 1px solid #E5E7EB; border-radius: 8px; background: transparent; color: #111827; font-size: 16px; font-variant-numeric: tabular-nums; outline: none; transition: border-color 150ms, box-shadow 150ms; } .ds-input::placeholder { color: #6B7280; } .ds-input:focus-visible { border-color: #F26A1B; box-shadow: 0 0 0 3px rgb(242 106 27 / 0.5); } .ds-input[aria-invalid=\"true\"] { border-color: #B91C1C; box-shadow: 0 0 0 3px rgb(185 28 28 / 0.2); }"
+    },
+    {
+      "name": "Buscador",
+      "kind": "input",
+      "refersTo": "input-home-search",
+      "description": "Buscador de socios del inicio: 48px, ícono de 20px, foco inmediato.",
+      "html": "<div class=\"ds-search\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input type=\"search\" placeholder=\"Buscar un socio por nombre o DNI…\" /></div>",
+      "css": ".ds-search { font-family: Geist, ui-sans-serif, system-ui, sans-serif; position: relative; max-width: 360px; } .ds-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #6B7280; pointer-events: none; } .ds-search input { font-family: Geist, ui-sans-serif, system-ui, sans-serif; width: 100%; height: 48px; padding: 0 12px 0 40px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; color: #111827; font-size: 16px; outline: none; transition: border-color 150ms, box-shadow 150ms; } .ds-search input::placeholder { color: #6B7280; } .ds-search input:focus-visible { border-color: #F26A1B; box-shadow: 0 0 0 3px rgb(242 106 27 / 0.5); }"
+    },
+    {
+      "name": "Navegación inferior",
+      "kind": "nav",
+      "refersTo": "bottom-nav-item-active",
+      "description": "Barra inferior móvil; el activo lleva óvalo naranja al 10% e ícono naranja.",
+      "html": "<nav class=\"ds-bottom-nav\" aria-label=\"Navegación principal\"><a href=\"#\" class=\"ds-bn-item\"><span class=\"ds-bn-icon\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/></svg></span><span>Inicio</span></a><a href=\"#\" class=\"ds-bn-item\" aria-current=\"page\"><span class=\"ds-bn-icon\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/></svg></span><span>Socios</span></a></nav>",
+      "css": ".ds-bottom-nav { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: flex; width: 390px; max-width: 100%; border-top: 1px solid #E5E7EB; background: #FFFFFF; } .ds-bn-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 56px; padding: 6px 0; font-size: 12px; font-weight: 500; color: #6B7280; text-decoration: none; } .ds-bn-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 9999px; } .ds-bn-item[aria-current=\"page\"] { color: #111827; font-weight: 600; } .ds-bn-item[aria-current=\"page\"] .ds-bn-icon { background: rgb(242 106 27 / 0.1); color: #F26A1B; } .ds-bn-item:focus-visible { outline: 2px solid #F26A1B; outline-offset: -2px; }"
+    },
+    {
+      "name": "Navegación lateral",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Destinos de 44px en la barra lateral de escritorio sobre la superficie.",
+      "html": "<nav class=\"ds-side-nav\"><a href=\"#\" class=\"ds-sn-item\">Inicio</a><a href=\"#\" class=\"ds-sn-item\" aria-current=\"page\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/></svg>Socios</a><a href=\"#\" class=\"ds-sn-item\">Auditoría</a></nav>",
+      "css": ".ds-side-nav { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: flex; flex-direction: column; gap: 2px; width: 240px; padding: 8px; background: #F7F7F8; border-right: 1px solid #E5E7EB; } .ds-sn-item { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #6B7280; text-decoration: none; transition: background-color 150ms, color 150ms; } .ds-sn-item:hover { background: #F7F7F8; color: #111827; } .ds-sn-item[aria-current=\"page\"] { background: rgb(242 106 27 / 0.1); color: #111827; } .ds-sn-item[aria-current=\"page\"] svg { color: #F26A1B; } .ds-sn-item:focus-visible { outline: 2px solid #F26A1B; outline-offset: 2px; }"
+    },
+    {
+      "name": "Cápsulas de estado",
+      "kind": "chip",
+      "refersTo": "status-pill-up-to-date",
+      "description": "Estado siempre con etiqueta; punto decorativo.",
+      "html": "<div class=\"ds-pills\"><span class=\"ds-pill ds-pill-ok\"><span class=\"ds-dot\"></span>Activo</span><span class=\"ds-pill ds-pill-debt\"><span class=\"ds-dot\"></span>Con deuda</span><span class=\"ds-pill ds-pill-off\"><span class=\"ds-dot\"></span>Baja</span><span class=\"ds-pill ds-pill-admin\">Administrador</span></div>",
+      "css": ".ds-pills { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: flex; gap: 8px; flex-wrap: wrap; } .ds-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; white-space: nowrap; } .ds-dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; } .ds-pill-ok { background: rgb(21 128 61 / 0.1); color: #15803D; } .ds-pill-debt { background: rgb(185 28 28 / 0.1); color: #B91C1C; } .ds-pill-off { background: rgb(107 114 128 / 0.1); color: #6B7280; } .ds-pill-admin { background: rgb(194 65 12 / 0.1); color: #C2410C; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Sección con borde de 1px, cabecera separada; nunca anidado.",
+      "html": "<section class=\"ds-panel\"><header><h2>Grupo familiar</h2><p>Quién paga la cuota del grupo.</p></header><div class=\"ds-panel-body\">Contenido de la sección.</div></section>",
+      "css": ".ds-panel { font-family: Geist, ui-sans-serif, system-ui, sans-serif; max-width: 420px; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; color: #111827; } .ds-panel header { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border-bottom: 1px solid #E5E7EB; } .ds-panel h2 { margin: 0; font-size: 16px; font-weight: 600; } .ds-panel p { margin: 0; font-size: 14px; color: #6B7280; } .ds-panel-body { padding: 16px; font-size: 14px; }"
+    },
+    {
+      "name": "Fila de DataList (móvil)",
+      "kind": "custom",
+      "refersTo": "data-list-row",
+      "description": "Filas apiladas dentro de un solo borde; meta en su línea, chevron si navega.",
+      "html": "<ul class=\"ds-list\"><li><a href=\"#\" class=\"ds-row\"><span class=\"ds-row-main\"><span class=\"ds-row-title\">Ejemplo, Lucía</span><span class=\"ds-row-sub\"><span class=\"ds-num\">30111222</span> · No practicante</span></span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m9 18 6-6-6-6\"/></svg></a></li><li><a href=\"#\" class=\"ds-row\"><span class=\"ds-row-main\"><span class=\"ds-row-title\">Ejemplo, Martina</span><span class=\"ds-row-sub\"><span class=\"ds-num\">51222444</span> · Fútbol femenino</span></span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m9 18 6-6-6-6\"/></svg></a></li></ul>",
+      "css": ".ds-list { font-family: Geist, ui-sans-serif, system-ui, sans-serif; list-style: none; margin: 0; padding: 0; max-width: 390px; border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; } .ds-list li + li { border-top: 1px solid #E5E7EB; } .ds-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 12px; color: #111827; text-decoration: none; transition: background-color 150ms; } .ds-row:hover, .ds-row:focus-visible { background: rgb(247 247 248 / 0.5); outline: none; } .ds-row:focus-visible { box-shadow: inset 0 0 0 2px #F26A1B; } .ds-row-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; } .ds-row-title { font-size: 16px; font-weight: 500; } .ds-row-sub { font-size: 14px; color: #6B7280; } .ds-num { font-variant-numeric: tabular-nums; } .ds-row svg { color: #6B7280; flex-shrink: 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El mostrador de la sede, en el celular",
+    "overview": "Es la herramienta de tarea de una Comisión de voluntarios que atiende un club de barrio desde su propio celular, muchas veces al sol, con alguien esperando. La dirección elegida (2026-09-25, `.impeccable/surfaces/route.md`) es **el estándar de la categoría ejecutado completo**: la convención de panel administrativo — barra superior y navegación inferior en el celular, barra lateral en escritorio, listas que en escritorio se leen como tabla, formularios de una columna — sin metáfora. La vara de terminación es **Linear** (precisión, calma, un solo estado activo por vez) y el **panel de Mercado Pago** (claridad para usuarios argentinos no técnicos).\n\nLa identidad del club vive en el naranja institucional, pero nunca como texto: es el escudo, el indicador del destino activo y el anillo de foco. El color que la gente efectivamente lee y toca — botón primario, links — es un naranja quemado más oscuro, medido para pasar AA sobre blanco. Rechaza a la vez el SaaS gris intercambiable (nada diría que es *este* club) y la app de hinchada (nada compite con la tarea).\n\nMobile first es la restricción real: la sede no tiene computadora fija. Cada pantalla se diseña primero a 390px con una mano; el escritorio de 1440px es una adaptación con barra lateral, nunca el punto de partida.",
+    "keyCharacteristics": [
+      "Tema claro fijo, pensado para leerse en exteriores; no existe variante oscura.",
+      "Una sola familia (Geist) para títulos, cuerpo y datos; la alineación numérica la dan los numerales tabulares.",
+      "El naranja institucional es una marca, no un color de texto.",
+      "Plano por defecto: bordes de 1px separan; la sombra es solo de lo que flota.",
+      "Todo lo que se toca mide 44px como mínimo."
+    ],
+    "rules": [
+      {
+        "name": "La Regla del Naranja Mudo",
+        "body": "El naranja institucional nunca es texto. Vive solo en el escudo, el indicador del destino activo y el foco; toda acción y todo link usa el naranja quemado.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla del Estado con Texto",
+        "body": "Ningún estado (activo/baja, al día/con deuda, rol) se comunica solo con color: la cápsula siempre lleva la etiqueta en español; el punto es decorativo.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla de la Escala Cerrada",
+        "body": "Solo cinco tamaños: 12, 14, 16, 20, 24px. Nada de tamaños a mano (`text-[11px]` ya se retiró de la barra inferior).",
+        "section": "typography"
+      },
+      {
+        "name": "La Regla del Monoespaciado Ausente",
+        "body": "No hay fuente monoespaciada: la disciplina numérica es `tabular-nums` sobre Geist. Nada en mayúsculas sostenidas ni con tracking de rótulo.",
+        "section": "typography"
+      },
+      {
+        "name": "La Regla de la Sombra Solo Flotante",
+        "body": "Una sombra aparece únicamente cuando algo se despega del documento. Nunca una sombra sin blur, nunca sobre un panel o una fila.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do usar el naranja quemado para toda acción primaria y todo link, con su hover profundo; medir el contraste de cualquier color nuevo antes de usarlo como texto.",
+      "Do limitar el naranja institucional al escudo, el indicador del destino activo y el anillo de foco.",
+      "Do dar 44px a todo lo que se toca, también en escritorio: botones, íconos de fila, filas de lista, destinos de navegación.",
+      "Do usar numerales tabulares en montos, DNI, fechas y columnas numéricas.",
+      "Do diseñar y verificar a 390px primero; el escritorio adapta con la barra lateral y el contenedor de 1024px.",
+      "Do dar a toda superficie async su estado de carga, vacío y error, y a todo control su default/hover/focus/disabled/loading/error."
+    ],
+    "donts": [
+      "Don't usar el naranja institucional como color de texto (3,06:1 sobre blanco).",
+      "Don't poner un kicker o eyebrow arriba de un título.",
+      "Don't anidar un panel dentro de otro ni armar la página como grilla de tarjetas icono+título+texto o métrica-héroe.",
+      "Don't sumar tamaños de texto fuera de 12/14/16/20/24px ni una fuente monoespaciada.",
+      "Don't usar sombra en el contenido del flujo, ni sombras sin blur, ni bordes de acento de más de 1px.",
+      "Don't comunicar un estado solo con color, ni usar emoji o glifos como íconos: lucide o SVG propio."
+    ]
+  }
+}

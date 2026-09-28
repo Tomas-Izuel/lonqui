@@ -206,6 +206,15 @@ portal en la Fase 2.
 | `editor` | Secretaría | Alta y modificación de socios, registrar pagos, ver estados de cuenta. **No** borra ni anula historia, **no** administra usuarios ni ajustes |
 | `consulta` | Resto de la Comisión | Solo lectura: padrón, listados, reportes, exportación. Nada de escritura |
 
+**Roles configurables: decididos, van después de cuotas y pagos** (Tomás,
+2026-09-27). El club va a poder crear sus propios roles tildando permisos de un
+catálogo fijo (~12 permisos por acción); el rol Administrador queda bloqueado
+con todos los permisos. Para no reescribir después: **toda regla nueva desde
+el slice de cuotas chequea permisos, no roles** (`private.can('<permiso>')` en
+SQL y el guard de permisos en `session.controller.ts`). Hoy `private.can`
+resuelve con un mapeo fijo desde los 3 roles; el pipeline de roles lo pasa a
+tabla y migra las reglas del slice 1, que todavía usan `has_role`.
+
 Que la baja/reactivación y la anulación sean solo de `admin` es la lectura
 estricta del contrato (2.3). Si la Comisión pide que Secretaría pueda dar de
 baja, es un cambio de política que se confirma con ellos, no un ajuste de
@@ -343,6 +352,20 @@ El sistema guarda DNI, fechas de nacimiento y datos de **menores de edad**.
 - El club tiene que poder pedir la **exportación completa** de sus datos en
   CSV/JSON en cualquier momento (contrato, 10.2). Diseñar para que eso sea un
   script, no un proyecto.
+
+### Formularios: nunca por GET
+
+Todo `<form>` que manda datos lleva `method="post"` (y `action={formAction}`
+cuando hay `useActionState`, para que funcione sin JavaScript). Sin `method`,
+si el JS no carga —mala señal, un deploy a mitad de camino, un chunk que
+devuelve 500— el navegador envía el formulario por GET con **cada campo en la
+URL**. Pasó en este proyecto: la contraseña del login terminó en la barra de
+direcciones, el historial y los logs del servidor. Con `action={función}`
+escribilo **en mayúscula, `method="POST"`**: el SSR de React lo reemplaza por
+el `"POST"` de la Server Action y el cliente hidrata con lo que diga el JSX;
+en minúscula es un hydration mismatch en cada carga. Es mecánico: una regla de
+`eslint.config.mjs` falla si un `<form>` no declara `method`. La única
+excepción es una búsqueda que navega a un listado (`method="get"` explícito).
 
 ### Errores: dominio vs. interno
 
@@ -591,6 +614,12 @@ Heredadas de Burger Shop, mismo stack, mismas trampas:
 - **`service_role` TAMPOCO recibe privilegios sobre las tablas que crea una
   migración.** Sin el grant explícito, el admin client falla con
   `42501 permission denied`. Si agregás una tabla, verificalo con la secret key.
+- **El EXECUTE de PUBLIC sobre funciones nuevas no se revoca por schema.**
+  `alter default privileges ... in schema private revoke execute ... from
+  public` no tiene efecto (solo se puede globalmente). Toda migración que crea
+  funciones en `private` cierra con `revoke execute on all functions in schema
+  private from public, anon` y otorga a mano las que usan las policies. Hay un
+  test en `tests/db/grants-and-lockdown.test.ts` que lo atrapa.
 - **`SECURITY DEFINER` en `public` es callable por `anon`.** Helpers en
   `private`; si una función TIENE que estar en `public`, `revoke execute ... from
   public, anon` y otorgar a mano, y verificar el rol en el cuerpo.

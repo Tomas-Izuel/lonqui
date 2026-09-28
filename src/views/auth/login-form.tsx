@@ -54,7 +54,21 @@ export function LoginForm({ next }: { next?: string }) {
   const genericError = state && !state.ok && !state.field ? state.error : null
 
   return (
-    <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-4">
+    // `method="POST"` explícito (CLAUDE.md, hallazgo de log con la
+    // contraseña en la URL) y `action={formAction}` para que, sin JS, el
+    // navegador mande el POST nativo directo a la Server Action (progressive
+    // enhancement de React 19/Next 16): con JS, `onSubmit` gana la carrera
+    // (react-hook-form hace `preventDefault` y valida antes de invocar la
+    // action a mano, más abajo en `onValid`). En mayúscula, no por estilo:
+    // cuando `action` es una función, React SSR IGNORA el `method` que se le
+    // pase acá y renderiza el que trae `$$FORM_ACTION` de la referencia a la
+    // Server Action, que es literalmente `"POST"` (fuente:
+    // `getCustomFormFields`/`react-server-dom-turbopack-client`). El cliente,
+    // en cambio, hidrata con el string tal cual está en el JSX — con
+    // `"post"` en minúscula quedaba un mismatch de hidratación en cada carga
+    // (servidor "POST", cliente "post"); en mayúscula, los dos coinciden.
+    <form onSubmit={form.handleSubmit(onValid)} noValidate method="POST" action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="next" value={next ?? ''} />
       <TextField
         control={form.control}
         name="email"

@@ -110,16 +110,6 @@ export type SetUserActiveInput = z.infer<typeof setUserActiveSchema>
 // Helpers
 // -----------------------------------------------------------------------------
 
-/**
- * `next` solo se sigue si es una ruta relativa interna: nunca una URL absoluta
- * ni protocol-relative (`//evil.com`), que el browser resuelve como externa.
- * Exportada (no vive inline en la action) para que sea una unidad que se
- * pueda probar sola.
- */
-export function isInternalRedirectPath(next: string | null | undefined): next is string {
-  return typeof next === 'string' && next.startsWith('/') && !next.startsWith('//')
-}
-
 type AppUserRow = Tables<'app_users'>
 
 function mapRow(row: AppUserRow): AppUser {

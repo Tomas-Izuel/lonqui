@@ -10,20 +10,19 @@ import type { Settings } from './types'
  * (RLS, `00-architecture.md` §6.5); el UPDATE lo restringe la policy a admin,
  * así que el modelo no repite el chequeo — si llega acá sin ser admin, Postgres
  * devuelve `permission denied` y el controller ya filtró con `requireRole`.
+ *
+ * `billingStartPeriod` NO se toca acá desde el pipeline
+ * `2026-09-27-cuotas-pagos-panel` (D18): activar la facturación es una
+ * decisión con más invariantes que un `UPDATE` de texto (el trigger
+ * `settings_billing_guard` exige un valor de cuota por defecto, que no haya
+ * cuotas generadas, etc.) y dispara la primera generación — vive en
+ * `billing.model.ts:activateBilling`, detrás de `billing.configure`. Un
+ * `unrecognized_keys` acá para quien todavía lo mande es la señal correcta.
  */
 
 export const updateSettingsSchema = z
   .object({
     clubName: z.string().trim().min(2, 'El nombre del club es demasiado corto'),
-    // Primer día de mes o null (todavía no se activaron las cuotas). La misma
-    // regla está en el CHECK de la migración; validarla acá evita un viaje a
-    // Postgres solo para mostrar el mismo mensaje.
-    billingStartPeriod: z.iso
-      .date()
-      .nullable()
-      .refine((value) => value === null || value.endsWith('-01'), {
-        message: 'Tiene que ser el primer día de un mes',
-      }),
   })
   .strict()
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>
@@ -41,7 +40,7 @@ export async function updateSettings(patch: UpdateSettingsInput): Promise<Settin
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('settings')
-    .update({ club_name: patch.clubName, billing_start_period: patch.billingStartPeriod })
+    .update({ club_name: patch.clubName })
     .eq('id', 1)
     .select('club_name, billing_start_period')
     .single()

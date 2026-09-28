@@ -76,9 +76,12 @@ export function FamilyGroupSection({
           </p>
         ) : null}
 
-        <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+        {/* Sin `rounded-lg border` propio: es contenido DENTRO de un `Panel`,
+            no una tarjeta anidada (piso de calidad) — mismo patrón que la
+            sección Historia de `member-detail-view.tsx`. */}
+        <ul className="flex flex-col divide-y divide-border">
           {familyGroup.members.map((groupMember) => (
-            <li key={groupMember.id} className="flex min-h-11 flex-wrap items-center gap-2 px-3 py-2">
+            <li key={groupMember.id} className="flex min-h-11 flex-wrap items-center gap-2 py-2 first:pt-0 last:pb-0">
               {groupMember.id === currentMemberId ? (
                 <span className="font-medium">{groupMember.fullName}</span>
               ) : (
@@ -98,7 +101,7 @@ export function FamilyGroupSection({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="ml-auto"
+                  className="ml-auto h-11"
                   disabled={pendingId === groupMember.id}
                   onClick={() => handleSetResponsible(groupMember.id)}
                 >

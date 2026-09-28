@@ -13,7 +13,12 @@ import { DateField } from '@/views/shared/form-fields'
 import { DateText } from '@/views/shared/date-text'
 import { medicalClearanceStatusLabels } from '@/views/shared/labels'
 import { createClient } from '@/lib/supabase/client'
-import { confirmMedicalClearance, createMedicalClearance, prepareMedicalClearanceUpload } from '@/controllers/members.actions'
+import {
+  confirmMedicalClearance,
+  createMedicalClearance,
+  getMedicalClearanceUrl,
+  prepareMedicalClearanceUpload,
+} from '@/controllers/members.actions'
 import type { MedicalClearance, MedicalClearanceStatus } from '@/models/types'
 
 // Duplicado a propósito: `medical-clearances.model.ts` (B2) tiene
@@ -67,13 +72,11 @@ export function MedicalClearanceSection({
   memberId,
   status,
   currentClearance,
-  clearanceUrl,
   canManage,
 }: {
   memberId: number
   status: MedicalClearanceStatus
   currentClearance: MedicalClearance | null
-  clearanceUrl: string | null
   canManage: boolean
 }) {
   const router = useRouter()
@@ -84,6 +87,8 @@ export function MedicalClearanceSection({
   const [fileError, setFileError] = useState<string | null>(null)
   const [stage, setStage] = useState<'idle' | 'compressing' | 'uploading' | 'saving'>('idle')
   const [formError, setFormError] = useState<string | null>(null)
+  const [viewingClearance, setViewingClearance] = useState(false)
+  const [viewError, setViewError] = useState<string | null>(null)
 
   const form = useForm<UploadValues>({
     resolver: zodResolver(uploadSchema),
@@ -107,6 +112,43 @@ export function MedicalClearanceSection({
       return
     }
     setFile(selected)
+  }
+
+  /**
+   * "Ver certificado" firma la URL recién al click (Major 4, 03-review.md): la
+   * firma de 60 s ya no se hace al renderizar la ficha, así que abrir el
+   * certificado dos minutos después de entrar (el caso normal en la cancha)
+   * no muere con un `InvalidJWT`. La pestaña se abre en el mismo gesto de
+   * click —no en el `await`— para que el bloqueador de popups no la frene;
+   * la URL real se asigna cuando llega. `popup.opener = null` corta la
+   * referencia inversa sin perder la que necesitamos para setear `.href`.
+   */
+  async function handleViewClearance() {
+    if (!currentClearance) return
+    setViewError(null)
+    setViewingClearance(true)
+    const popup = window.open('', '_blank')
+    if (popup) popup.opener = null
+
+    try {
+      const result = await getMedicalClearanceUrl({ memberId, clearanceId: currentClearance.id })
+      if (!result.ok) {
+        popup?.close()
+        setViewError(result.error)
+        return
+      }
+      if (popup) {
+        popup.location.href = result.data.url
+      } else {
+        // Bloqueador de popups: navegamos en la misma pestaña en vez de perder el certificado.
+        window.location.href = result.data.url
+      }
+    } catch {
+      popup?.close()
+      setViewError('No pudimos abrir el certificado. Probá de nuevo.')
+    } finally {
+      setViewingClearance(false)
+    }
   }
 
   async function onValid(values: UploadValues) {
@@ -181,11 +223,10 @@ export function MedicalClearanceSection({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {clearanceUrl ? (
-            <Button asChild variant="outline" className="h-11">
-              <a href={clearanceUrl} target="_blank" rel="noopener noreferrer">
-                Ver certificado
-              </a>
+          {currentClearance?.storagePath ? (
+            <Button type="button" variant="outline" className="h-11" disabled={viewingClearance} onClick={handleViewClearance}>
+              {viewingClearance ? <Loader2 aria-hidden className="animate-spin" /> : null}
+              Ver certificado
             </Button>
           ) : null}
           {canManage && status !== 'not_required' ? (
@@ -195,8 +236,16 @@ export function MedicalClearanceSection({
           ) : null}
         </div>
 
+        {viewError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {viewError}
+          </p>
+        ) : null}
+
         {showForm ? (
-          <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-3 rounded-lg border border-border p-3">
+          // Separador, no tarjeta: un `Panel` nunca contiene otra (piso de
+          // calidad, 03-review.md minor 12), mismo patrón que `FamilyGroupSection`.
+          <form onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-3 border-t border-border pt-3">
             <DateField control={form.control} name="expiresOn" label="Vencimiento" disabled={busy} />
 
             <div className="flex flex-wrap items-center gap-2">

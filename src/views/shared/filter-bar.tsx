@@ -3,11 +3,6 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export type FilterOption = { value: string; label: string }
@@ -56,16 +51,15 @@ export function FilterBar({ filters, className }: { filters: FilterDef[]; classN
   }
 
   return (
-    <div className={cn('flex flex-wrap items-center gap-2', className)}>
+    <div className={cn('flex flex-wrap items-start gap-3', className)}>
       {filters.map((filter) => {
         const trigger = (
           <Select
-            key={filter.param}
             value={searchParams.get(filter.param) ?? ALL_VALUE}
             onValueChange={(value) => setParam(filter.param, value === ALL_VALUE ? '' : value)}
             disabled={Boolean(filter.disabledReason)}
           >
-            <SelectTrigger aria-label={filter.label} className="h-9">
+            <SelectTrigger aria-label={filter.label}>
               <SelectValue placeholder={filter.placeholder} />
             </SelectTrigger>
             <SelectContent>
@@ -79,15 +73,18 @@ export function FilterBar({ filters, className }: { filters: FilterDef[]; classN
           </Select>
         )
 
-        if (!filter.disabledReason) return trigger
+        // Un tooltip no se abre al toque (finish review, fix 6): el motivo de
+        // un filtro deshabilitado va como texto siempre visible, con una
+        // etiqueta que nombre qué filtra ("Deuda"), no solo el placeholder
+        // genérico del select ("Cualquiera").
+        if (!filter.disabledReason) return <div key={filter.param}>{trigger}</div>
 
         return (
-          <Tooltip key={filter.param}>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">{trigger}</span>
-            </TooltipTrigger>
-            <TooltipContent>{filter.disabledReason}</TooltipContent>
-          </Tooltip>
+          <div key={filter.param} className="flex max-w-40 flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">{filter.label}</span>
+            {trigger}
+            <span className="text-xs text-muted-foreground">{filter.disabledReason}</span>
+          </div>
         )
       })}
       {hasActiveFilter ? (

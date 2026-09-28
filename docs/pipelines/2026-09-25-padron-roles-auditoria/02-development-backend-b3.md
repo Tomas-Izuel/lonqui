@@ -275,3 +275,130 @@ Ninguno bloqueante. Dos observaciones, no urgentes:
   prefiere un patch parcial, avisen y lo cambio.
 - El reorder de disciplinas/categorías queda como N updates paralelos, no
   atómico. Documentado arriba; no pido ninguna migración por ahora.
+
+## Fix posterior: `recordLabel` en la auditoría (2026-09-27)
+
+Tarea del hilo principal: la finish review de `impeccable` marcó que
+`/auditoria` hablaba en idioma de base de datos ("Modificó un usuario
+#53f71…"). El hilo principal fijó el contrato en `types.ts`: `AuditEntry`
+suma `recordLabel: string | null`. Esta entrada documenta cómo se pobló, solo
+en `src/models/audit.model.ts` (no toqué `audit.controller.ts`: solo
+reenvía, el tipo nuevo le llega gratis vía `AuditEntry`/`AuditEntryDetail`).
+
+### Cómo se deriva, tabla por tabla
+
+`buildLabelDraft(tableName, rawValues)` devuelve o un label ya resuelto, o un
+`LabelDraft` pendiente de una consulta batch:
+
+- `members`: `"Apellido, Nombre"` desde `last_name`/`first_name`.
+- `app_users`: `display_name`.
+- `disciplines`: `name`.
+- `family_groups`: `name`, o el literal `"Grupo familiar"` si `name` es null.
+- `categories`: `"Disciplina · Categoría"` — pide el nombre de la disciplina
+  vía `discipline_id`, resuelto en un batch aparte (ver abajo). Si la
+  disciplina no resuelve (no debería pasar, `discipline_id` es `not null` con
+  FK), cae a mostrar solo el nombre de la categoría.
+- `member_status_events`, `medical_clearances`: nombre del socio (`"Apellido,
+  Nombre"`) resuelto vía `member_id`, mismo mecanismo batch.
+- `settings` (y cualquier `AuditedTable` futura sin `case` propio): `null` —
+  es un singleton, no tiene un nombre de registro que mostrar.
+
+Todos los valores se toman con **new sobre old** (`coalesceText`/`coalesceId`):
+en la práctica el trigger de auditoría guarda la fila completa en ambos
+(`to_jsonb(NEW)`/`to_jsonb(OLD)`, verificado contra filas reales de UPDATE en
+la base local), así que casi siempre alcanza con `new_data`; el fallback a
+`old_data` cubre un futuro trigger que solo audite el delta, o un `DELETE`
+(hoy inexistente en el dominio, pero el tipo `AuditOp` lo contempla).
+
+### Sin N+1 y sin traer jsonb de más en el listado
+
+- **Listado** (`getAuditPage`): el `select` de PostgREST extrae con `->>`
+  solo las claves puntuales que hace falta mostrar (`new_data->>first_name`,
+  etc.), aliaseadas por new/old (`LABEL_COLUMNS`). Confirmado contra la base
+  local con `curl` directo: el alias `alias:columna->>clave` funciona y
+  devuelve el valor esperado para las 8 tablas auditadas del seed real (88
+  filas). **No** se trae `old_data`/`new_data` completos en el listado —
+  sigue siendo cierto tras este cambio.
+- **Batch de disciplinas y de socios**: `resolveDisciplineNames` y
+  `resolveMemberLabels` juntan los ids que hacen falta **de toda la página**
+  (`Set` para deduplicar) y hacen una sola consulta cada una con `.in(...)`,
+  en paralelo con `resolveActorNames` (`Promise.all`) — mismo patrón que ya
+  usaba B3 para `actorName`. Con una página de 50 filas esto es como mucho 3
+  queries extra en total (actor, disciplina, socio), nunca una por fila.
+- **Detalle** (`getAuditEntry`): ya trae `old_data`/`new_data` completos (sin
+  cambios ahí), así que el draft se arma leyendo esos objetos directo
+  (`rawValuesFromJsonb`), sin pedir columnas jsonb adicionales; solo agrega
+  el mismo batch de 1 elemento para disciplina o socio si la tabla lo pide.
+
+### Verificado contra la base local
+
+Con el stack ya levantado (88 filas de auditoría reales, seed de B3/otros
+slices): reproduje la consulta completa (select con alias, batch de
+disciplinas, batch de socios, `finalizeLabel`) con un script Node descartable
+contra PostgREST (`curl`/`fetch` directos, sin pasar por Next). Resultado,
+un ejemplo por tabla:
+
+```
+app_users             -> Editora de Prueba
+categories            -> Fútbol masculino · 5ta
+member_status_events  -> F2 Verificacion, Prueba
+members               -> F2 Verificacion, Prueba
+medical_clearances    -> Demo, Mateo
+settings              -> null
+family_groups         -> Familia Ejemplo
+disciplines           -> Vóley
+```
+
+Borré el script al terminar; no quedó ningún archivo temporal en el repo.
+
+### Nunca se loguean estos nombres
+
+`audit.model.ts` no tiene ningún `console.*`/`log(...)` (grep en 0 resultados
+tras el cambio). Los nombres resueltos viajan solo en el valor de retorno
+para pintar la UI de `/auditoria` (rol `admin`, ya autorizado en el
+controller) — igual que ya hacía `actorName`.
+
+### Criterio para `test-engineer`
+
+- **Unit, sin base real** (mockeando `createClient`/el resultado de
+  `.select()`): `buildLabelDraft`/`finalizeLabel` son funciones puras hoy
+  no exportadas — si el test-engineer las necesita testeables directo,
+  exportarlas es un cambio de una línea que le pido que señale, no lo hice
+  porque no me corresponde decidir la superficie de testing.
+  - `members` con ambos nombres, con solo uno, con ninguno (→ `null`).
+  - `family_groups` con `name` y con `name: null` (→ fallback literal).
+  - `categories` con disciplina resuelta y con `disciplineId: null` (→ solo
+    el nombre de categoría).
+  - `settings` y una tabla no contemplada (→ `null` en ambos casos, mismo
+    camino del `default`).
+  - Coalesce: `new_data` con el campo, `old_data` con el campo y `new_data`
+    sin él (verifica que no rompe cuando el trigger llegara a auditar solo
+    el delta).
+- **[DB] — necesita la base real** (`tests/db/`):
+  - El **contenido real de `old_data`/`new_data`** lo pone el trigger de
+    auditoría de S1, no este modelo: un test de `tests/db/` que haga un
+    `UPDATE` real sobre `categories`/`member_status_events` y confirme que
+    `new_data` trae `discipline_id`/`member_id` (los ids que este código
+    necesita) es lo que hace la garantía real, no un mock.
+  - El **embed `alias:columna->>clave`** de PostgREST: lo verifiqué a mano
+    (arriba) pero no hay test automatizado. Un test de `tests/db/` que pegue
+    directo a PostgREST local con ese `select` y compare contra el valor de
+    `old_data->>clave` sacado con `psql` cerraría el caso sin depender de
+    que yo lo haya visto una vez.
+  - **RLS de `disciplines`/`members`** para el batch: `getAuditPage` y
+    `getAuditEntry` corren con el cliente de sesión de un `admin` (ya
+    verificado por el controller), y un `admin` puede leer cualquier fila de
+    `disciplines`/`members` — no agrega un policy nuevo, pero vale la pena
+    que quede probado que el batch no depende silenciosamente de una policy
+    más laxa de lo que pensamos.
+
+### No toqué
+
+`src/controllers/audit.controller.ts` (solo reenvía, no necesitaba cambios),
+`src/views/**` (lo está tocando en paralelo el agente de frontend, per
+consigna), `types.ts` (contrato ya fijado por el hilo principal),
+migraciones, tests.
+
+Nota aparte: al terminar, `git status` muestra también
+`scripts/capture-screens.mjs` modificado — no es mío, no lo toqué ni lo
+revertí (no es de mi lane).

@@ -17,6 +17,10 @@ export const AUDITED_TABLE_OPTIONS: { value: AuditedTable; label: string }[] = [
   { value: 'categories', label: 'Categorías' },
   { value: 'app_users', label: 'Usuarios' },
   { value: 'settings', label: 'Ajustes del club' },
+  { value: 'member_categories', label: 'Inscripciones a categorías' },
+  { value: 'fee_prices', label: 'Valores de cuota' },
+  { value: 'fees', label: 'Cargos' },
+  { value: 'payments', label: 'Pagos' },
 ]
 
 /** Para componer "Creó/Modificó <entidad>" en el listado y el detalle. */
@@ -29,10 +33,43 @@ const ENTITY_LABELS: Record<AuditedTable, string> = {
   categories: 'una categoría',
   app_users: 'un usuario',
   settings: 'los ajustes del club',
+  member_categories: 'una inscripción a categoría',
+  fee_prices: 'un valor de cuota',
+  fees: 'un cargo',
+  payments: 'un pago',
 }
 
 export function auditEntityLabel(tableName: string): string {
   return ENTITY_LABELS[tableName as AuditedTable] ?? tableName
+}
+
+/**
+ * Complemento con el NOMBRE del registro ("a Ejemplo, Lucía", "la categoría
+ * Fútbol masculino · 5ta") para componer con un verbo de `auditOpLabels`
+ * ("Modificó a Ejemplo, Lucía"). Sin `recordLabel` (todavía null mientras el
+ * backend lo puebla, o una tabla sin nombre propio como `settings`) cae al
+ * genérico de `auditEntityLabel` ("un socio"), nunca al id crudo — el id es
+ * secundario y solo aparece en el detalle (finish review, fix 3).
+ */
+const RECORD_PHRASE: Partial<Record<AuditedTable, (label: string) => string>> = {
+  members: (label) => `a ${label}`,
+  member_status_events: (label) => `un movimiento de alta o baja de ${label}`,
+  medical_clearances: (label) => `el apto físico de ${label}`,
+  family_groups: (label) => `el grupo familiar ${label}`,
+  disciplines: (label) => `la disciplina ${label}`,
+  categories: (label) => `la categoría ${label}`,
+  app_users: (label) => `al usuario ${label}`,
+}
+
+export function auditRecordPhrase(tableName: string, recordLabel: string | null): string {
+  if (!recordLabel) return auditEntityLabel(tableName)
+  const phrase = RECORD_PHRASE[tableName as AuditedTable]
+  return phrase ? phrase(recordLabel) : recordLabel
+}
+
+/** Solo el nombre del registro, sin preposición: para una columna propia (Qué) que ya lleva su verbo al lado (Operación). */
+export function auditRecordName(tableName: string, recordLabel: string | null): string {
+  return recordLabel ?? auditEntityLabel(tableName)
 }
 
 /**
@@ -86,6 +123,44 @@ const FIELD_LABELS: Partial<Record<AuditedTable, Record<string, string>>> = {
   disciplines: { name: 'nombre', is_active: 'estado', sort_order: 'orden' },
   categories: { name: 'nombre', is_active: 'estado', sort_order: 'orden', discipline_id: 'disciplina' },
   settings: { club_name: 'nombre del club', billing_start_period: 'inicio de facturación' },
+  // Slice 2 (cuotas y pagos): mismas columnas y mismo texto que
+  // `AUDIT_FIELD_LABELS` en `src/models/audit.model.ts` — no se importa de
+  // ahí (views/** no puede importar `@/models/*.model`, lint de
+  // `eslint.config.mjs`), así que queda duplicado a propósito, como avisó el
+  // agente de backend que lo dejó documentado.
+  member_categories: {
+    category_id: 'categoría',
+    joined_on: 'fecha de alta en la categoría',
+    left_on: 'fecha de baja de la categoría',
+    left_reason: 'motivo de baja',
+  },
+  fee_prices: {
+    scope: 'alcance',
+    member_type: 'tipo de socio',
+    category_id: 'categoría',
+    amount_cents: 'monto',
+    valid_from: 'vigente desde',
+    notes: 'notas',
+  },
+  fees: {
+    period: 'período',
+    kind: 'tipo de cargo',
+    amount_cents: 'monto',
+    description: 'descripción',
+    category_id: 'categoría',
+    voided_at: 'anulación',
+    void_reason: 'motivo de anulación',
+  },
+  payments: {
+    amount_cents: 'monto',
+    paid_on: 'fecha de pago',
+    method: 'medio de pago',
+    receipt_storage_path: 'comprobante',
+    receipt_filename: 'archivo',
+    notes: 'notas',
+    voided_at: 'anulación',
+    void_reason: 'motivo de anulación',
+  },
 }
 
 function prettifyColumn(column: string): string {

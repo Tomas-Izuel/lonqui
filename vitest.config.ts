@@ -28,8 +28,5 @@ export default defineConfig({
     // corren en paralelo se pisan las filas entre ellos.
     poolOptions: { forks: { singleFork: true } },
     testTimeout: 20_000,
-    // Mientras el test-engineer no haya escrito el primero, que CI no falle
-    // por "No test files found".
-    passWithNoTests: true,
   },
 })

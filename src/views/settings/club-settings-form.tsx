@@ -17,12 +17,14 @@ const clubSettingsSchema = z.object({
 type ClubSettingsValues = z.infer<typeof clubSettingsSchema>
 
 /**
- * Solo `clubName` es editable en este slice (spec F4: "sección Datos del
- * club con club_name"; valores de cuota llegan en el slice 2). El schema del
- * backend (`updateSettingsSchema`) exige `billingStartPeriod` en cada update
+ * Solo `clubName` es editable acá. Activar la facturación y elegir desde qué
+ * mes es `BillingSection` (panel "Cuotas"), con su propio permiso
+ * (`billing.configure`) y sus propias invariantes (D18) — `updateSettings`
+ * de este formulario ya NO acepta `billingStartPeriod` (pipeline
+ * `2026-09-27-cuotas-pagos-panel`). El schema del backend
+ * (`updateSettingsSchema`) igual exige `billingStartPeriod` en cada update
  * —no admite un patch parcial—, así que se reenvía tal cual vino de
- * `settings`, sin exponer un control para editarlo: no hay nada de cuotas
- * que mostrar todavía y esto evita inventar un botón sin función.
+ * `settings`, sin exponer un control para editarlo acá.
  */
 export function ClubSettingsForm({ settings }: { settings: Settings }) {
   const [pending, setPending] = useState(false)
@@ -52,7 +54,7 @@ export function ClubSettingsForm({ settings }: { settings: Settings }) {
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-4 sm:max-w-sm">
+    <form onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4 sm:max-w-sm">
       <TextField control={form.control} name="clubName" label="Nombre del club" disabled={pending} />
       <Button type="submit" disabled={pending || !form.formState.isDirty} className="h-11 w-fit">
         {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}

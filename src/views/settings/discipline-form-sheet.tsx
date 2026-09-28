@@ -6,8 +6,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
+import { ResponsiveSheet } from '@/views/shared/responsive-sheet'
 import { TextField } from '@/views/shared/form-fields'
 import { createDiscipline, updateDiscipline } from '@/controllers/settings.actions'
 import type { Discipline } from '@/models/types'
@@ -27,14 +27,14 @@ export type DisciplineFormSheetProps = {
 }
 
 /**
- * Sheet desde abajo en móvil (shadcn: `side="bottom"` por defecto en < sm vía
- * el propio componente, acá lo forzamos siempre porque en escritorio 240px+
- * de sidebar deja poco lugar para un panel lateral angosto y el patrón de
- * alta/edición corta ya es consistente en toda la app). Controlado desde
- * afuera (`open`/`onOpenChange`): cuando se abre desde un ítem de
- * `DropdownMenu` (editar), el menú se desmonta al cerrarse y se llevaría un
- * Sheet hijo con él (mismo problema que documentó F1 con el `AlertDialog` de
- * "Cerrar sesión") — por eso vive como hermano, nunca anidado en el menú.
+ * `ResponsiveSheet` (shared/responsive-sheet.tsx): sheet desde abajo en
+ * móvil, diálogo centrado desde `md` — un sheet lateral con solo un campo se
+ * veía raro en escritorio, mitad de la pantalla vacía (feedback directo de
+ * Tomás). Controlado desde afuera (`open`/`onOpenChange`): cuando se abre
+ * desde un ítem de `DropdownMenu` (editar), el menú se desmonta al cerrarse y
+ * se llevaría un sheet/diálogo hijo con él (mismo problema que documentó F1
+ * con el `AlertDialog` de "Cerrar sesión") — por eso vive como hermano, nunca
+ * anidado en el menú.
  */
 export function DisciplineFormSheet({ open, onOpenChange, discipline }: DisciplineFormSheetProps) {
   const isEdit = Boolean(discipline)
@@ -73,28 +73,17 @@ export function DisciplineFormSheet({ open, onOpenChange, discipline }: Discipli
   }
 
   return (
-    <Sheet open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
-      <SheetContent side="bottom" className="max-h-[85dvh] gap-0 rounded-t-xl">
-        <SheetHeader>
-          <SheetTitle>{isEdit ? 'Editar disciplina' : 'Nueva disciplina'}</SheetTitle>
-          <SheetDescription>
-            {isEdit
-              ? 'El cambio de nombre queda registrado en la auditoría.'
-              : 'Después vas a poder agregarle categorías y ordenarla.'}
-          </SheetDescription>
-        </SheetHeader>
-        <form
-          id="discipline-form"
-          onSubmit={form.handleSubmit(onValid)}
-          noValidate
-          className="flex flex-col gap-4 overflow-y-auto px-4 py-4"
-        >
-          {/* Sin `autoFocus`: el sheet es mobile-first y forzar el teclado apenas
-              sube la hoja es brusco en el celular (web-design-guidelines). Radix
-              ya mueve el foco al contenido del Sheet al abrirse. */}
-          <TextField control={form.control} name="name" label="Nombre" placeholder="Fútbol masculino" disabled={pending} />
-        </form>
-        <SheetFooter className="flex-row justify-end gap-2 border-t border-border">
+    <ResponsiveSheet
+      open={open}
+      onOpenChange={(next) => !pending && onOpenChange(next)}
+      title={isEdit ? 'Editar disciplina' : 'Nueva disciplina'}
+      description={
+        isEdit
+          ? 'El cambio de nombre queda registrado en la auditoría.'
+          : 'Después vas a poder agregarle categorías y ordenarla.'
+      }
+      footer={
+        <>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending} className="h-11">
             Cancelar
           </Button>
@@ -102,8 +91,15 @@ export function DisciplineFormSheet({ open, onOpenChange, discipline }: Discipli
             {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
             {pending ? 'Guardando…' : 'Guardar'}
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </>
+      }
+    >
+      <form id="discipline-form" onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4">
+        {/* Sin `autoFocus`: el sheet es mobile-first y forzar el teclado apenas
+            sube la hoja es brusco en el celular (web-design-guidelines). Radix
+            ya mueve el foco al contenido del Sheet al abrirse. */}
+        <TextField control={form.control} name="name" label="Nombre" placeholder="Fútbol masculino" disabled={pending} />
+      </form>
+    </ResponsiveSheet>
   )
 }

@@ -22,11 +22,17 @@ export function HomeSearch() {
   }
 
   return (
-    <form onSubmit={handleSubmit} role="search">
+    // Es una búsqueda, no una credencial: GET a propósito, con `method` y
+    // `action` explícitos para que funcione igual sin JS (CLAUDE.md). Con JS,
+    // `onSubmit` gana la carrera y navega con `router.push` (mismo resultado,
+    // sin recarga completa); `name="q"` en el input es lo que arma la query
+    // string en la sumisión nativa.
+    <form onSubmit={handleSubmit} method="get" action="/socios" role="search">
       <div className="relative">
         <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="search"
+          name="q"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Buscar un socio por nombre o DNI…"

@@ -6,13 +6,8 @@ import { requireSession } from '@/controllers/session.controller'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError, zodToApiError } from '@/lib/errors'
 import { failure, invalid, type ActionResult } from '@/lib/action-result'
-import {
-  signInSchema,
-  changePasswordSchema,
-  isInternalRedirectPath,
-  getAppUser,
-  confirmPasswordChanged,
-} from '@/models/app-users.model'
+import { isInternalRedirectPath } from '@/lib/safe-redirect'
+import { signInSchema, changePasswordSchema, getAppUser, confirmPasswordChanged } from '@/models/app-users.model'
 
 /**
  * Login/logout/cambio de contraseña. Sin flujo de mail (D8): la Fase 1 crea

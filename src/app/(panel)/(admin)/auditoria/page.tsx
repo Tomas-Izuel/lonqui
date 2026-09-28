@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
-import { getAuditPage, getAuditEntry } from '@/controllers/audit.controller'
-import { listUsers } from '@/controllers/users.controller'
+import { getAuditPage, getAuditEntry, listAuditActorOptions } from '@/controllers/audit.controller'
+import { AUDITED_TABLES } from '@/models/audit.model'
 import { PageHeader } from '@/views/shared/page-header'
 import { AuditFilters } from '@/views/audit/audit-filters'
 import { AuditList } from '@/views/audit/audit-list'
@@ -9,16 +9,12 @@ import type { AuditedTable, AuditFilters as AuditFiltersInput } from '@/models/t
 
 export const metadata: Metadata = { title: 'Auditoría — Club Naranja y Blanco' }
 
-const AUDITED_TABLES = new Set<string>([
-  'app_users',
-  'settings',
-  'disciplines',
-  'categories',
-  'family_groups',
-  'members',
-  'member_status_events',
-  'medical_clearances',
-])
+// Blocker B1 (03-review.md, tercera pasada): las tres tablas de cobranza
+// (fee_prices/fees/payments) ya aparecen en el select de `audit-labels.ts`
+// pero acá se validaban contra un Set propio desatualizado —quedado en las 8
+// tablas del slice 1— y ese filtro nunca hacía match. Una sola fuente
+// (`AUDITED_TABLES` del modelo) para no volver a desincronizar las dos listas.
+const AUDITED_TABLE_SET = new Set<string>(AUDITED_TABLES)
 
 type RawSearchParams = Record<string, string | string[] | undefined>
 
@@ -30,8 +26,11 @@ function readParam(sp: RawSearchParams, key: string): string | undefined {
 /**
  * Solo lectura (spec F3). `getAuditPage`/`getAuditEntry` ya exigen `admin`
  * (`requireRole` adentro, antes de tocar la base — B3 dev log): no hace
- * falta repetir el chequeo acá. `listUsers()` alimenta el filtro "quién" con
- * los usuarios reales (se excluyen las altas incompletas: nunca actuaron).
+ * falta repetir el chequeo acá. El filtro "quién" se alimenta de
+ * `listAuditActorOptions()` (03-review.md, minor 8): antes usaba
+ * `listUsers()`, que pagina la Admin API de Auth con la secret key en cada
+ * render de esta page solo para armar un select — innecesario y acopla
+ * `/auditoria` al controller de usuarios.
  *
  * El detalle vive en el searchParam `detalle` (no una ruta `/auditoria/[id]`):
  * así el filtro, la página del listado y el registro abierto quedan en la
@@ -42,7 +41,7 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
 
   const tableNameParam = readParam(sp, 'tableName')
   const filters: AuditFiltersInput = {
-    tableName: tableNameParam && AUDITED_TABLES.has(tableNameParam) ? (tableNameParam as AuditedTable) : undefined,
+    tableName: tableNameParam && AUDITED_TABLE_SET.has(tableNameParam) ? (tableNameParam as AuditedTable) : undefined,
     actorId: readParam(sp, 'actorId'),
     from: readParam(sp, 'from'),
     to: readParam(sp, 'to'),
@@ -54,15 +53,14 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
   const detailIdParam = readParam(sp, 'detalle')
   const detailId = detailIdParam && /^\d+$/.test(detailIdParam) ? Number(detailIdParam) : null
 
-  const [page, entry, appUsers] = await Promise.all([
+  const [page, entry, actors] = await Promise.all([
     getAuditPage(filters),
     detailId ? getAuditEntry(detailId) : Promise.resolve(null),
-    listUsers(),
+    listAuditActorOptions(),
   ])
 
-  const actorOptions = appUsers
-    .filter((u) => u.authStatus === 'ok')
-    .map((u) => ({ value: u.userId, label: u.displayName }))
+  const actorOptions = actors
+    .map((a) => ({ value: a.userId, label: a.displayName }))
     .sort((a, b) => a.label.localeCompare(b.label, 'es'))
 
   const hasActiveFilter = Boolean(filters.tableName || filters.actorId || filters.from || filters.to || filters.recordId)

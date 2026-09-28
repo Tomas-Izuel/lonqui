@@ -25,7 +25,11 @@ export function AuditDateRangeFilter() {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    // `w-full sm:w-auto`: a 390px cada input toma la mitad del ancho
+    // disponible (min-w-0 flex-1) en vez del `w-[8.5rem]` fijo que cortaba el
+    // valor de la fecha (finish review, fix 3); en `sm+` vuelve a un ancho
+    // fijo compacto, suficiente para el date picker nativo.
+    <div className="flex w-full items-center gap-2 sm:w-auto">
       <label className="sr-only" htmlFor="audit-from">
         Desde
       </label>
@@ -35,7 +39,7 @@ export function AuditDateRangeFilter() {
         value={from}
         max={to || undefined}
         onChange={(e) => setParam('from', e.target.value)}
-        className="h-9 w-[8.5rem] tabular-nums"
+        className="min-w-0 flex-1 tabular-nums sm:w-36 sm:flex-none"
       />
       <span aria-hidden className="text-sm text-muted-foreground">
         –
@@ -49,7 +53,7 @@ export function AuditDateRangeFilter() {
         value={to}
         min={from || undefined}
         onChange={(e) => setParam('to', e.target.value)}
-        className="h-9 w-[8.5rem] tabular-nums"
+        className="min-w-0 flex-1 tabular-nums sm:w-36 sm:flex-none"
       />
     </div>
   )

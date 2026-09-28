@@ -1,19 +1,20 @@
 import { cn } from '@/lib/utils'
-import type { AppRole, MemberStatus } from '@/models/types'
-import { appRoleLabels, memberStatusLabels } from '@/views/shared/labels'
+import type { AppRole, DebtStatus, MemberStatus } from '@/models/types'
+import { appRoleLabels, debtStatusLabels, memberStatusLabels } from '@/views/shared/labels'
 
 /**
- * Variantes de `StatusPill`. `up-to-date` / `in-debt` llegan del todo en el
- * slice 2 (cuotas): el tipo ya las prepara para no romper el contrato cuando
- * F2/F3 las usen.
+ * Variantes de `StatusPill`. `credit` (saldo a favor) usa el verde de "al día"
+ * con contorno en vez de fondo: no es deuda, pero tampoco es lo mismo que estar
+ * justo al día, y nunca se muestra como un número negativo.
  */
-export type StatusPillVariant = 'member-active' | 'member-inactive' | 'up-to-date' | 'in-debt'
+export type StatusPillVariant = 'member-active' | 'member-inactive' | 'up-to-date' | 'in-debt' | 'credit'
 
 const STYLES: Record<StatusPillVariant, string> = {
   'member-active': 'bg-status-up-to-date/10 text-status-up-to-date',
   'member-inactive': 'bg-status-inactive/10 text-status-inactive',
   'up-to-date': 'bg-status-up-to-date/10 text-status-up-to-date',
   'in-debt': 'bg-status-in-debt/10 text-status-in-debt',
+  credit: 'border border-status-up-to-date/40 text-status-up-to-date',
 }
 
 /**
@@ -48,6 +49,21 @@ export function MemberStatusPill({ status, className }: { status: MemberStatus; 
   return (
     <StatusPill variant={status === 'active' ? 'member-active' : 'member-inactive'} className={className}>
       {memberStatusLabels[status]}
+    </StatusPill>
+  )
+}
+
+const DEBT_VARIANTS: Record<DebtStatus, StatusPillVariant> = {
+  up_to_date: 'up-to-date',
+  in_debt: 'in-debt',
+  credit: 'credit',
+}
+
+/** Estado de cuenta del socio: "Al día", "Con deuda" o "Saldo a favor". */
+export function DebtStatusPill({ status, className }: { status: DebtStatus; className?: string }) {
+  return (
+    <StatusPill variant={DEBT_VARIANTS[status]} className={className}>
+      {debtStatusLabels[status]}
     </StatusPill>
   )
 }

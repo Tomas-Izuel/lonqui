@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { requireRole } from './session.controller'
+import { requireRole } from '@/controllers/session.controller'
 import { success, failure, invalid, type ActionResult } from '@/lib/action-result'
 import { zodToApiError } from '@/lib/errors'
 import {
@@ -33,6 +33,11 @@ import type { Category, Discipline, Settings } from '@/models/types'
  * catch de cada una traduce con `failure()`: una `DomainError` (por ejemplo,
  * el nombre duplicado que lanza el modelo por la unique violation) llega con
  * su mensaje y su `field`; cualquier otra cosa, genérico.
+ *
+ * `updateSettings` ya NO acepta `billingStartPeriod` (desde el pipeline
+ * `2026-09-27-cuotas-pagos-panel`, D18): activar la facturación es
+ * `activateBilling` en `billing.actions.ts`, con sus propias invariantes y su
+ * propio permiso (`billing.configure`).
  */
 
 const activeToggleSchema = z.object({ id: z.number().int().positive(), isActive: z.boolean() }).strict()

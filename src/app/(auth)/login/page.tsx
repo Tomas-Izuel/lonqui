@@ -2,18 +2,15 @@ import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { getSession } from '@/controllers/session.controller'
 import { LoginForm } from '@/views/auth/login-form'
+import { isInternalRedirectPath } from '@/lib/safe-redirect'
 
 export const metadata: Metadata = { title: 'Ingresar — Club Naranja y Blanco' }
 
-/** `next` nunca es una URL absoluta: solo rutas relativas internas (D8, B1). */
-function sanitizeNext(next: string | undefined): string | undefined {
-  if (!next || !next.startsWith('/') || next.startsWith('//')) return undefined
-  return next
-}
-
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const { next } = await searchParams
-  const safeNext = sanitizeNext(next)
+  // Única fuente de validación de `next` (03-review.md, blocker 1): el viejo
+  // `startsWith('/') && !startsWith('//')` dejaba pasar `/\evil.com`.
+  const safeNext = isInternalRedirectPath(next) ? next : undefined
 
   // Ya logueado: no tiene sentido mostrar el login de nuevo.
   const session = await getSession()

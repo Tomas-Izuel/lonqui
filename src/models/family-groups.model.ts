@@ -39,63 +39,69 @@ export type SetPaymentResponsibleInput = z.infer<typeof setPaymentResponsibleSch
 // -----------------------------------------------------------------------------
 
 /**
- * Ficha del grupo con sus integrantes. `missingResponsible` es true si nadie
- * ACTIVO tiene el flag: un responsable dado de baja deja al grupo "sin
- * responsable" (D4) aunque su fila siga con `is_payment_responsible = true`.
+ * Grupo + integrantes en una sola consulta (embed de PostgREST), no una por
+ * grupo (03-review.md, Major 6: `listFamilyGroups` hacía 1 + 2·N queries).
+ * `!inner` no hace falta: un grupo sin integrantes es válido y `members`
+ * viene `null`/`[]`.
  */
-export async function getFamilyGroup(id: number): Promise<FamilyGroupSummary | null> {
-  const supabase = await createClient()
+const FAMILY_GROUP_SELECT =
+  'id, name, payer_contact_name, payer_contact_phone, notes, ' +
+  'members(id, first_name, last_name, status, is_payment_responsible)'
 
-  const { data: group, error } = await supabase
-    .from('family_groups')
-    .select('id, name, payer_contact_name, payer_contact_phone, notes')
-    .eq('id', id)
-    .maybeSingle()
-  if (error) throw error
-  if (!group) return null
+type FamilyGroupRow = {
+  id: number
+  name: string | null
+  payer_contact_name: string | null
+  payer_contact_phone: string | null
+  notes: string | null
+  members: { id: number; first_name: string; last_name: string; status: string; is_payment_responsible: boolean }[] | null
+}
 
-  const { data: memberRows, error: membersError } = await supabase
-    .from('members')
-    .select('id, first_name, last_name, status, is_payment_responsible')
-    .eq('family_group_id', id)
-    .order('last_name', { ascending: true })
-  if (membersError) throw membersError
-
-  const members: FamilyGroupMember[] = (memberRows ?? []).map((m) => ({
-    id: m.id,
-    fullName: `${m.last_name}, ${m.first_name}`,
-    status: m.status as MemberStatus,
-    isPaymentResponsible: m.is_payment_responsible,
-  }))
+/** `missingResponsible` es true si nadie ACTIVO tiene el flag: un responsable dado de baja deja al grupo "sin responsable" (D4) aunque su fila siga con `is_payment_responsible = true`. */
+function mapFamilyGroupRow(row: FamilyGroupRow): FamilyGroupSummary {
+  const members: FamilyGroupMember[] = (row.members ?? [])
+    .map((m) => ({
+      id: m.id,
+      fullName: `${m.last_name}, ${m.first_name}`,
+      status: m.status as MemberStatus,
+      isPaymentResponsible: m.is_payment_responsible,
+    }))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'))
 
   const activeResponsible = members.find((m) => m.isPaymentResponsible && m.status === 'active')
 
   return {
-    id: group.id,
-    name: group.name,
-    payerContactName: group.payer_contact_name,
-    payerContactPhone: group.payer_contact_phone,
-    notes: group.notes,
-    label: group.name ?? (activeResponsible ? activeResponsible.fullName.split(',')[0] : 'Grupo familiar'),
+    id: row.id,
+    name: row.name,
+    payerContactName: row.payer_contact_name,
+    payerContactPhone: row.payer_contact_phone,
+    notes: row.notes,
+    label: row.name ?? (activeResponsible ? activeResponsible.fullName.split(',')[0] : 'Grupo familiar'),
     members,
     missingResponsible: !activeResponsible,
   }
 }
 
-/**
- * Listado para selects de "asignar a un grupo existente". El club maneja
- * unos pocos grupos familiares (no una tabla que crece con el padrón): el
- * costo de una query extra por grupo para su resumen es aceptable acá y no
- * escala a una página de miles de filas.
- */
+/** Ficha del grupo con sus integrantes. */
+export async function getFamilyGroup(id: number): Promise<FamilyGroupSummary | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.from('family_groups').select(FAMILY_GROUP_SELECT).eq('id', id).maybeSingle()
+  if (error) throw error
+  return data ? mapFamilyGroupRow(data as unknown as FamilyGroupRow) : null
+}
+
+/** Listado para selects de "asignar a un grupo existente" y para la página de grupos. Una sola consulta, con embed. */
 export async function listFamilyGroups(): Promise<FamilyGroupSummary[]> {
   const supabase = await createClient()
 
-  const { data: groups, error } = await supabase.from('family_groups').select('id').order('id', { ascending: true })
+  const { data, error } = await supabase
+    .from('family_groups')
+    .select(FAMILY_GROUP_SELECT)
+    .order('id', { ascending: true })
   if (error) throw error
 
-  const summaries = await Promise.all((groups ?? []).map((g) => getFamilyGroup(g.id)))
-  return summaries.filter((g): g is FamilyGroupSummary => g !== null)
+  return (data ?? []).map((row) => mapFamilyGroupRow(row as unknown as FamilyGroupRow))
 }
 
 // -----------------------------------------------------------------------------
@@ -120,10 +126,11 @@ export async function createFamilyGroup(input: FamilyGroupInput): Promise<{ id: 
   return { id: data.id }
 }
 
+/** `.select().maybeSingle()` para distinguir un id inexistente (0 filas) de un éxito real (Minor 11 del review). */
 export async function updateFamilyGroup(id: number, input: FamilyGroupInput): Promise<void> {
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('family_groups')
     .update({
       name: input.name ?? null,
@@ -132,8 +139,11 @@ export async function updateFamilyGroup(id: number, input: FamilyGroupInput): Pr
       notes: input.notes ?? null,
     })
     .eq('id', id)
+    .select('id')
+    .maybeSingle()
 
   if (error) throw error
+  if (!data) throw new DomainError('El grupo familiar no existe', { status: 404 })
 }
 
 function translateResponsibleError(error: PostgrestError): unknown {

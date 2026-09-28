@@ -69,6 +69,25 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // Todo <form> declara method="post". Sin eso, si el JavaScript no llega a
+  // cargar (mala señal, un deploy a mitad de camino, un chunk que devuelve
+  // 500) el navegador lo manda con su comportamiento nativo: un GET con cada
+  // campo en la URL. Pasó: la contraseña del login terminó en la barra de
+  // direcciones, en el historial y en los logs del servidor.
+  {
+    files: ["src/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXOpeningElement[name.name='form']:not(:has(JSXAttribute[name.name='method']))",
+          message:
+            'Todo <form> lleva method="post" (y action si hay Server Action). Sin JS, un form sin method se envía por GET con los campos en la URL (CLAUDE.md).',
+        },
+      ],
+    },
+  },
+
   globalIgnores([
     // Defaults de eslint-config-next, que el override de arriba pisa.
     ".next/**",

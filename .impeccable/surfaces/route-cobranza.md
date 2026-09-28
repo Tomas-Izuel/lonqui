@@ -1,0 +1,18 @@
+---
+version: 1
+slug: "route-cobranza"
+primary_target: "route:/cobranza"
+related_targets: ["route:/cobranza/nuevo", "route:/cobranza/pagos", "route:/cobranza/deuda", "route:/cobranza/al-dia", "route:/cobranza/por-categoria"]
+---
+
+# Cobranza — `/cobranza` y sus listados
+
+Modo: **Operate**. La pantalla de Tesorería: registrar un pago con alguien esperando, ver cómo viene el mes y encontrar a quién reclamar. Brief escrito por el `feature-planner` el 2026-09-27 (pipeline `2026-09-27-cuotas-pagos-panel`); "Registrar pago" ya estaba confirmado por Tomás en `route.md`.
+
+- **Trabajo y audiencia:** Tesorería (admin) y Secretaría (editor) registran pagos en efectivo o transferencia, a veces en la cancha y con una mano; toda la Comisión (incluida `consulta`, solo lectura) mira la cobranza del mes y los listados al día / con deuda / deuda por categoría que pide el contrato (2.2).
+- **Resultado y prueba:** `/cobranza` es un hub corto: "Registrar pago" (admin/editor) con buscador de socio que lleva a `/cobranza/nuevo?socio=<id>`; **Este mes** como filas etiqueta/valor tabulares (cobrado en <mes>, cuotas de <mes>, % "del valor de las cuotas del mes" —puede pasar el 100%—, efectivo / transferencia, cantidad de pagos); accesos como filas con chevron a Pagos del mes, Con deuda, Al día, Deuda por categoría. `/cobranza/nuevo`: encabezado con el socio y su cuenta ("Debe $30.000 · 3 meses", "Al día", "Saldo a favor $10.000", "Dado de baja · debe $X"), monto precargado con la cuota vigente y chips "1 mes / 2 meses / 3 meses / Toda la deuda ($X)", fecha (hoy, zona club), medio como dos botones grandes, comprobante opcional que aparece al elegir Transferencia (subida directa con progreso), notas plegadas, botón "Registrar pago de $X". Variante de grupo (`?grupo=<id>`): integrantes con checkbox, cuota precargada y editable por fila, total del lote en vivo y en el botón. `/cobranza/pagos?mes=`: selector de mes, totales arriba, lista por fecha con socio, monto, medio, quién cargó, "Ver comprobante" (firma al tocar) y "Anular" (solo admin, diálogo con motivo y consecuencia); anulados tachados con motivo. `/cobranza/deuda` y `/al-dia`: filas "Apellido, Nombre · categoría · N meses · $X", filtros en la URL (categoría, incluir dados de baja), tocar abre la ficha. `/por-categoria`: disciplina/categoría con socios, cuántos deben y monto, cada fila enlaza al listado filtrado.
+- **Rangos:** 0 a ~250 pagos por mes; 0 a 12+ meses adeudados; deudas de hasta unos millones; lotes de grupo de 1 a 6 integrantes; montos sin decimales; todo total sale de una RPC.
+- **Estados:** cuotas no activadas (el hub lo explica; el formulario igual permite registrar contra un saldo anterior); mes sin pagos ("Todavía no se registraron pagos en <mes>"); cargando (skeleton de filas); error; enviando (botón deshabilitado, nombra el monto); pago ya registrado por doble toque (toast "El pago ya estaba registrado", sin duplicar); comprobante rechazado por tipo o tamaño (dice el límite); socio de baja (aviso, se permite); pago que excede la deuda (confirma "queda saldo a favor de $X").
+- **Interacción:** el `batchId` nace con el formulario y viaja en cada intento; la cuota precargada es editable siempre; después de registrar vuelve a donde estaba (`?volver=`) con un toast que dice cómo queda la cuenta; los filtros viven en `searchParams` para retomar; nunca se muestra una URL de Storage.
+- **Anti-objetivos:** la palabra "eliminar"; un % leído como "cobranza lograda"; scroll horizontal a 390 px; una pantalla de imputación de meses; sumas de centavos en el cliente para totales que se muestran; tarjetas anidadas o métrica-héroe.
+- **Dirección seleccionada:** hereda D0 (`route.md`, contrato de dirección).

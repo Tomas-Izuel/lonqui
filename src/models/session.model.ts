@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
-import type { AppRole } from '@/models/types'
+import type { AppRole, Permission } from '@/models/types'
 
 export type OwnAppUserRow = {
   displayName: string
@@ -33,4 +33,16 @@ export async function getOwnAppUser(userId: string): Promise<OwnAppUserRow | nul
     isActive: data.is_active,
     mustChangePassword: data.must_change_password,
   }
+}
+
+/**
+ * Los permisos del usuario de la sesión, desde `my_permissions()`: la única
+ * fuente del mapeo rol → permisos es SQL. Fail-closed: ante cualquier error de
+ * lectura, ningún permiso.
+ */
+export async function getOwnPermissions(): Promise<Permission[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('my_permissions')
+  if (error || !Array.isArray(data)) return []
+  return data as Permission[]
 }

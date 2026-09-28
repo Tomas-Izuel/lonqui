@@ -4,8 +4,8 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { PermissionError } from '@/lib/errors'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { getOwnAppUser } from '@/models/session.model'
-import type { AppRole, SessionInfo } from '@/models/types'
+import { getOwnAppUser, getOwnPermissions } from '@/models/session.model'
+import type { AppRole, Permission, SessionInfo } from '@/models/types'
 
 /**
  * Sesión y rol del usuario, UNA vez por request.
@@ -19,7 +19,7 @@ export const getSession = cache(async (): Promise<SessionInfo | null> => {
   const user = await getCurrentUser()
   if (!user) return null
 
-  const appUser = await getOwnAppUser(user.id)
+  const [appUser, permissions] = await Promise.all([getOwnAppUser(user.id), getOwnPermissions()])
 
   return {
     userId: user.id,
@@ -29,6 +29,7 @@ export const getSession = cache(async (): Promise<SessionInfo | null> => {
     role: appUser?.isActive ? appUser.role : null,
     isActive: appUser?.isActive ?? false,
     mustChangePassword: appUser?.mustChangePassword ?? false,
+    permissions,
   }
 })
 
@@ -97,4 +98,41 @@ export async function requireRole(...roles: AppRole[]): Promise<SessionInfo & { 
   }
 
   return session as SessionInfo & { role: AppRole }
+}
+
+// -----------------------------------------------------------------------------
+// Guards por PERMISO (desde el slice de cuotas y pagos)
+//
+// Toda regla nueva chequea permisos, no roles (catálogo en el pipeline
+// 2026-09-27-cuotas-pagos-panel, §6.8). El día que haya roles configurables
+// estas firmas no cambian. `requireRole` y `requirePanelAccess` quedan para
+// el código del slice 1, que el pipeline de roles migra.
+// -----------------------------------------------------------------------------
+
+function hasAll(session: SessionInfo, permissions: Permission[]): boolean {
+  return permissions.every((permission) => session.permissions.includes(permission))
+}
+
+/**
+ * Para Server Actions. Tira `PermissionError` sin sesión, con contraseña
+ * temporal, sin rol activo, o si falta CUALQUIERA de los permisos pedidos.
+ */
+export async function requirePermission(...permissions: Permission[]): Promise<SessionInfo & { role: AppRole }> {
+  const session = await requireRole()
+  if (!hasAll(session, permissions)) {
+    throw new PermissionError()
+  }
+  return session
+}
+
+/**
+ * Para pages y controllers de lectura: como `requirePanelAccess`, pero por
+ * permisos. Redirige al inicio si falta alguno.
+ */
+export async function requirePanelPermission(
+  ...permissions: Permission[]
+): Promise<SessionInfo & { role: AppRole }> {
+  const session = await requirePanelAccess()
+  if (!hasAll(session, permissions)) redirect('/')
+  return session
 }

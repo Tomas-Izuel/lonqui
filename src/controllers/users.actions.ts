@@ -18,7 +18,7 @@ import {
   updateAppUser,
   markPasswordReset,
 } from '@/models/app-users.model'
-import { createWithPassword, setPassword, ban, unban, AuthAdminError } from '@/services/auth-admin.service'
+import { createWithPassword, setPassword, ban, unban, getAuthUserEmail, AuthAdminError } from '@/services/auth-admin.service'
 
 /**
  * Alta, restablecimiento, rol y actividad de usuarios internos. Todas exigen
@@ -101,11 +101,17 @@ export async function completeUser(
       const { body } = zodToApiError(parsed.error)
       return invalid(body.error, body.field)
     }
-    const { userId, email, displayName, role } = parsed.data
+    const { userId, displayName, role } = parsed.data
 
     if (await getAppUser(userId)) {
       throw new DomainError('Ese usuario ya tiene un alta completa')
     }
+
+    // El email sale de Auth por `userId`, nunca del campo que manda el
+    // formulario (03-review.md, Minor 9): `email` sigue en el schema para que
+    // la UI lo muestre y lo valide como texto, pero el valor que se escribe en
+    // `app_users` (columna inmutable) es siempre el real.
+    const email = await getAuthUserEmail(userId)
 
     // La temporal del intento anterior no se puede recuperar (nunca se
     // persiste en ningún lado): se genera una nueva y se pisa en Auth.

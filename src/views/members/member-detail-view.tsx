@@ -6,11 +6,16 @@ import { MemberStatusPill } from '@/views/shared/status-pill'
 import { Dni } from '@/views/shared/dni'
 import { DateText, DateTimeText } from '@/views/shared/date-text'
 import { WhatsAppLink } from '@/views/shared/whatsapp-link'
-import { memberStatusEventLabels, memberTypeLabels } from '@/views/shared/labels'
+import { memberStatusEventLabels } from '@/views/shared/labels'
+import { categoriesLabel } from '@/views/payments/account-format'
 import { FamilyGroupSection } from '@/views/members/family-group-section'
 import { MedicalClearanceSection } from '@/views/members/medical-clearance-section'
 import { MemberStatusActions } from '@/views/members/member-status-actions'
-import type { AppRole, MemberDetail } from '@/models/types'
+import { MemberCategoriesSection } from '@/views/members/member-categories-section'
+import { MemberAccountSection } from '@/views/members/member-account-section'
+import { MemberFeeStatement } from '@/views/members/member-fee-statement'
+import { MemberPaymentsList } from '@/views/members/member-payments-list'
+import type { DisciplineWithCategories, MemberPageData, Permission } from '@/models/types'
 
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -22,23 +27,29 @@ function InfoField({ label, children }: { label: string; children: React.ReactNo
 }
 
 /**
- * Ficha del socio (route-socios-id.md). Server Component: cero data
- * fetching, todo llega de `getMemberPage` (controller) vía `page.tsx`. Las
- * piezas interactivas (responsable de pago, apto físico, baja/reactivación)
- * son Client Components chicos — nunca toda la página.
+ * Ficha del socio (route-socios-id.md + Revisión 3 §13.6). Server Component:
+ * cero data fetching, todo llega de `getMemberPage` (controller) vía
+ * `page.tsx`. Las piezas interactivas (deportes, cuenta, cuotas, pagos,
+ * responsable de pago, apto físico, baja/reactivación) son Client Components
+ * chicos — nunca toda la página.
  *
- * `role` puede ser `null` en el tipo (defensivo, `(panel)/layout.tsx` ya
- * garantiza un rol activo en la práctica): sin rol, ninguna acción de
- * escritura se renderiza.
+ * `permissions`, nunca un rol (T12, CLAUDE.md): qué se muestra lo decide el
+ * catálogo de permisos de la sesión, no `session.role`.
  */
-export function MemberDetailView({ member, role }: { member: MemberDetail; role: AppRole | null }) {
-  const canEdit = role === 'admin' || role === 'editor'
-  const canManageStatus = role === 'admin'
-
-  const categoryLabel =
-    member.memberType === 'non_practicing'
-      ? memberTypeLabels.non_practicing
-      : [member.disciplineName, member.categoryName].filter(Boolean).join(' · ') || 'Sin categoría'
+export function MemberDetailView({
+  data,
+  disciplines,
+  permissions,
+}: {
+  data: MemberPageData
+  disciplines: DisciplineWithCategories[]
+  permissions: Permission[]
+}) {
+  const { member, account, billing } = data
+  const canEdit = permissions.includes('members.write')
+  const canManageStatus = permissions.includes('members.status')
+  const canRegisterPayments = permissions.includes('payments.register')
+  const canVoid = permissions.includes('payments.void')
 
   return (
     <div className="flex flex-col gap-4">
@@ -49,7 +60,7 @@ export function MemberDetailView({ member, role }: { member: MemberDetail; role:
             <MemberStatusPill status={member.status} />
           </div>
           <p className="text-sm text-muted-foreground">
-            {categoryLabel}
+            {categoriesLabel(member.categories)}
             {member.age != null ? ` · ${member.age} años${member.isMinor ? ' · menor' : ''}` : ''}
           </p>
         </div>
@@ -65,6 +76,17 @@ export function MemberDetailView({ member, role }: { member: MemberDetail; role:
           {canManageStatus ? <MemberStatusActions memberId={member.id} status={member.status} /> : null}
         </div>
       </div>
+
+      {account ? (
+        <MemberAccountSection
+          memberId={member.id}
+          familyGroupId={member.familyGroupId}
+          account={account.account}
+          openingBalance={account.openingBalance}
+          billing={billing}
+          canRegister={canRegisterPayments}
+        />
+      ) : null}
 
       <Panel title="Datos personales">
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -88,9 +110,22 @@ export function MemberDetailView({ member, role }: { member: MemberDetail; role:
         memberId={member.id}
         status={member.medicalClearanceStatus}
         currentClearance={member.currentMedicalClearance}
-        clearanceUrl={member.medicalClearanceUrl}
         canManage={canEdit}
       />
+
+      <MemberCategoriesSection
+        memberId={member.id}
+        categoryHistory={member.categoryHistory}
+        disciplines={disciplines}
+        canManage={canEdit}
+      />
+
+      {account ? (
+        <>
+          <MemberFeeStatement statement={account.statement} canVoid={canVoid} />
+          <MemberPaymentsList payments={account.payments} canVoid={canVoid} />
+        </>
+      ) : null}
 
       <Panel title="Historia">
         {member.statusHistory.length === 0 ? (

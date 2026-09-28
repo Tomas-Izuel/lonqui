@@ -5,11 +5,19 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
 import { toClubDate } from '@/lib/dates'
-import { getFamilyGroup } from '@/models/family-groups.model'
+import { createFamilyGroup, getFamilyGroup } from '@/models/family-groups.model'
 import { listMedicalClearances } from '@/models/medical-clearances.model'
+import {
+  assertCategorySelection,
+  listMemberships,
+  openMemberships,
+  setMemberCategories as assignCategories,
+} from '@/models/member-categories.model'
 import type {
+  DebtStatus,
   MedicalClearanceStatus,
   Member,
+  MemberCategoryRef,
   MemberDetail,
   MemberFilters,
   MemberStatusEvent,
@@ -24,6 +32,12 @@ import type {
  * Padrón: consultas y altas/bajas de `members`. Único lugar que le habla a
  * Postgres para este dominio (CLAUDE.md). Siempre con el cliente de sesión: la
  * auditoría toma el actor de `auth.uid()`, y las RLS son la autorización real.
+ *
+ * Revisión 3 (§13 de 00-architecture.md, pipeline 2026-09-27): un socio puede
+ * jugar más de un deporte. `members.category_id` ya NO EXISTE — la pertenencia
+ * vive en `member_categories` (`member-categories.model.ts`), y
+ * `members.member_type` es DERIVADO por trigger (practicante ⇔ al menos una
+ * inscripción abierta): esta capa nunca lo escribe ni lo acepta como input.
  */
 
 // -----------------------------------------------------------------------------
@@ -45,8 +59,6 @@ const MEMBER_CORE_SHAPE = {
   address: z.string().trim().max(300).nullish(),
   phone: z.string().trim().max(40).nullish(),
   email: z.email('El email no es válido').nullish(),
-  memberType: z.enum(['practicing', 'non_practicing'] satisfies MemberType[]),
-  categoryId: z.number().int().positive().nullish(),
   familyGroupId: z.number().int().positive().nullish(),
   notes: z.string().trim().max(2000).nullish(),
 }
@@ -60,13 +72,11 @@ type MemberCoreInput = {
   address?: string | null
   phone?: string | null
   email?: string | null
-  memberType: MemberType
-  categoryId?: number | null
   familyGroupId?: number | null
   notes?: string | null
 }
 
-/** Reglas compartidas entre alta y modificación: DNI/pendiente, tipo/categoría, fechas no futuras. */
+/** Reglas compartidas entre alta y modificación: DNI/pendiente, fechas no futuras. Tipo y categoría ya no se validan acá: son derivado (member_type) y RPC (categoryIds, solo en el alta). */
 function checkMemberCoherence(data: MemberCoreInput, ctx: z.RefinementCtx) {
   const dniPending = data.dniPending === true
 
@@ -85,38 +95,65 @@ function checkMemberCoherence(data: MemberCoreInput, ctx: z.RefinementCtx) {
     })
   }
 
-  if (data.memberType === 'practicing' && data.categoryId == null) {
-    ctx.addIssue({ code: 'custom', message: 'Un socio practicante necesita una categoría', path: ['categoryId'] })
-  }
-  if (data.memberType === 'non_practicing' && data.categoryId != null) {
-    ctx.addIssue({
-      code: 'custom',
-      message: 'Un socio no practicante no tiene categoría',
-      path: ['categoryId'],
-    })
-  }
-
   if (data.birthDate && data.birthDate > toClubDate()) {
     ctx.addIssue({ code: 'custom', message: 'La fecha de nacimiento no puede ser futura', path: ['birthDate'] })
   }
 }
 
-/** Alta: `joinedOn` es obligatorio (puede ser una fecha pasada, para carga histórica) y no futuro. */
+/**
+ * Grupo familiar nuevo, cargado desde la misma ficha de alta (Minor 10 del
+ * review): sin `notes`, a propósito — ese campo solo tiene sentido editando
+ * un grupo ya creado, no en el flujo de "no existe todavía".
+ */
+const NEW_FAMILY_GROUP_SHAPE = z
+  .object({
+    name: z.string().trim().max(120).nullish(),
+    payerContactName: z.string().trim().max(120).nullish(),
+    payerContactPhone: z.string().trim().max(40).nullish(),
+  })
+  .strict()
+
+/**
+ * Alta: `joinedOn` es obligatorio (puede ser una fecha pasada, para carga
+ * histórica) y no futuro. `categoryIds` (vacío = no practicante) reemplaza al
+ * viejo par `memberType`/`categoryId` (Revisión 3): existencia, actividad y
+ * "una por disciplina" del catálogo los valida la base (`assertCategorySelection`
+ * antes del insert, y el trigger/RPC como defensa real); acá solo se descarta
+ * lo puramente estructural (ids repetidos).
+ */
 export const createMemberSchema = z
-  .object({ ...MEMBER_CORE_SHAPE, joinedOn: z.iso.date('La fecha de alta no es válida') })
+  .object({
+    ...MEMBER_CORE_SHAPE,
+    joinedOn: z.iso.date('La fecha de alta no es válida'),
+    categoryIds: z.array(z.number().int().positive()).max(20, 'Demasiadas categorías'),
+    /** Alternativa a `familyGroupId`: crea el grupo en la misma alta (D10 del review). Mutuamente excluyentes. */
+    newFamilyGroup: NEW_FAMILY_GROUP_SHAPE.optional(),
+  })
   .strict()
   .superRefine((data, ctx) => {
     checkMemberCoherence(data, ctx)
     if (data.joinedOn > toClubDate()) {
       ctx.addIssue({ code: 'custom', message: 'La fecha de alta no puede ser futura', path: ['joinedOn'] })
     }
+    if (data.newFamilyGroup && data.familyGroupId != null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Elegí un grupo familiar existente o cargá uno nuevo, no los dos',
+        path: ['familyGroupId'],
+      })
+    }
+    if (new Set(data.categoryIds).size !== data.categoryIds.length) {
+      ctx.addIssue({ code: 'custom', message: 'Elegí cada categoría una sola vez', path: ['categoryIds'] })
+    }
   })
 
 /**
  * Modificación: mismo formulario que el alta, pero sin `joinedOn` ni `status`
  * (son inmutables desde la app: `joinedOn` por trigger, `status` sin grant de
- * UPDATE). `.strict()` rechaza cualquiera de las dos con un error de formato
- * genérico, sin nombrar la clave (CLAUDE.md, zodToApiError).
+ * UPDATE) y sin `categoryIds`: los deportes se cambian con la Server Action
+ * `setMemberCategories` (`members.actions.ts`), no con esta. `.strict()`
+ * rechaza cualquiera de las tres con un error de formato genérico, sin nombrar
+ * la clave (CLAUDE.md, zodToApiError).
  */
 export const updateMemberSchema = z.object(MEMBER_CORE_SHAPE).strict().superRefine(checkMemberCoherence)
 
@@ -135,22 +172,56 @@ export const statusEventSchema = z
 
 export type StatusEventInput = z.infer<typeof statusEventSchema>
 
+/**
+ * Filtros del padrón, validados en el borde de `loadMoreMembers` (Major 5 del
+ * review: el "Ver más" pasa a ser una Server Action, no una page que
+ * re-encadena todo el keyset). La lectura desde un Server Component
+ * (`getPadron`) sigue sin pasar por acá: ese `MemberFilters` ya sale
+ * tipado de `page.tsx`, no de un cliente que puede mandar cualquier cosa.
+ */
+const memberFiltersSchema = z
+  .object({
+    q: z.string().max(200).optional(),
+    categoryId: z.number().int().positive().optional(),
+    disciplineId: z.number().int().positive().optional(),
+    status: z.enum(['active', 'inactive', 'all'] satisfies (MemberStatus | 'all')[]).optional(),
+    memberType: z.enum(['practicing', 'non_practicing'] satisfies MemberType[]).optional(),
+    debt: z.enum(['any', 'up_to_date', 'in_debt']).optional(),
+  })
+  .strict()
+
+export const loadMoreMembersSchema = z
+  .object({
+    filters: memberFiltersSchema,
+    cursor: z.string().min(1, 'Cursor inválido'),
+  })
+  .strict()
+export type LoadMoreMembersInput = z.infer<typeof loadMoreMembersSchema>
+
 // -----------------------------------------------------------------------------
 // Traducción de errores de Postgres a DomainError (CLAUDE.md: el mensaje del
 // trigger YA está pensado para el usuario; lo envolvemos, no lo re-escribimos).
 // -----------------------------------------------------------------------------
 
 const DNI_UNIQUE_CONSTRAINT = 'members_dni_key'
-const PRACTICING_CHECK_CONSTRAINT = 'members_practicing_has_category'
+// Migración `20260927120000_review_fixes.sql` (03-review.md, blocker 3): un
+// trigger BEFORE UPDATE OF family_group_id ya limpia `is_payment_responsible`
+// cuando cambia el grupo, así que en el camino normal estos dos ya no
+// deberían violarse. Se traducen igual, defensivos, para el caso raro de una
+// carrera (dos updates concurrentes) o de un futuro camino de escritura que
+// toque `is_payment_responsible` sin pasar por ese trigger.
+const RESPONSIBLE_HAS_GROUP_CHECK = 'members_responsible_has_group'
+const ONE_RESPONSIBLE_PER_GROUP_INDEX = 'members_one_responsible_per_group'
 
 function translateMemberError(error: PostgrestError): unknown {
   if (error.code === '23505' && error.message.includes(DNI_UNIQUE_CONSTRAINT)) {
     return new DomainError('Ya hay un socio con ese DNI', { field: 'dni' })
   }
-  // Defensivo: Zod ya lo frena antes de llegar acá, pero un CHECK violado sin
-  // traducir mostraría el nombre de la constraint en un error genérico.
-  if (error.code === '23514' && error.message.includes(PRACTICING_CHECK_CONSTRAINT)) {
-    return new DomainError('La categoría no corresponde con el tipo de socio elegido', { field: 'categoryId' })
+  if (error.code === '23505' && error.message.includes(ONE_RESPONSIBLE_PER_GROUP_INDEX)) {
+    return new DomainError('Ese grupo familiar ya tiene un responsable de pago', { field: 'familyGroupId' })
+  }
+  if (error.code === '23514' && error.message.includes(RESPONSIBLE_HAS_GROUP_CHECK)) {
+    return new DomainError('El responsable de pago no puede quedar sin grupo familiar', { field: 'familyGroupId' })
   }
   return error
 }
@@ -210,10 +281,20 @@ function deriveMedicalClearanceStatus(
 // -----------------------------------------------------------------------------
 
 const MAX_LIMIT = 100
-const DEFAULT_LIMIT = 30
+
+/**
+ * Tamaño de página único del padrón (R1, segunda pasada del review): antes
+ * `searchMembers` sin `limit` caía en 30 mientras `socios/page.tsx` pedía 50
+ * a mano, así que la primera tanda traía 50 filas y "Ver más" traía 30 — el
+ * tamaño lo decide el servidor, no cada llamador, y todos usan esta misma
+ * constante. `getPadron` (primera tanda) y `loadMoreMembers` (server action
+ * de "Ver más") nunca reciben `limit` del cliente: `memberFiltersSchema` es
+ * `.strict()` sin ese campo a propósito, así que siempre cae acá.
+ */
+export const PADRON_PAGE_SIZE = 50
 
 function clampLimit(limit?: number): number {
-  if (!limit || limit < 1) return DEFAULT_LIMIT
+  if (!limit || limit < 1) return PADRON_PAGE_SIZE
   return Math.min(Math.trunc(limit), MAX_LIMIT)
 }
 
@@ -256,6 +337,10 @@ function pgQuote(value: string): string {
 function normalizeSearchTerm(q: string): string {
   return q
     .normalize('NFD')
+    // Bloque Unicode "Combining Diacritical Marks" (U+0300–U+036F): lo que
+    // NFD separa de la letra base (á → a + ́). Con caracteres combinantes
+    // literales en el regex (como estaba antes) el rango es ilegible en el
+    // código fuente; con el escape se lee y es el mismo rango.
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
 }
@@ -264,7 +349,23 @@ function normalizeSearchTerm(q: string): string {
 // Mapeo de filas
 // -----------------------------------------------------------------------------
 
-type CategoryEmbed = { name: string; discipline_id: number; disciplines: { name: string } | null } | null
+/** Fila de `member_categories` embebida (abierta: el `is(...left_on, null)` de la consulta ya la filtró). */
+type CategoryEmbedRow = {
+  category_id: number
+  left_on: string | null
+  categories: { name: string; discipline_id: number; disciplines: { name: string } | null } | null
+}
+
+function mapCategoryEmbed(rows: CategoryEmbedRow[] | null | undefined): MemberCategoryRef[] {
+  return (rows ?? [])
+    .filter((r) => r.left_on === null)
+    .map((r) => ({
+      categoryId: r.category_id,
+      categoryName: r.categories?.name ?? '',
+      disciplineId: r.categories?.discipline_id ?? 0,
+      disciplineName: r.categories?.disciplines?.name ?? '',
+    }))
+}
 
 function mapMember(row: {
   id: number
@@ -276,7 +377,6 @@ function mapMember(row: {
   phone: string | null
   email: string | null
   member_type: string
-  category_id: number | null
   family_group_id: number | null
   is_payment_responsible: boolean
   joined_on: string
@@ -296,7 +396,6 @@ function mapMember(row: {
     phone: row.phone,
     email: row.email,
     memberType: row.member_type as MemberType,
-    categoryId: row.category_id,
     familyGroupId: row.family_group_id,
     isPaymentResponsible: row.is_payment_responsible,
     joinedOn: row.joined_on,
@@ -312,21 +411,93 @@ function mapMember(row: {
 // Consultas
 // -----------------------------------------------------------------------------
 
-const SEARCH_SELECT =
-  'id, first_name, last_name, dni, birth_date, member_type, status, family_group_id, is_payment_responsible, categories(name, discipline_id, disciplines(name))'
+/**
+ * DOS embeds de la misma relación `member_categories`, con alias EXPLÍCITO
+ * en los dos. `open_categories` es el que se muestra (todas las inscripciones
+ * abiertas del socio, siempre); `match_categories` (`!inner`, solo cuando hay
+ * filtro de categoría/disciplina) es el que decide qué socios entran.
+ *
+ * Si el segundo embed queda SIN alias (el nombre por defecto
+ * `member_categories`, como en la primera versión de este archivo),
+ * PostgREST arrastra un bug de resolución de filtros: con más de una fila de
+ * resultado, el filtro `member_categories.left_on=is.null` deja de aplicarse
+ * al embed sin alias y un socio con una categoría vieja YA CERRADA la vuelve
+ * a mostrar en la lista (verificado a mano contra PostgREST 12.2 del stack
+ * local — con una sola fila de resultado el bug no aparece, lo que lo hace
+ * fácil de no ver en una prueba manual apurada). Aliasando los DOS no pasa
+ * (00-architecture.md §13.2: "cada fila muestra sus categorías", sin
+ * excepción cuando hay un filtro activo).
+ */
+const CATEGORY_DISPLAY_EMBED =
+  'open_categories:member_categories(category_id, left_on, categories(name, discipline_id, disciplines(name)))'
+const CATEGORY_MATCH_EMBED = 'match_categories:member_categories!inner(category_id, left_on)'
+
+function buildSearchSelect(hasCategoryFilter: boolean, includeDebt: boolean): string {
+  const base =
+    'id, first_name, last_name, dni, birth_date, member_type, status, family_group_id, is_payment_responsible'
+  // Campos calculados de PostgREST (member_balance_cents/member_debt_status/
+  // member_months_due, migración 130200): tiran `insufficient_privilege` sin
+  // `payments.read`, por eso solo se piden si `includeDebt` (el controller ya
+  // lo decidió por permiso, no por rol).
+  const debtCols = includeDebt ? ', member_debt_status, member_balance_cents, member_months_due' : ''
+  const matchEmbed = hasCategoryFilter ? `, ${CATEGORY_MATCH_EMBED}` : ''
+  return `${base}${debtCols}, ${CATEGORY_DISPLAY_EMBED}${matchEmbed}`
+}
+
+type SearchRow = {
+  id: number
+  first_name: string
+  last_name: string
+  dni: string | null
+  birth_date: string | null
+  member_type: string
+  status: string
+  family_group_id: number | null
+  is_payment_responsible: boolean
+  open_categories: CategoryEmbedRow[] | null
+  member_debt_status?: string | null
+  member_balance_cents?: number | null
+  member_months_due?: number | null
+}
 
 /**
  * Listado del padrón: filtros combinables, keyset estable por
- * `(last_name, first_name, id)`, por defecto solo activos. `medicalClearanceStatus`
- * se resuelve con una sola query extra (apto vigente por socio menor de la
- * página), nunca una por fila.
+ * `(last_name, first_name, id)`, por defecto solo activos.
+ * `medicalClearanceStatus` se resuelve con una sola query extra (apto vigente
+ * por socio menor de la página), nunca una por fila.
+ *
+ * `options.includeDebt` lo decide el controller según `payments.read` de la
+ * sesión (nunca el rol): sin él, `filters.debt` se ignora y ni se piden las
+ * columnas calculadas de deuda — la UI ya muestra ese filtro deshabilitado.
  */
-export async function searchMembers(filters: MemberFilters = {}): Promise<Page<MemberSummary>> {
+export async function searchMembers(
+  filters: MemberFilters = {},
+  options?: { includeDebt?: boolean },
+): Promise<Page<MemberSummary>> {
   const supabase = await createClient()
   const limit = clampLimit(filters.limit)
   const today = toClubDate()
+  const includeDebt = options?.includeDebt ?? false
 
-  let query = supabase.from('members').select(SEARCH_SELECT)
+  // El filtro por disciplina se resuelve a las categorías de esa disciplina
+  // (una consulta chica, igual que antes de la Revisión 3); el de categoría
+  // puntual ya viene como id. Los dos se combinan si vienen juntos.
+  let categoryIds: number[] | null = filters.categoryId != null ? [filters.categoryId] : null
+  if (filters.disciplineId != null) {
+    const { data: cats, error: catsError } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('discipline_id', filters.disciplineId)
+    if (catsError) throw catsError
+    const disciplineCategoryIds = (cats ?? []).map((c) => c.id)
+    // Ninguna categoría en esa disciplina: cero resultados, sin pegarle a members.
+    if (disciplineCategoryIds.length === 0) return { items: [], nextCursor: null }
+    categoryIds = categoryIds ? categoryIds.filter((id) => disciplineCategoryIds.includes(id)) : disciplineCategoryIds
+    if (categoryIds.length === 0) return { items: [], nextCursor: null }
+  }
+  const hasCategoryFilter = categoryIds !== null
+
+  let query = supabase.from('members').select(buildSearchSelect(hasCategoryFilter, includeDebt))
 
   if (filters.status === 'all') {
     // sin filtro: activos y de baja.
@@ -335,27 +506,34 @@ export async function searchMembers(filters: MemberFilters = {}): Promise<Page<M
   }
 
   if (filters.memberType) query = query.eq('member_type', filters.memberType)
-  if (filters.categoryId != null) query = query.eq('category_id', filters.categoryId)
 
-  if (filters.disciplineId != null) {
-    const { data: cats, error: catsError } = await supabase
-      .from('categories')
-      .select('id')
-      .eq('discipline_id', filters.disciplineId)
-    if (catsError) throw catsError
-    const categoryIds = (cats ?? []).map((c) => c.id)
-    // Ninguna categoría en esa disciplina: cero resultados, sin pegarle a members.
-    if (categoryIds.length === 0) return { items: [], nextCursor: null }
-    query = query.in('category_id', categoryIds)
+  // Inscripción ABIERTA en la categoría/disciplina pedida: las dos
+  // condiciones (`category_id` y `left_on is null`) se evalúan sobre la MISMA
+  // fila del embed `match_categories` (PostgREST arma un join, no filtra el
+  // array condición por condición), así que una categoría vieja ya cerrada no
+  // hace matchear a un socio que ya no juega ahí (00-architecture.md §13.2).
+  if (hasCategoryFilter) {
+    query =
+      categoryIds!.length === 1
+        ? query.eq('match_categories.category_id', categoryIds![0])
+        : query.in('match_categories.category_id', categoryIds!)
+    query = query.is('match_categories.left_on', null)
+  }
+  // `open_categories` (el que se MUESTRA) siempre recortado a lo abierto,
+  // haya o no filtro: es un embed aparte del anterior (alias distinto), así
+  // que esto no afecta qué socios entran, solo qué inscripciones se listan.
+  query = query.is('open_categories.left_on', null)
+
+  if (includeDebt && filters.debt && filters.debt !== 'any') {
+    query =
+      filters.debt === 'in_debt'
+        ? query.eq('member_debt_status', 'in_debt')
+        : query.in('member_debt_status', ['up_to_date', 'credit'])
   }
 
   if (filters.q && filters.q.trim().length > 0) {
     query = query.ilike('search_text', `%${normalizeSearchTerm(filters.q.trim())}%`)
   }
-
-  // `debt` (condición de deuda) se acepta y se IGNORA a propósito: depende de
-  // `fees`/`payments`, que llegan en el slice 2 (cuotas). La UI ya lo muestra
-  // deshabilitado con esa explicación.
 
   const cursor = filters.cursor ? decodeCursor(filters.cursor) : null
   if (cursor) {
@@ -377,7 +555,7 @@ export async function searchMembers(filters: MemberFilters = {}): Promise<Page<M
   const { data, error } = await query
   if (error) throw error
 
-  const rows = data ?? []
+  const rows = ((data ?? []) as unknown as SearchRow[]) ?? []
   const hasMore = rows.length > limit
   const pageRows = hasMore ? rows.slice(0, limit) : rows
 
@@ -389,16 +567,15 @@ export async function searchMembers(filters: MemberFilters = {}): Promise<Page<M
   const items: MemberSummary[] = pageRows.map((r) => {
     const age = r.birth_date ? calculateAge(r.birth_date, today) : null
     const isMinor = age !== null && age < 18
-    const category = r.categories as unknown as CategoryEmbed
-    return {
+
+    const item: MemberSummary = {
       id: r.id,
       fullName: `${r.last_name}, ${r.first_name}`,
       dni: r.dni,
       hasDni: r.dni != null,
       memberType: r.member_type as MemberType,
       status: r.status as MemberStatus,
-      categoryName: category?.name ?? null,
-      disciplineName: category?.disciplines?.name ?? null,
+      categories: mapCategoryEmbed(r.open_categories),
       familyGroupId: r.family_group_id,
       isPaymentResponsible: r.is_payment_responsible,
       isMinor,
@@ -408,6 +585,14 @@ export async function searchMembers(filters: MemberFilters = {}): Promise<Page<M
         today,
       ),
     }
+
+    if (includeDebt) {
+      item.debtStatus = (r.member_debt_status as DebtStatus | null) ?? 'up_to_date'
+      item.balanceCents = r.member_balance_cents ?? 0
+      item.monthsDue = r.member_months_due ?? 0
+    }
+
+    return item
   })
 
   const last = pageRows.at(-1)
@@ -439,13 +624,17 @@ async function currentClearanceExpirationByMember(
 }
 
 const DETAIL_SELECT =
-  'id, first_name, last_name, dni, birth_date, address, phone, email, member_type, category_id, family_group_id, is_payment_responsible, joined_on, status, status_changed_on, notes, created_at, updated_at, categories(name, discipline_id, disciplines(name))'
+  'id, first_name, last_name, dni, birth_date, address, phone, email, member_type, family_group_id, is_payment_responsible, joined_on, status, status_changed_on, notes, created_at, updated_at'
 
 /**
- * Ficha completa del socio. Combina member + categoría/disciplina + grupo
- * familiar + aptos físicos + historia de estado. La URL firmada del apto
- * vigente NO se resuelve acá (queda en `medicalClearanceUrl: null`): solo la
- * arma `getMemberPage` del controller, y solo si hay adjunto.
+ * Ficha completa del socio. Combina member + categorías (abiertas e historia,
+ * vía `member-categories.model.ts`) + grupo familiar + aptos físicos +
+ * historia de estado. La URL firmada del apto vigente NO se resuelve acá
+ * (queda en `medicalClearanceUrl: null`): solo la arma `getMemberPage` del
+ * controller, y solo si hay adjunto.
+ *
+ * Tira `DomainError` con `status: 404` si el socio no existe (id inválido o
+ * navegado a mano); la page lo puede mapear a `notFound()`.
  */
 export async function getMemberDetail(id: number): Promise<MemberDetail> {
   const supabase = await createClient()
@@ -458,23 +647,22 @@ export async function getMemberDetail(id: number): Promise<MemberDetail> {
   const age = row.birth_date ? calculateAge(row.birth_date, today) : null
   const isMinor = age !== null && age < 18
 
-  const [familyGroup, clearances, statusHistory] = await Promise.all([
+  const [familyGroup, clearances, statusHistory, categoryHistory] = await Promise.all([
     row.family_group_id ? getFamilyGroup(row.family_group_id) : Promise.resolve(null),
     listMedicalClearances(row.id),
     getMemberStatusHistory(row.id),
+    listMemberships(row.id),
   ])
 
   const current = clearances[0] ?? null
-  const category = row.categories as unknown as CategoryEmbed
 
   return {
     ...mapMember(row),
     fullName: `${row.last_name}, ${row.first_name}`,
     age,
     isMinor,
-    categoryName: category?.name ?? null,
-    disciplineId: category?.discipline_id ?? null,
-    disciplineName: category?.disciplines?.name ?? null,
+    categories: openMemberships(categoryHistory),
+    categoryHistory,
     familyGroup,
     currentMedicalClearance: current,
     medicalClearanceStatus: deriveMedicalClearanceStatus(isMinor, current?.expiresOn ?? null, today),
@@ -526,8 +714,42 @@ export async function getMemberStatusHistory(memberId: number): Promise<MemberSt
 // Altas, modificaciones y eventos de estado
 // -----------------------------------------------------------------------------
 
+/** Chequeo previo (no reemplaza la unicidad real, que es el índice `members_dni_key`): evita crear un grupo familiar huérfano cuando el DNI ya existe, el caso común del Minor 10 del review. */
+async function memberDniExists(supabase: Awaited<ReturnType<typeof createClient>>, dni: string): Promise<boolean> {
+  const { data, error } = await supabase.from('members').select('id').eq('dni', dni).limit(1).maybeSingle()
+  if (error) throw error
+  return data !== null
+}
+
+/**
+ * Alta del socio. Si viene `newFamilyGroup`, el grupo se crea DESPUÉS de
+ * validar el socio (Zod ya corrió, y acá el chequeo previo de DNI y de la
+ * selección de categorías): así el caso común (DNI duplicado, categoría
+ * inválida) no deja un grupo familiar vacío dando vueltas en el select de la
+ * próxima ficha (03-review.md, Minor 10), ni un socio cargado a mitad de
+ * camino por una selección de deportes que la base iba a rechazar.
+ *
+ * Flujo (Revisión 3, §13.2/§13.6): 1) INSERT del socio SIN `member_type`
+ * (derivado por trigger) ni `category_id` (ya no existe la columna); 2)
+ * `set_member_categories(id, categoryIds, joinedOn)`. Si el paso 2 falla
+ * (una carrera real: alguien desactivó la categoría entre el chequeo previo y
+ * la RPC), el socio YA quedó cargado —el insert de arriba ya hizo commit— y
+ * esta función avisa con un mensaje que lo dice, en vez de simular una
+ * transacción atómica que no existe entre dos llamadas separadas a PostgREST.
+ */
 export async function createMember(input: CreateMemberInput): Promise<{ id: number }> {
   const supabase = await createClient()
+
+  if (!input.dniPending && input.dni && (await memberDniExists(supabase, input.dni))) {
+    throw new DomainError('Ya hay un socio con ese DNI', { field: 'dni' })
+  }
+  await assertCategorySelection(supabase, input.categoryIds)
+
+  let familyGroupId = input.familyGroupId ?? null
+  if (input.newFamilyGroup) {
+    const group = await createFamilyGroup(input.newFamilyGroup)
+    familyGroupId = group.id
+  }
 
   const { data, error } = await supabase
     .from('members')
@@ -539,9 +761,7 @@ export async function createMember(input: CreateMemberInput): Promise<{ id: numb
       address: input.address ?? null,
       phone: input.phone ?? null,
       email: input.email ? input.email.toLowerCase() : null,
-      member_type: input.memberType,
-      category_id: input.memberType === 'practicing' ? (input.categoryId ?? null) : null,
-      family_group_id: input.familyGroupId ?? null,
+      family_group_id: familyGroupId,
       joined_on: input.joinedOn,
       notes: input.notes ?? null,
     })
@@ -549,13 +769,33 @@ export async function createMember(input: CreateMemberInput): Promise<{ id: numb
     .single()
 
   if (error) throw translateMemberError(error)
+
+  try {
+    await assignCategories({ memberId: data.id, categoryIds: input.categoryIds, effectiveOn: input.joinedOn })
+  } catch {
+    throw new DomainError('Se cargó el socio pero no sus deportes: agregalos desde la ficha')
+  }
+
   return { id: data.id }
 }
 
+/**
+ * Modificación. `is_payment_responsible` nunca se escribe acá a propósito: si
+ * `familyGroupId` cambia, el trigger `members_clear_responsible_on_group_change`
+ * (migración de fixes del review) ya lo pone en `false` en la misma
+ * transacción — escribirlo también desde acá sería una segunda fuente de la
+ * misma verdad. `.select().maybeSingle()` para distinguir "actualizó 0 filas"
+ * (id inexistente, o RLS que igual lo dejó pasar la policy de UPDATE porque
+ * `USING` solo mira columnas, y el `WHERE id = ...` no matcheó ninguna fila
+ * visible) de un éxito real (Minor 11 del review).
+ *
+ * Los deportes NO se tocan acá (Revisión 3): van por la Server Action
+ * `setMemberCategories`, que llama a `member-categories.model.ts`.
+ */
 export async function updateMember(id: number, input: UpdateMemberInput): Promise<void> {
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('members')
     .update({
       first_name: input.firstName,
@@ -565,14 +805,15 @@ export async function updateMember(id: number, input: UpdateMemberInput): Promis
       address: input.address ?? null,
       phone: input.phone ?? null,
       email: input.email ? input.email.toLowerCase() : null,
-      member_type: input.memberType,
-      category_id: input.memberType === 'practicing' ? (input.categoryId ?? null) : null,
       family_group_id: input.familyGroupId ?? null,
       notes: input.notes ?? null,
     })
     .eq('id', id)
+    .select('id')
+    .maybeSingle()
 
   if (error) throw translateMemberError(error)
+  if (!data) throw new DomainError('El socio no existe', { status: 404 })
 }
 
 /**

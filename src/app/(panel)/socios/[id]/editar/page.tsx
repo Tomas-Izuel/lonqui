@@ -15,19 +15,18 @@ export default async function EditMemberPage({ params }: { params: Promise<{ id:
   if (!/^\d+$/.test(id)) notFound()
 
   const session = await requirePanelAccess()
-  const role = session?.role ?? null
 
-  if (role !== 'admin' && role !== 'editor') {
+  if (!session.permissions.includes('members.write')) {
     return <AccessDenied />
   }
 
-  let member, disciplines, familyGroups
+  let data, disciplines, familyGroups
   try {
-    ;[member, disciplines, familyGroups] = await Promise.all([getMemberPage(Number(id)), listDisciplines(), listFamilyGroups()])
+    ;[data, disciplines, familyGroups] = await Promise.all([getMemberPage(Number(id)), listDisciplines(), listFamilyGroups()])
   } catch (err) {
     if (isDomainError(err) && err.status === 404) notFound()
     throw err
   }
 
-  return <MemberForm mode="edit" member={member} disciplines={disciplines} familyGroups={familyGroups} />
+  return <MemberForm mode="edit" member={data.member} disciplines={disciplines} familyGroups={familyGroups} />
 }

@@ -19,10 +19,12 @@ const completeUserSchema = z.object({
 
 type CompleteUserValues = z.infer<typeof completeUserSchema>
 
-const ROLE_OPTIONS: { value: AppRole; label: string }[] = (['admin', 'editor', 'consulta'] as const).map((role) => ({
-  value: role,
-  label: `${appRoleLabels[role]} — ${appRoleDescriptions[role]}`,
-}))
+// Mismo criterio que `CreateUserDialog`: el trigger muestra solo el nombre
+// del rol, la descripción baja como texto de ayuda (y como segunda línea en
+// el desplegable) para no desbordar el diálogo.
+const ROLE_OPTIONS: { value: AppRole; label: string; description: string }[] = (['admin', 'editor', 'consulta'] as const).map(
+  (role) => ({ value: role, label: appRoleLabels[role], description: appRoleDescriptions[role] }),
+)
 
 /**
  * Termina una alta que quedó a mitad de camino (existe en Auth, no en
@@ -88,7 +90,7 @@ export function CompleteUserDialog({
             El alta anterior quedó a mitad de camino. Se genera una contraseña temporal nueva.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(onValid)} noValidate className="flex flex-col gap-4">
+        <form onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4">
           <TextField control={form.control} name="displayName" label="Nombre y apellido" autoComplete="off" disabled={pending} autoFocus />
           <SelectField control={form.control} name="role" label="Rol" options={ROLE_OPTIONS} disabled={pending} placeholder="Elegí un rol" />
 

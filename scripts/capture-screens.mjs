@@ -29,7 +29,21 @@ const EDITOR = { email: 'editor@lonqui.test', password: 'lonqui-dev-1234' }
 const VIEWPORTS = [
   { name: '390', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 },
   { name: '1440', viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 },
-]
+].map((vp) => ({
+  // Sin esto los <input type="date"> salen en mm/dd/yyyy y las horas en la
+  // zona de la máquina: la captura no mostraría lo que ve el club.
+  locale: 'es-AR',
+  timezoneId: 'America/Argentina/Buenos_Aires',
+  ...vp,
+}))
+
+
+/** Las opciones de Playwright, sin el `name` que solo usamos para el archivo. */
+function contextOptionsOf(vp) {
+  const options = { ...vp }
+  delete options.name
+  return options
+}
 
 function psql(sql) {
   return execFileSync('docker', ['exec', 'supabase_db_lonqui', 'psql', '-U', 'postgres', '-tAc', sql], {
@@ -48,17 +62,24 @@ async function login(page, { email, password }) {
 async function shoot(page, name, viewport) {
   await page.waitForLoadState('networkidle')
   await page.screenshot({ path: join(OUT, `${name}-${viewport}.png`), fullPage: true })
+  // En el celular la navegación inferior es fija: en la captura de página
+  // completa queda estampada a mitad de página. La del primer viewport es la
+  // que muestra lo que la persona ve de verdad al entrar.
+  if (viewport === '390') {
+    await page.screenshot({ path: join(OUT, `${name}-${viewport}-viewport.png`) })
+  }
 }
 
 async function main() {
   mkdirSync(OUT, { recursive: true })
   const memberId = psql("select id from public.members where status = 'active' and family_group_id is not null order by id limit 1")
 
-  const browser = await chromium.launch()
+  // El formato de <input type="date"> lo decide el idioma del navegador, no el
+// `locale` del contexto: sin --lang, Chromium muestra mm/dd/yyyy.
+  const browser = await chromium.launch({ args: ['--lang=es-AR'] })
   try {
     for (const vp of VIEWPORTS) {
-      const { name: _name, ...contextOptions } = vp
-      const context = await browser.newContext(contextOptions)
+      const context = await browser.newContext(contextOptionsOf(vp))
       const page = await context.newPage()
 
       await page.goto(`${BASE_URL}/login`)
@@ -86,7 +107,16 @@ async function main() {
         for (const [name, path] of routes) {
           await page.goto(`${BASE_URL}${path}`)
           await page.waitForLoadState('networkidle')
-          const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+          // El ancho real: cualquier elemento que se salga del viewport cuenta,
+          // aunque el documento tenga overflow-x oculto.
+          const overflow = await page.evaluate(() => {
+            const widest = Math.max(
+              document.documentElement.scrollWidth,
+              document.body.scrollWidth,
+              ...Array.from(document.querySelectorAll('body *')).map((el) => el.getBoundingClientRect().right),
+            )
+            return Math.ceil(widest - window.innerWidth)
+          })
           console.log(`${overflow > 0 ? '✗' : '✓'} overflow horizontal ${name} @390: ${overflow}px`)
         }
       }
@@ -95,8 +125,7 @@ async function main() {
     }
 
     // Flag de contraseña temporal prendido a mitad de sesión.
-    const { name: _mobileName, ...mobileOptions } = VIEWPORTS[0]
-    const context = await browser.newContext(mobileOptions)
+    const context = await browser.newContext(contextOptionsOf(VIEWPORTS[0]))
     const page = await context.newPage()
     await login(page, EDITOR)
     await page.goto(`${BASE_URL}/`)

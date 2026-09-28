@@ -59,3 +59,33 @@ export function formatDateTime(instant: string | Date): string {
     hourCycle: 'h23',
   }).format(typeof instant === 'string' ? new Date(instant) : instant)
 }
+
+/** `2026-09-01` + 2 → `2026-11-01`. Acepta negativos. Aritmética de enteros, sin `Date`. */
+export function addMonths(period: string, months: number): string {
+  const [year, month] = period.split('-').map(Number)
+  const index = year * 12 + (month - 1) + months
+  const nextYear = Math.floor(index / 12)
+  const nextMonth = (index % 12) + 1
+  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
+}
+
+export function previousPeriod(period: string): string {
+  return addMonths(period, -1)
+}
+
+/** Último día del período: `2026-02-01` → `2026-02-28`. */
+export function lastDayOfPeriod(period: string): string {
+  const [year, month] = period.split('-').map(Number)
+  // Día 0 del mes siguiente = último día de este. En UTC para no depender de la zona.
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return `${period.slice(0, 7)}-${String(day).padStart(2, '0')}`
+}
+
+/** Períodos de `from` a `to`, inclusive, en orden. Vacío si `from > to`. */
+export function periodRange(from: string, to: string): string[] {
+  const periods: string[] = []
+  for (let period = from; period <= to; period = addMonths(period, 1)) {
+    periods.push(period)
+  }
+  return periods
+}

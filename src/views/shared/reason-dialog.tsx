@@ -86,7 +86,7 @@ export function ReasonDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{consequence}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(handleConfirm)} className="flex flex-col gap-4">
+        <form onSubmit={form.handleSubmit(handleConfirm)} method="post" className="flex flex-col gap-4">
           <DateField control={form.control} name="effectiveOn" label="Fecha" max={toClubDate()} />
           <TextareaField control={form.control} name="reason" label="Motivo" placeholder="Contá brevemente el motivo" />
           {formError ? (

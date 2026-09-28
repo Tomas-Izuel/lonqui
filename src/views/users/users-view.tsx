@@ -77,28 +77,30 @@ export function UsersView({ users, currentUserId }: { users: AppUserListItem[]; 
         </>
       ),
       // `subtitle` vive bajo `truncate` en `DataList` (una sola línea de
-      // texto): nada de pills ahí, se cortarían. Rol y estado van en `meta`,
-      // que sí admite contenido rico.
+      // texto): nada de pills ahí, se cortarían. Rol y estado van en `meta`
+      // (debajo del subtítulo, finish review fix 1): el menú es lo único a la
+      // derecha, vía `actions`, así nunca compite por ancho con el título.
       subtitle: u.authStatus === 'incomplete' ? undefined : u.email,
       meta: (
-        <div className="flex flex-col items-end gap-1.5">
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
-            {u.authStatus === 'ok' ? <RolePill role={u.role} /> : null}
-            <UserStatusBadges user={u} />
-          </div>
-          {actionsFor(u)}
-        </div>
+        <>
+          {u.authStatus === 'ok' ? <RolePill role={u.role} /> : null}
+          <UserStatusBadges user={u} />
+        </>
       ),
+      actions: actionsFor(u),
     }
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {/* El botón "Nuevo usuario" sin override de alto: hereda el h-11 (44px)
+          flat del `Button` base — antes achicaba a h-8 (32px) desde `sm:`,
+          bajo el piso táctil. */}
       <PageHeader
         title="Usuarios"
         description="Quién de la Comisión entra al sistema y con qué permiso."
         action={
-          <Button type="button" onClick={() => setCreateOpen(true)} className="h-11 gap-1.5 sm:h-8">
+          <Button type="button" onClick={() => setCreateOpen(true)} className="gap-1.5">
             <UserPlus aria-hidden />
             Nuevo usuario
           </Button>

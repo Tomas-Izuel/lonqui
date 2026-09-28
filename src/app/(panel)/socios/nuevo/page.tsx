@@ -15,9 +15,8 @@ export const metadata: Metadata = { title: 'Ficha de ingreso — Club Naranja y 
  */
 export default async function NewMemberPage() {
   const session = await requirePanelAccess()
-  const role = session?.role ?? null
 
-  if (role !== 'admin' && role !== 'editor') {
+  if (!session.permissions.includes('members.write')) {
     return <AccessDenied />
   }
 

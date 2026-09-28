@@ -68,6 +68,21 @@ export async function unban(userId: string): Promise<void> {
 }
 
 /**
+ * Email real de Auth para un `userId` (03-review.md, Minor 9): `completeUser`
+ * lo usa para no confiar en el email que manda el browser. `app_users.email`
+ * es inmutable por trigger una vez insertado, así que un valor distinto al de
+ * Auth quedaría escrito para siempre.
+ */
+export async function getAuthUserEmail(userId: string): Promise<string> {
+  const admin = createAdminClient()
+  const { data, error } = await admin.auth.admin.getUserById(userId)
+  if (error || !data.user?.email) {
+    throw new AuthAdminError(error?.message ?? 'No encontramos ese usuario en Auth', error?.code)
+  }
+  return data.user.email
+}
+
+/**
  * Todos los usuarios de Auth, paginado hasta agotar. `listUsers` (el
  * controller) los cruza contra `app_users` para detectar altas incompletas.
  * Con el tamaño de este club (unos pocos usuarios internos) esto nunca supera

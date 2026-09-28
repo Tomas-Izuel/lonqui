@@ -4,7 +4,18 @@
  * traduce, para no repetir el texto en cada vista.
  */
 
-import type { AppRole, AuditOp, MemberStatus, MemberStatusEventType, MemberType } from '@/models/types'
+import type {
+  AppRole,
+  AuditOp,
+  DebtStatus,
+  FeeKind,
+  FeePriceScope,
+  FeeStatementStatus,
+  MemberStatus,
+  MemberStatusEventType,
+  MemberType,
+  PaymentMethod,
+} from '@/models/types'
 
 export const memberTypeLabels: Record<MemberType, string> = {
   practicing: 'Practicante',
@@ -42,11 +53,46 @@ export const auditOpLabels: Record<AuditOp, string> = {
   EXPORT: 'Exportó',
 }
 
-/** Estado del apto físico, para el aviso en el padrón y en la ficha. */
+/**
+ * Estado del apto físico, para el aviso en el padrón y en la ficha. Cada
+ * etiqueta nombra "apto físico" explícito (finish review, fix 5): "Falta
+ * cargar" o "Vencido" a secas, sueltos en una fila del padrón sin más
+ * contexto, no dicen qué es lo que falta o venció.
+ */
 export const medicalClearanceStatusLabels = {
   not_required: 'No requiere',
-  missing: 'Falta cargar',
+  missing: 'Falta apto físico',
   valid: 'Vigente',
-  expiring: 'Por vencer',
-  expired: 'Vencido',
+  expiring: 'Apto por vencer',
+  expired: 'Apto vencido',
 } as const
+
+export const paymentMethodLabels: Record<PaymentMethod, string> = {
+  cash: 'Efectivo',
+  transfer: 'Transferencia',
+}
+
+export const debtStatusLabels: Record<DebtStatus, string> = {
+  up_to_date: 'Al día',
+  in_debt: 'Con deuda',
+  credit: 'Saldo a favor',
+}
+
+export const feeKindLabels: Record<FeeKind, string> = {
+  monthly: 'Cuota',
+  opening_balance: 'Saldo anterior',
+  adjustment: 'Ajuste',
+}
+
+export const feeStatementStatusLabels: Record<FeeStatementStatus, string> = {
+  paid: 'Pagada',
+  partial: 'Parcial',
+  due: 'Adeudada',
+  voided: 'Anulada',
+}
+
+export const feePriceScopeLabels: Record<FeePriceScope, string> = {
+  default: 'Por defecto',
+  member_type: 'Por tipo de socio',
+  category: 'Por categoría',
+}

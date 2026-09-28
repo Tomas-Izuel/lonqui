@@ -5,8 +5,18 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { DateTimeText } from '@/views/shared/date-text'
 import { auditOpLabels, memberStatusEventLabels } from '@/views/shared/labels'
-import { auditEntityLabel, auditFieldLabel } from '@/views/audit/audit-labels'
+import { auditFieldLabel, auditRecordPhrase } from '@/views/audit/audit-labels'
 import type { AuditEntryDetail, MemberStatusEventType } from '@/models/types'
+
+/**
+ * Columnas técnicas que no le sirven a la Comisión (03-review.md, minor 13):
+ * `search_text` es la columna derivada de búsqueda ("lucia ejemplo 30111222",
+ * un DNI crudo sin ninguna razón para estar acá), `id`/`created_by`/
+ * `uploaded_by` son uuids o ids internos sin traducción posible en esta
+ * vista, y `updated_at`/`created_at` ya se muestran como la fecha del
+ * movimiento en el encabezado del sheet.
+ */
+const HIDDEN_FIELDS = new Set(['id', 'search_text', 'created_by', 'uploaded_by', 'updated_at', 'created_at'])
 
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
@@ -27,7 +37,7 @@ function detailRows(entry: AuditEntryDetail): { field: string; before: string; a
   const fields = entry.op === 'INSERT' ? Object.keys(newData) : (entry.changedFields ?? [])
 
   return fields
-    .filter((field) => field !== 'updated_at' && field !== 'created_at')
+    .filter((field) => !HIDDEN_FIELDS.has(field))
     .map((field) => ({
       field: auditFieldLabel(entry.tableName, field),
       before: entry.op === 'INSERT' ? '—' : formatValue(oldData[field]),
@@ -63,8 +73,12 @@ function AuditDetailSheetInner({ entry }: { entry: AuditEntryDetail }) {
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
         <SheetHeader>
+          {/* `eventType` (Alta/Baja/Reactivación) manda cuando hay `newData`
+              con `event_type`: es más preciso que el genérico "un movimiento
+              de alta o baja" de `auditRecordPhrase` para esta tabla, porque
+              acá SÍ tenemos el valor, a diferencia del listado. */}
           <SheetTitle>
-            {auditOpLabels[entry.op]} {eventType ?? auditEntityLabel(entry.tableName)}
+            {auditOpLabels[entry.op]} {eventType ?? auditRecordPhrase(entry.tableName, entry.recordLabel)}
           </SheetTitle>
           <SheetDescription>
             <DateTimeText instant={entry.occurredAt} /> — {entry.actorName ?? 'Sistema'}

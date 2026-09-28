@@ -22,7 +22,10 @@ export function Panel({
   return (
     <section className={cn('rounded-lg border border-border bg-card', className)}>
       {title ? (
-        <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        // Apilado en móvil (finish review, fix 7 — "ceiling"): un título largo
+        // ("Disciplinas y categorías") junto a una acción ("Nueva disciplina")
+        // en una sola fila se aplastaban a 390px. Misma regla que `PageHeader`.
+        <header className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col gap-0.5">
             <h2 className="font-heading text-base font-semibold text-balance">{title}</h2>
             {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}

@@ -30,8 +30,10 @@ export function UserRowMenu({
   onResetPassword: () => void
 }) {
   if (user.authStatus === 'incomplete') {
+    // Sin override de alto: hereda el h-11 (44px) flat de `size="sm"` — antes
+    // forzaba h-9 (36px), bajo el piso táctil.
     return (
-      <Button type="button" variant="outline" size="sm" onClick={onCompleteAlta} className="h-9">
+      <Button type="button" variant="outline" size="sm" onClick={onCompleteAlta}>
         Completar alta
       </Button>
     )
@@ -40,13 +42,9 @@ export function UserRowMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={`Acciones para ${user.displayName}`}
-          className="size-11 sm:size-8"
-        >
+        {/* Sin override de tamaño: hereda el size-11 (44px) flat de
+            `size="icon"` — antes achicaba a size-8 (32px) desde `sm:`. */}
+        <Button type="button" variant="ghost" size="icon" aria-label={`Acciones para ${user.displayName}`}>
           <EllipsisVertical aria-hidden />
         </Button>
       </DropdownMenuTrigger>

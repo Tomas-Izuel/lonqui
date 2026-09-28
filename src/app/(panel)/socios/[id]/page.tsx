@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { requirePanelAccess } from '@/controllers/session.controller'
 import { getMemberPage } from '@/controllers/members.controller'
+import { listDisciplines } from '@/models/catalogs.model'
 import { isDomainError } from '@/lib/errors'
 import { MemberDetailView } from '@/views/members/member-detail-view'
 
@@ -15,15 +16,14 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
   if (!/^\d+$/.test(id)) notFound()
 
   const session = await requirePanelAccess()
-  const role = session?.role ?? null
 
-  let member
+  let data, disciplines
   try {
-    member = await getMemberPage(Number(id))
+    ;[data, disciplines] = await Promise.all([getMemberPage(Number(id)), listDisciplines()])
   } catch (err) {
     if (isDomainError(err) && err.status === 404) notFound()
     throw err
   }
 
-  return <MemberDetailView member={member} role={role} />
+  return <MemberDetailView data={data} disciplines={disciplines} permissions={session.permissions} />
 }

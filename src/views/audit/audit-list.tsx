@@ -7,7 +7,7 @@ import { DateTimeText } from '@/views/shared/date-text'
 import { EmptyState } from '@/views/shared/states'
 import { Pagination } from '@/views/shared/pagination'
 import { auditOpLabels } from '@/views/shared/labels'
-import { auditEntityLabel, auditFieldLabel } from '@/views/audit/audit-labels'
+import { auditFieldLabel, auditRecordName, auditRecordPhrase } from '@/views/audit/audit-labels'
 import type { AuditEntry, Page } from '@/models/types'
 
 type AccumulatedState = { items: AuditEntry[]; nextCursor: string | null; appliedCursor: string | null }
@@ -68,7 +68,9 @@ export function AuditList({
   const columns: DataListColumn<AuditEntry>[] = [
     { key: 'when', header: 'Fecha y hora', className: 'tabular-nums whitespace-nowrap', render: (e) => <DateTimeText instant={e.occurredAt} /> },
     { key: 'who', header: 'Quién', render: (e) => e.actorName ?? 'Sistema' },
-    { key: 'what', header: 'Qué', render: (e) => `${auditEntityLabel(e.tableName)}${e.recordId ? ` #${e.recordId}` : ''}` },
+    // El nombre del registro (`recordLabel`), no el id: "Ejemplo, Lucía", no
+    // "#42" — el id queda para el detalle, secundario (finish review, fix 3).
+    { key: 'what', header: 'Qué', render: (e) => auditRecordName(e.tableName, e.recordLabel) },
     { key: 'op', header: 'Operación', render: (e) => auditOpLabels[e.op] },
     {
       key: 'fields',
@@ -79,10 +81,21 @@ export function AuditList({
   ]
 
   function renderRow(e: AuditEntry): DataListRow {
+    const fieldLabels = e.changedFields && e.changedFields.length > 0 ? e.changedFields.map((f) => auditFieldLabel(e.tableName, f)) : null
     return {
       title: e.actorName ?? 'Sistema',
-      subtitle: `${auditOpLabels[e.op]} ${auditEntityLabel(e.tableName)}${e.recordId ? ` #${e.recordId}` : ''}`,
-      meta: <DateTimeText instant={e.occurredAt} className="text-xs text-muted-foreground" />,
+      // "Modificó a Ejemplo, Lucía": el idioma del club, no la tabla ni el id
+      // internos (finish review, fix 3). Los campos cambiados NO van acá:
+      // `subtitle` es de una sola línea (`truncate` en `DataList`) y Presidencia
+      // tiene que poder leer QUÉ cambió sin abrir la fila (finish review,
+      // segundo pase) — van en `meta`, en su propia línea con `line-clamp-2`.
+      subtitle: `${auditOpLabels[e.op]} ${auditRecordPhrase(e.tableName, e.recordLabel)}`,
+      meta: (
+        <>
+          {fieldLabels ? <span className="line-clamp-2 w-full text-xs text-muted-foreground">{fieldLabels.join(', ')}</span> : null}
+          <DateTimeText instant={e.occurredAt} className="text-xs text-muted-foreground" />
+        </>
+      ),
       href: detailHref(e.id),
     }
   }
