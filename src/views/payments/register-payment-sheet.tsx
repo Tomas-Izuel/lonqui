@@ -1,58 +1,98 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ResponsiveSheet } from '@/views/shared/responsive-sheet'
+import { motion } from 'motion/react'
+import { CircleCheck } from 'lucide-react'
 import { LoadingList, ErrorState } from '@/views/shared/states'
 import { PaymentForm } from '@/views/payments/payment-form'
 import { GroupPaymentForm } from '@/views/payments/group-payment-form'
 import { getPaymentFormData } from '@/controllers/payments.actions'
+import { DURATION, SPRING_OVERLAY, useMotionPreference } from '@/views/shared/motion'
+import { formatCentsCompact } from '@/lib/money'
 import type { PaymentFormData } from '@/models/types'
-
-export type RegisterPaymentSheetProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  /** Uno de los dos, igual que `getPaymentFormData` (F1, `payments.actions.ts`). */
-  memberId?: number
-  familyGroupId?: number
-}
 
 type State = { status: 'idle' | 'loading' } | { status: 'error'; error: string } | { status: 'ready'; data: PaymentFormData }
 
 /**
- * Componente reutilizable para registrar un pago SIN salir de donde se abrió
- * (pensado para F2: importarlo desde la ficha del socio si prefiere un sheet
- * a navegar a `/cobranza/nuevo`). El flujo aprobado en
- * `00-architecture.md` §10 / `01-tasks.md` F2 es un link directo a
- * `/cobranza/nuevo?socio=…&volver=/socios/<id>` — más simple y es lo que
- * `/cobranza/nuevo` (page.tsx) ya implementa. Esto queda como alternativa
- * documentada (dev log F1) por si F2 prefiere no navegar afuera de la ficha;
- * no tiene su propio caso de uso probado en este pipeline.
- *
- * Pide los datos con `getPaymentFormData` (Server Action, `payments.actions.ts`)
- * recién al abrirse — no antes — para no pagar la RPC en cada render de la
- * ficha. Al terminar, cierra el sheet y refresca la ruta actual (los montos
- * de la ficha vuelven a leerse del servidor).
+ * El único momento autorado del flujo de cobranza (D5/`animate.md`: "un solo
+ * momento por vista, nunca una pantalla de celebración que demore el flujo
+ * más rápido del sistema"): un check y el monto, visibles el tiempo justo
+ * para confirmar antes de que el sheet se cierre solo. Nunca bloquea —no hay
+ * botón, no hay nada que tocar— y con movimiento reducido es un fade simple,
+ * sin el resorte de escala.
  */
-export function RegisterPaymentSheet({ open, onOpenChange, memberId, familyGroupId }: RegisterPaymentSheetProps) {
+function PaymentSuccessMoment({ amountCents }: { amountCents: number }) {
+  const { reduced, pick } = useMotionPreference()
+  return (
+    <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <motion.span
+        initial={pick({ scale: 0.6, opacity: 0 }, { opacity: 0 })}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={reduced ? { duration: DURATION.state } : SPRING_OVERLAY}
+        className="flex size-14 items-center justify-center rounded-full bg-status-up-to-date/10 text-status-up-to-date"
+      >
+        <CircleCheck aria-hidden className="size-8" />
+      </motion.span>
+      <div className="flex flex-col gap-0.5">
+        <p className="text-lg font-semibold tabular-nums">{formatCentsCompact(amountCents)}</p>
+        <p className="text-sm text-muted-foreground">Pago registrado</p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Contenido del overlay de pago (búsqueda → cobrar, `PaymentOverlayHost` es
+ * quien monta el `ResponsiveSheet` y la transición `AnimatePresence` entre
+ * pasos): pide `getPaymentFormData` (Server Action) al montarse —solo
+ * entonces, nunca antes— y renderiza `PaymentForm` o `GroupPaymentForm` según
+ * traiga `familyGroup`. Extraído de lo que antes era `RegisterPaymentSheet`
+ * (sheet + fetch en un solo componente): ahora el sheet lo posee
+ * `PaymentOverlayHost` (uno solo, persistente entre "buscar" y "socio:id"),
+ * y esto es solo el contenido que cambia adentro.
+ *
+ * Al terminar, NO llama a `onDone` directo: pasa por el momento autorado de
+ * arriba (`PaymentSuccessMoment`) y recién ahí cierra + refresca — el toast
+ * de éxito ya lo dispara `PaymentForm`/`GroupPaymentForm` en el momento del
+ * registro, así que queda de rastro aunque el sheet ya se haya cerrado.
+ */
+export function RegisterPaymentSheetBody({
+  memberId,
+  familyGroupId,
+  onDone,
+}: {
+  /** Uno de los dos, igual que `getPaymentFormData`. */
+  memberId?: number
+  familyGroupId?: number
+  /** Cierra el overlay (siempre llega ya envuelto por `useCloseOverlay('pagar')`). */
+  onDone: () => void
+}) {
   const router = useRouter()
   const [state, setState] = useState<State>({ status: 'idle' })
+  const [successAmountCents, setSuccessAmountCents] = useState<number | null>(null)
+  const closeTimeoutRef = useRef<number | undefined>(undefined)
 
-  // Qué pedido corresponde mostrar ahora mismo: null si el sheet está
-  // cerrado. Cuando cambia (se abre, o se abre para otro socio/grupo) se
-  // vuelve a 'loading' EN EL RENDER, mismo patrón que `SearchInput` — evita
-  // el `setState` síncrono al principio del efecto (cascading renders); el
-  // efecto de abajo solo dispara el pedido y escribe el resultado en su
-  // callback async, que es la forma que el lint sí acepta.
-  const requestKey = open ? `${memberId ?? ''}:${familyGroupId ?? ''}` : null
-  const [trackedKey, setTrackedKey] = useState<string | null>(null)
+  // Si el overlay se cierra a mano (Esc, backdrop) mientras el check todavía
+  // está en pantalla, el cierre "de verdad" que programó `handleSuccess` no
+  // tiene sentido: `onDone`/`router.refresh()` en un componente ya desmontado
+  // no rompe nada (son referencias estables), pero tampoco hace falta.
+  useEffect(() => {
+    return () => window.clearTimeout(closeTimeoutRef.current)
+  }, [])
+
+  // Mismo patrón que `MemberPicker`/`SearchInput`: el "loading" se fija en el
+  // render cuando cambia a QUÉ socio o grupo corresponde este pedido, no
+  // dentro del cuerpo del efecto (evita el `setState` síncrono al principio
+  // de un efecto, que dispara un render en cascada).
+  const requestKey = `${memberId ?? ''}:${familyGroupId ?? ''}`
+  const [trackedKey, setTrackedKey] = useState(requestKey)
   if (requestKey !== trackedKey) {
     setTrackedKey(requestKey)
-    setState(requestKey ? { status: 'loading' } : { status: 'idle' })
+    setState({ status: 'loading' })
   }
 
   useEffect(() => {
-    if (!requestKey) return
     let cancelled = false
 
     getPaymentFormData({ memberId, familyGroupId }).then((result) => {
@@ -67,31 +107,41 @@ export function RegisterPaymentSheet({ open, onOpenChange, memberId, familyGroup
     return () => {
       cancelled = true
     }
-  }, [requestKey, memberId, familyGroupId])
+  }, [memberId, familyGroupId])
 
-  function handleDone() {
-    onOpenChange(false)
-    router.refresh()
+  function handleSuccess(amountCents: number) {
+    setSuccessAmountCents(amountCents)
+    // El check queda visible un instante (`focal`, `motion.ts`) antes de
+    // cerrar de verdad: cerrar de una desaparecería el sheet antes de que
+    // nadie llegue a ver la confirmación.
+    closeTimeoutRef.current = window.setTimeout(() => {
+      onDone()
+      router.refresh()
+    }, DURATION.focal * 1000)
+  }
+
+  if (successAmountCents != null) {
+    return <PaymentSuccessMoment amountCents={successAmountCents} />
   }
 
   return (
-    <ResponsiveSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={familyGroupId != null ? 'Pago del grupo familiar' : 'Registrar pago'}
-      footer={null}
-    >
+    <>
       {state.status === 'idle' || state.status === 'loading' ? <LoadingList rows={3} /> : null}
       {state.status === 'error' ? (
         <ErrorState title="No pudimos abrir el formulario" description={state.error} />
       ) : null}
       {state.status === 'ready' ? (
         state.data.familyGroup ? (
-          <GroupPaymentForm members={state.data.members} familyGroup={state.data.familyGroup} onDone={handleDone} />
+          <GroupPaymentForm
+            members={state.data.members}
+            familyGroup={state.data.familyGroup}
+            onDone={() => {}}
+            onSuccess={handleSuccess}
+          />
         ) : (
-          <PaymentForm member={state.data.members[0]} onDone={handleDone} />
+          <PaymentForm member={state.data.members[0]} onDone={() => {}} onSuccess={handleSuccess} />
         )
       ) : null}
-    </ResponsiveSheet>
+    </>
   )
 }

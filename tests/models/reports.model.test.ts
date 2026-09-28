@@ -270,6 +270,73 @@ describe('getMonthlyHistory / getMonthCollection', () => {
   })
 })
 
+describe('getDailyCollection (ritmo de cobranza del mes, addendum B1)', () => {
+  it('sin targetPeriod llama la RPC sin argumentos (mes actual del club, nunca calculado en TS)', async () => {
+    const rpcSpy = vi.fn(() => chainableRpc(() => {}, () => ({ data: [], error: null })))
+    createClientMock.mockResolvedValue({ rpc: rpcSpy })
+    const { getDailyCollection } = await importModel()
+    await getDailyCollection()
+    expect(rpcSpy).toHaveBeenCalledWith('daily_collection', {})
+  })
+
+  it('con targetPeriod lo pasa como target_period', async () => {
+    const rpcSpy = vi.fn(() => chainableRpc(() => {}, () => ({ data: [], error: null })))
+    createClientMock.mockResolvedValue({ rpc: rpcSpy })
+    const { getDailyCollection } = await importModel()
+    await getDailyCollection('2026-08-01')
+    expect(rpcSpy).toHaveBeenCalledWith('daily_collection', { target_period: '2026-08-01' })
+  })
+
+  it('pide el orden explícito por día ascendente (defensivo, mismo criterio que el resto del archivo)', async () => {
+    const chain = chainableRpc(() => {}, () => ({ data: [], error: null }))
+    createClientMock.mockResolvedValue({ rpc: () => chain })
+    const { getDailyCollection } = await importModel()
+    await getDailyCollection()
+    expect((chain as { __calls: { method: string; args: unknown[] }[] }).__calls).toContainEqual({
+      method: 'order',
+      args: ['day', { ascending: true }],
+    })
+  })
+
+  it('mapea day/collected_cents/cumulative_cents a camelCase, sin tocar los montos', async () => {
+    createClientMock.mockResolvedValue({
+      rpc: () =>
+        chainableRpc(
+          () => {},
+          () => ({
+            data: [
+              { day: '2026-09-01', collected_cents: 0, cumulative_cents: 0 },
+              { day: '2026-09-02', collected_cents: 1_500_000, cumulative_cents: 1_500_000 },
+            ],
+            error: null,
+          }),
+        ),
+    })
+    const { getDailyCollection } = await importModel()
+    const points = await getDailyCollection()
+    expect(points).toEqual([
+      { day: '2026-09-01', collectedCents: 0, cumulativeCents: 0 },
+      { day: '2026-09-02', collectedCents: 1_500_000, cumulativeCents: 1_500_000 },
+    ])
+  })
+
+  it('data null (RPC sin filas) devuelve array vacío, no revienta', async () => {
+    createClientMock.mockResolvedValue({
+      rpc: () => chainableRpc(() => {}, () => ({ data: null, error: null })),
+    })
+    const { getDailyCollection } = await importModel()
+    await expect(getDailyCollection()).resolves.toEqual([])
+  })
+
+  it('error de Postgres se propaga (nunca se traga en silencio)', async () => {
+    createClientMock.mockResolvedValue({
+      rpc: () => chainableRpc(() => {}, () => ({ data: null, error: new Error('boom') })),
+    })
+    const { getDailyCollection } = await importModel()
+    await expect(getDailyCollection()).rejects.toThrow('boom')
+  })
+})
+
 describe('loadMoreMemberAccountsSchema', () => {
   it('acepta filtros vacíos', async () => {
     const { loadMoreMemberAccountsSchema } = await importModel()

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import type {
   AccountListFilters,
   CurrentFeeLine,
+  DailyCollectionPoint,
   DashboardSummary,
   DebtByCategoryRow,
   DebtStatus,
@@ -137,6 +138,12 @@ type MonthCollectionRowRaw = {
   fees_count: number
 }
 
+type DailyCollectionRowRaw = {
+  day: string
+  collected_cents: number
+  cumulative_cents: number
+}
+
 function mapCategoryRef(json: CategoryRefJson): MemberCategoryRef {
   return {
     categoryId: json.category_id,
@@ -236,6 +243,14 @@ function mapMonthCollection(row: MonthCollectionRowRaw): MonthCollection {
     paymentsCount: row.payments_count,
     feesCents: row.fees_cents,
     feesCount: row.fees_count,
+  }
+}
+
+function mapDailyCollectionPoint(row: DailyCollectionRowRaw): DailyCollectionPoint {
+  return {
+    day: row.day,
+    collectedCents: row.collected_cents,
+    cumulativeCents: row.cumulative_cents,
   }
 }
 
@@ -403,4 +418,22 @@ export async function getMonthCollection(targetPeriod?: string): Promise<MonthCo
 
   if (error) throw error
   return mapMonthCollection(data)
+}
+
+/**
+ * Ritmo día a día de `targetPeriod` (el mes actual del club si se omite),
+ * para el área acumulada de `/cobranza` (pipeline `2026-09-28-ui-expresiva`,
+ * `daily_collection`). Una fila por día hasta hoy (o hasta fin de mes si el
+ * período pedido ya cerró); `cumulativeCents` viene acumulado desde la base,
+ * nunca sumado acá.
+ */
+export async function getDailyCollection(targetPeriod?: string): Promise<DailyCollectionPoint[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .rpc('daily_collection', targetPeriod ? { target_period: targetPeriod } : {})
+    .order('day', { ascending: true })
+    .overrideTypes<DailyCollectionRowRaw[], { merge: false }>()
+
+  if (error) throw error
+  return (data ?? []).map(mapDailyCollectionPoint)
 }

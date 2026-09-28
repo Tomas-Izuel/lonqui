@@ -78,10 +78,20 @@ export function CategoryRow({
   }
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-l border-border py-2 pl-3">
-      <div className="flex min-w-0 items-center gap-2">
+    // Ritmo de "fila" (12px, DESIGN.md → Layout → Ritmo), antes en 8px:
+    // quedaba más apretado que cualquier otra fila del panel (`DataList` usa
+    // `py-3`). Ronda 2 (screenshot a 390px): el `border-l` + `rounded-lg` de
+    // la ronda anterior, sumado al `divide-y` que ya pone el `<ul>` padre
+    // (`DisciplineGroup`), se leía como una tarjeta anidada dentro del panel
+    // — se saca el borde y el radio propios; la separación entre categorías
+    // la sigue dando solo el `divide-y` del padre, fila plana como cualquier
+    // fila de `DataList`. `flex-nowrap` + `min-w-0 flex-1` en el nombre: el
+    // mismo arreglo que `DisciplineGroup` para que las acciones (subir/bajar/
+    // más) no se caigan a su propia línea a 390px.
+    <li className="group flex flex-nowrap items-center justify-between gap-2 py-3 pl-3 transition-colors hover:bg-muted/40">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate text-sm font-medium">{category.name}</span>
-        <StatusPill variant={category.isActive ? 'member-active' : 'member-inactive'}>
+        <StatusPill variant={category.isActive ? 'member-active' : 'member-inactive'} className="shrink-0">
           {category.isActive ? 'Activa' : 'Inactiva'}
         </StatusPill>
       </div>

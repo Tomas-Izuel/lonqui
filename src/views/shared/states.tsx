@@ -51,7 +51,7 @@ export function LoadingList({ rows = 5, className }: { rows?: number; className?
   return (
     <div className={cn('flex flex-col gap-2', className)} role="status" aria-label="Cargando…">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-lg border border-border px-3 py-3">
+        <div key={i} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-3">
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="h-4 w-1/5" />
           <Skeleton className="ml-auto h-4 w-16" />

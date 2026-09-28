@@ -8,6 +8,7 @@ import { requirePanelPermission } from '@/controllers/session.controller'
 // acá cuando B1 aterrice.
 import { getBillingStatus } from '@/models/billing.model'
 import {
+  getDailyCollection,
   getDashboardSummary,
   getMonthCollection,
   getMonthlyHistory,
@@ -18,6 +19,7 @@ import {
 import type {
   AccountListFilters,
   BillingStatus,
+  DailyCollectionPoint,
   DashboardData,
   DebtByCategoryRow,
   MemberAccount,
@@ -60,14 +62,16 @@ export async function getDashboard(): Promise<DashboardData> {
 export type CobranzaHubData = {
   collection: MonthCollection
   billing: BillingStatus
+  /** Ritmo día a día del mes actual, para el área acumulada de F-cobranza (agregado del addendum, pipeline `2026-09-28-ui-expresiva`). */
+  daily: DailyCollectionPoint[]
 }
 
 /** Cabecera de `/cobranza`: cobrado del mes actual + el estado de la facturación (el aviso de "Reintentar" lo decide la vista con `billing.currentPeriodRun`). */
 export async function getCobranzaHub(): Promise<CobranzaHubData> {
   await requirePanelPermission('payments.read')
 
-  const [collection, billing] = await Promise.all([getMonthCollection(), getBillingStatus()])
-  return { collection, billing }
+  const [collection, billing, daily] = await Promise.all([getMonthCollection(), getBillingStatus(), getDailyCollection()])
+  return { collection, billing, daily }
 }
 
 /** Listado "con deuda" de `/cobranza`: mismos filtros que el padrón, forzando `debt: 'in_debt'`. */

@@ -53,10 +53,26 @@ export function ClubSettingsForm({ settings }: { settings: Settings }) {
     }
   }
 
+  // Ronda 2 (screenshot a 390px): con `variant="default"` fijo, el estado
+  // deshabilitado "nada para guardar" quedaba como el botón naranja sólido a
+  // mitad de opacidad — un naranja pálido y lavado que a primera vista parece
+  // un botón roto, no uno inactivo. `disabled:opacity-50` de `Button` es
+  // igual el estilo del sistema (`components/ui/button.tsx`) y sigue
+  // aplicándose tal cual mientras `pending` (envío en curso, un momento
+  // fugaz); lo que cambia es que en reposo, sin cambios que guardar, el
+  // botón usa `variant="outline"` —la misma acción secundaria de siempre—
+  // en vez de una versión desteñida de la primaria.
+  const hasChanges = form.formState.isDirty
+
   return (
     <form onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4 sm:max-w-sm">
       <TextField control={form.control} name="clubName" label="Nombre del club" disabled={pending} />
-      <Button type="submit" disabled={pending || !form.formState.isDirty} className="h-11 w-fit">
+      <Button
+        type="submit"
+        variant={hasChanges ? 'default' : 'outline'}
+        disabled={pending || !hasChanges}
+        className="h-11 w-fit"
+      >
         {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
         {pending ? 'Guardando…' : 'Guardar cambios'}
       </Button>

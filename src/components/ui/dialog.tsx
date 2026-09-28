@@ -68,7 +68,13 @@ function DialogContent({
           // (hallazgo de Tomás en "Nuevo usuario"). Con esto, todo hijo
           // directo puede encogerse hasta 0 y el que desborda es el que
           // trunca/scrollea puertas adentro, nunca el diálogo entero.
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm [&>*]:min-w-0 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          //
+          // Entrada/salida con las curvas de C1 (`views/shared/motion.ts`):
+          // llega en `duration.overlay` (350ms) con `ease-out-expo`
+          // (=`EASE_ENTER`), sale más rápido (200ms) con `ease-in`
+          // (=`EASE_EXIT`, cubic-bezier(.4,0,1,1) es el valor por defecto de
+          // Tailwind para `ease-in`) — la salida no se queda mirando.
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm [&>*]:min-w-0 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[.97] data-open:duration-[350ms] data-open:ease-out-expo data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[.97] data-closed:duration-200 data-closed:ease-in",
           className
         )}
         {...props}

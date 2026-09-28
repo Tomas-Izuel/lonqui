@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { motion } from 'motion/react'
 import { DataList, type DataListColumn, type DataListRow } from '@/views/shared/data-list'
 import { DateTimeText } from '@/views/shared/date-text'
 import { EmptyState } from '@/views/shared/states'
 import { Pagination } from '@/views/shared/pagination'
 import { auditOpLabels } from '@/views/shared/labels'
 import { auditFieldLabel, auditRecordName, auditRecordPhrase } from '@/views/audit/audit-labels'
+import { DURATION, EASE_ENTER, useMotionPreference } from '@/views/shared/motion'
 import type { AuditEntry, Page } from '@/models/types'
 
 type AccumulatedState = { items: AuditEntry[]; nextCursor: string | null; appliedCursor: string | null }
@@ -39,6 +41,7 @@ export function AuditList({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { pick } = useMotionPreference()
 
   const [state, setState] = useState<AccumulatedState>({
     items: page.items,
@@ -108,7 +111,21 @@ export function AuditList({
 
   return (
     <div className="flex flex-col gap-3">
-      <DataList items={state.items} getKey={(e) => e.id} columns={columns} renderRow={renderRow} emptyState={emptyState} />
+      {/*
+        Entrada al montar, escopeada por la `key={filtersKey}` que le pone
+        `AuditoriaPage`: cambiar un filtro remonta este componente (fundido
+        de nuevo, correcto — es una lista distinta), pero "Ver más" solo
+        agrega filas al mismo `state` sin remontar, así que no repite la
+        animación. `DataList` es de F-shell en este pipeline: sin acceso a
+        sus filas internas, el momento autorado es el bloque completo.
+      */}
+      <motion.div
+        initial={{ opacity: 0, y: pick(8, 0) }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DURATION.state, ease: EASE_ENTER }}
+      >
+        <DataList items={state.items} getKey={(e) => e.id} columns={columns} renderRow={renderRow} emptyState={emptyState} />
+      </motion.div>
       <Pagination nextCursor={state.nextCursor} onLoadMore={handleLoadMore} />
     </div>
   )

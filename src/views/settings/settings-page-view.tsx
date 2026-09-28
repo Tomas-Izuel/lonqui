@@ -37,7 +37,10 @@ export function SettingsPageView({
   const disciplineIds = disciplines.map((d) => d.id)
 
   return (
-    <div className="flex flex-col gap-4">
+    // `gap-6` entre paneles: mismo ritmo que `/usuarios` y `/auditoria`
+    // (`entre secciones`, DESIGN.md) — antes era `gap-4`, un poco más
+    // apretado que las otras dos superficies de este mismo grupo `(admin)`.
+    <div className="flex flex-col gap-6">
       <PageHeader title="Ajustes" description="Disciplinas, categorías, cuotas y datos del club." />
 
       <Panel

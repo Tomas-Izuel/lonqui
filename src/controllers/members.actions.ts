@@ -1,9 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 import { requirePermission, requireRole } from '@/controllers/session.controller'
 import { failure, invalid, success, type ActionResult } from '@/lib/action-result'
 import { DomainError, zodToApiError } from '@/lib/errors'
+import { createClient } from '@/lib/supabase/server'
+import { getMemberAccount } from '@/models/accounts.model'
 import {
   changeCategory as changeCategoryRow,
   changeCategorySchema,
@@ -40,7 +43,7 @@ import {
   updateMedicalClearance as updateMedicalClearanceRow,
 } from '@/models/medical-clearances.model'
 import { createSignedUploadUrl, getSignedUrl, objectExists } from '@/services/storage.service'
-import type { MemberSummary, Page } from '@/models/types'
+import type { MemberAccount, MemberSummary, Page } from '@/models/types'
 
 /**
  * Server Actions del padrón. Convención de firma (F2 la consume tal cual):
@@ -382,5 +385,49 @@ export async function loadMoreMembers(input: unknown): Promise<ActionResult<Page
     return success(page)
   } catch (err) {
     return failure(err, 'members.loadMoreMembers')
+  }
+}
+
+const memberQuickViewSchema = z.object({ memberId: z.number().int().positive() }).strict()
+
+/**
+ * Vista rápida de un socio (sheet abierto con `?ver=<id>`, F-socios). Reusa
+ * `getMemberAccount` (RPC `member_accounts`, ya trae todo lo que la ficha
+ * completa usa) y suma una segunda lectura chica: `MemberAccount` no trae
+ * `phone` (no lo selecciona `member_accounts`) y el botón "WhatsApp" de la
+ * vista rápida lo necesita. No amerita una RPC nueva ni una función de
+ * modelo propia — es un `select` de una sola fila por PK con el cliente de
+ * sesión (misma RLS que ya expone esa columna en la ficha completa), así que
+ * se resuelve acá mismo: dos llamadas a Postgres por invocación, nunca más.
+ *
+ * `payments.read` (no `members.read`): la vista rápida siempre muestra el
+ * estado de cuenta, así que el permiso que la habilita es el de cuenta, igual
+ * que el resto de `reports.controller.ts`.
+ */
+export async function getMemberQuickView(
+  memberId: number,
+): Promise<ActionResult<MemberAccount & { phone: string | null }>> {
+  try {
+    await requirePermission('payments.read')
+    const parsed = memberQuickViewSchema.safeParse({ memberId })
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    const account = await getMemberAccount(parsed.data.memberId)
+    if (!account) throw new DomainError('No encontramos ese socio')
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('members')
+      .select('phone')
+      .eq('id', parsed.data.memberId)
+      .maybeSingle()
+    if (error) throw error
+
+    return success({ ...account, phone: data?.phone ?? null })
+  } catch (err) {
+    return failure(err, 'members.getMemberQuickView')
   }
 }

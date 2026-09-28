@@ -9,16 +9,14 @@ import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Panel } from '@/views/shared/panel'
-import { CheckboxField, DateField, DniField, PhoneField, SelectField, TextField, TextareaField } from '@/views/shared/form-fields'
+import { CheckboxField, DateField, DniField, PhoneField, TextField, TextareaField } from '@/views/shared/form-fields'
 import { DateText } from '@/views/shared/date-text'
 import { memberStatusLabels } from '@/views/shared/labels'
 import { toClubDate } from '@/lib/dates'
 import { CategorySelector } from '@/views/members/category-selector'
+import { FamilyGroupCombobox, NO_GROUP, NEW_GROUP } from '@/views/members/family-group-combobox'
 import { createFamilyGroup, createMember, setMemberCategories, updateMember } from '@/controllers/members.actions'
 import type { DisciplineWithCategories, FamilyGroupSummary, MemberDetail } from '@/models/types'
-
-const NO_GROUP = '__none__'
-const NEW_GROUP = '__new__'
 
 /** Mismo `categoryId` elegido, sin importar el orden: alta y baja de deportes son un cambio de conjunto, no de secuencia. */
 function sameCategorySet(a: number[], b: number[]): boolean {
@@ -233,12 +231,6 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo cuando cambia el check
   }, [dniPending])
 
-  const familyGroupOptions = [
-    { value: NO_GROUP, label: 'Sin grupo' },
-    ...familyGroups.map((g) => ({ value: String(g.id), label: g.label })),
-    { value: NEW_GROUP, label: 'Crear un grupo nuevo' },
-  ]
-
   async function onValid(values: FormValues) {
     setServerError(null)
 
@@ -412,13 +404,7 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
 
         <Panel title="Grupo familiar">
           <div className="flex flex-col gap-4">
-            <SelectField
-              control={form.control}
-              name="familyGroupChoice"
-              label="Grupo familiar"
-              disabled={pending}
-              options={familyGroupOptions}
-            />
+            <FamilyGroupCombobox control={form.control} name="familyGroupChoice" familyGroups={familyGroups} disabled={pending} />
             {familyGroupChoice === NEW_GROUP ? (
               // Separador, no tarjeta: un `Panel` nunca contiene otra (piso de
               // calidad, 03-review.md minor 12), mismo patrón que `FamilyGroupSection`.

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/views/shared/page-header'
+import { Panel } from '@/views/shared/panel'
 import { SearchInput } from '@/views/shared/search-input'
 import { FilterBar, type FilterDef } from '@/views/shared/filter-bar'
 import { MemberList } from '@/views/members/member-list'
@@ -109,10 +110,16 @@ export function MemberListView({
         }
       />
 
-      <div className="flex flex-col gap-3">
-        <SearchInput placeholder="Buscar por nombre o DNI…" />
-        <FilterBar filters={filterDefs} />
-      </div>
+      {/* Buscador y filtros agrupados en un panel elevado sobre el lienzo
+          (pipeline 2026-09-28): antes flotaban sueltos sobre el fondo blanco
+          liso; ahora se leen como un solo bloque de control, separado de la
+          lista de resultados de abajo. */}
+      <Panel>
+        <div className="flex flex-col gap-3">
+          <SearchInput placeholder="Buscar por nombre o DNI…" />
+          <FilterBar filters={filterDefs} />
+        </div>
+      </Panel>
 
       <MemberList key={filtersKey} initialPage={page} filters={filters} canCreate={canCreate} hasActiveFilter={hasActiveFilter} />
     </div>

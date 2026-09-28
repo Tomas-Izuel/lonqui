@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { ChevronDown, ChevronUp, MoreVertical, Pencil, Plus, Power, PowerOff } from 'lucide-react'
 import { toast } from 'sonner'
+import { motion } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -16,6 +17,7 @@ import { DisciplineFormSheet } from '@/views/settings/discipline-form-sheet'
 import { CategoryFormSheet } from '@/views/settings/category-form-sheet'
 import { ConfirmToggleDialog } from '@/views/settings/confirm-toggle-dialog'
 import { reorderDisciplines, setDisciplineActive } from '@/controllers/settings.actions'
+import { DURATION, EASE_ENTER, staggerDelay, useMotionPreference } from '@/views/shared/motion'
 import type { DisciplineWithCategories } from '@/models/types'
 
 /**
@@ -37,6 +39,7 @@ export function DisciplineGroup({
   const [createCategoryOpen, setCreateCategoryOpen] = useState(false)
   const [isReordering, startReorder] = useTransition()
   const [isToggling, startToggle] = useTransition()
+  const { pick } = useMotionPreference()
 
   const isFirst = position === 0
   const isLast = position === siblingIds.length - 1
@@ -72,11 +75,29 @@ export function DisciplineGroup({
   }
 
   return (
-    <li className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <div className="flex min-w-0 items-center gap-2">
+    // Entrada escalonada al montar (D5/animate.md): solo juega una vez por
+    // instancia —`initial`/`animate` no vuelven a correr en los re-renders
+    // que disparan el reordenar o abrir un sheet, solo si React remonta el
+    // nodo (una disciplina nueva, con otra `key`)—, así que reordenar nunca
+    // repite la animación de los que ya estaban.
+    <motion.li
+      initial={{ opacity: 0, y: pick(8, 0) }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: DURATION.state, ease: EASE_ENTER, delay: staggerDelay(position) }}
+      className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0"
+    >
+      {/*
+        Ronda 2 (screenshot a 390px): `flex-wrap` dejaba que la fila de
+        acciones (subir/bajar/más, 3 botones de 44px) se cayera a una línea
+        propia debajo del nombre en vez de quedar a la derecha — acá va
+        siempre `flex-nowrap` (nombre truncando en `min-w-0 flex-1`, acciones
+        fijas a la derecha con `shrink-0`), igual que cualquier fila de
+        `DataList`.
+      */}
+      <div className="group -mx-2 flex flex-nowrap items-center justify-between gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-muted/40">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <h3 className="truncate font-heading text-sm font-semibold sm:text-base">{discipline.name}</h3>
-          <StatusPill variant={discipline.isActive ? 'member-active' : 'member-inactive'}>
+          <StatusPill variant={discipline.isActive ? 'member-active' : 'member-inactive'} className="shrink-0">
             {discipline.isActive ? 'Activa' : 'Inactiva'}
           </StatusPill>
         </div>
@@ -178,6 +199,6 @@ export function DisciplineGroup({
         actionLabel="Desactivar"
         onConfirm={handleDeactivateConfirmed}
       />
-    </li>
+    </motion.li>
   )
 }

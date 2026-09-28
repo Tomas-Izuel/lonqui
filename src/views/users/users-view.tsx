@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { UserPlus } from 'lucide-react'
+import { motion } from 'motion/react'
 import { PageHeader } from '@/views/shared/page-header'
 import { DataList, type DataListColumn, type DataListRow } from '@/views/shared/data-list'
 import { RolePill } from '@/views/shared/status-pill'
@@ -14,6 +15,7 @@ import { ChangeRoleDialog } from '@/views/users/change-role-dialog'
 import { ToggleActiveDialog } from '@/views/users/toggle-active-dialog'
 import { ResetPasswordDialog } from '@/views/users/reset-password-dialog'
 import { TemporaryPasswordDialog, type TemporaryPasswordPayload } from '@/views/users/temporary-password-dialog'
+import { DURATION, EASE_ENTER, useMotionPreference } from '@/views/shared/motion'
 import type { AppUserListItem } from '@/models/types'
 
 /**
@@ -37,6 +39,7 @@ export function UsersView({ users, currentUserId }: { users: AppUserListItem[]; 
   const [activeTarget, setActiveTarget] = useState<AppUserListItem | null>(null)
   const [resetTarget, setResetTarget] = useState<AppUserListItem | null>(null)
   const [tempPassword, setTempPassword] = useState<TemporaryPasswordPayload | null>(null)
+  const { pick } = useMotionPreference()
 
   function actionsFor(user: AppUserListItem) {
     return (
@@ -107,8 +110,23 @@ export function UsersView({ users, currentUserId }: { users: AppUserListItem[]; 
         }
       />
 
-      {/* Cada fila muestra el estado como pill/badge CON texto (piso de calidad: nunca solo color). */}
-      <DataList items={users} getKey={(u) => u.userId} columns={columns} renderRow={renderRow} />
+      {/*
+        Entrada suave al llegar a la página (una sola vez por montaje, no en
+        cada actualización de `users` tras una Server Action — `UsersView`
+        sigue montado, solo cambia el prop). No hay forma de escalonar fila
+        por fila sin tocar `DataList` (F-shell, fuera de mi ownership en este
+        pipeline): el fundido del bloque completo es el momento autorado de
+        esta lista, no una coreografía por ítem.
+
+        Cada fila muestra el estado como pill/badge CON texto (piso de calidad: nunca solo color).
+      */}
+      <motion.div
+        initial={{ opacity: 0, y: pick(8, 0) }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DURATION.state, ease: EASE_ENTER }}
+      >
+        <DataList items={users} getKey={(u) => u.userId} columns={columns} renderRow={renderRow} />
+      </motion.div>
 
       <CreateUserDialog
         open={createOpen}

@@ -562,6 +562,17 @@ export type MonthCollection = {
   feesCount: number
 }
 
+/**
+ * Un día del ritmo de cobranza del mes (RPC `daily_collection`, pipeline
+ * 2026-09-28). Todos los días del período hasta hoy, también los que no
+ * tuvieron pagos (en cero). `cumulativeCents` ya viene acumulado desde el 1°.
+ */
+export type DailyCollectionPoint = {
+  day: ISODate
+  collectedCents: number
+  cumulativeCents: number
+}
+
 export type DashboardSummary = {
   billingActive: boolean
   billingStartPeriod: ISODate | null

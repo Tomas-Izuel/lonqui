@@ -268,6 +268,11 @@ isOneToOne: false
             "confirm_password_changed":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
+"daily_collection":
+{ Args: { "target_period"?: string }; Returns: {
+              "collected_cents": number,"cumulative_cents": number,"day": string
+            }[]
+                           },
 "dashboard_summary":
 { Args: Record<PropertyKey, never>; Returns: {
               "active_members": number,"admissions_count": number,"billing_active": boolean,"billing_start_period": string,"cash_cents": number,"collected_cents": number,"credit_cents": number,"expired_clearances": number,"fees_cents": number,"fees_count": number,"inactive_debt_cents": number,"inactive_in_debt": number,"members_in_debt": number,"members_with_credit": number,"missing_clearances": number,"payments_count": number,"pending_periods": (string)[],"period": string,"reactivations_count": number,"total_debt_cents": number,"transfer_cents": number,"withdrawals_count": number

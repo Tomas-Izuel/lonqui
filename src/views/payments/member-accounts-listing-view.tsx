@@ -1,5 +1,6 @@
 import { PageHeader } from '@/views/shared/page-header'
 import { FilterBar, type FilterDef } from '@/views/shared/filter-bar'
+import { CobranzaTabs } from '@/views/payments/cobranza-tabs'
 import { MemberAccountsList } from '@/views/payments/member-accounts-list'
 import { type ListingVariant } from '@/views/payments/account-format'
 import type { AccountListFilters, DisciplineWithCategories, MemberAccount, Page } from '@/models/types'
@@ -64,6 +65,7 @@ export function MemberAccountsListingView({
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={copy.title} description={copy.description} />
+      <CobranzaTabs />
       <FilterBar filters={filterDefs} />
       <MemberAccountsList
         key={filtersKey}

@@ -55,9 +55,18 @@ vi.mock('@/services/storage.service', () => ({
   getSignedUrl: getSignedUrlMock,
 }))
 
-const { createMember, confirmMedicalClearance, getMedicalClearanceUrl, loadMoreMembers } = await import(
-  '@/controllers/members.actions'
-)
+const getMemberAccountMock = vi.fn()
+vi.mock('@/models/accounts.model', () => ({ getMemberAccount: getMemberAccountMock }))
+
+/** `supabase.from('members').select('phone').eq(id).maybeSingle()`, la segunda lectura de la vista rápida. */
+const maybeSingleMock = vi.fn()
+const createClientMock = vi.fn(async () => ({
+  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: maybeSingleMock }) }) }),
+}))
+vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
+
+const { createMember, confirmMedicalClearance, getMedicalClearanceUrl, loadMoreMembers, getMemberQuickView } =
+  await import('@/controllers/members.actions')
 const { PermissionError } = await import('@/lib/errors')
 
 beforeEach(() => {
@@ -72,6 +81,9 @@ beforeEach(() => {
   objectExistsMock.mockReset()
   createSignedUploadUrlMock.mockReset()
   getSignedUrlMock.mockReset()
+  getMemberAccountMock.mockReset()
+  maybeSingleMock.mockReset()
+  createClientMock.mockClear()
 })
 
 describe('createMember', () => {
@@ -264,5 +276,81 @@ describe('loadMoreMembers', () => {
     const result = await loadMoreMembers({ filters: {}, cursor: '' })
     expect(result.ok).toBe(false)
     expect(searchMembersMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('getMemberQuickView (B1, sheet de vista rápida abierto con ?ver=<id>)', () => {
+  it('sin sesión (requirePermission rechaza con PermissionError): ActionResult de error, nunca una excepción', async () => {
+    requirePermissionMock.mockRejectedValue(new PermissionError())
+
+    const result = await getMemberQuickView(12)
+
+    expect(result.ok).toBe(false)
+    expect(getMemberAccountMock).not.toHaveBeenCalled()
+    expect(createClientMock).not.toHaveBeenCalled()
+  })
+
+  it('exige payments.read, no members.read (la vista rápida siempre muestra estado de cuenta)', async () => {
+    requirePermissionMock.mockResolvedValue({ userId: 'u1', role: 'consulta', permissions: ['payments.read'] })
+    getMemberAccountMock.mockResolvedValue({ memberId: 12, fullName: 'Test Socia' })
+    maybeSingleMock.mockResolvedValue({ data: { phone: null }, error: null })
+
+    await getMemberQuickView(12)
+
+    expect(requirePermissionMock).toHaveBeenCalledWith('payments.read')
+  })
+
+  it('memberId inválido (0, negativo o no entero): error de validación de Zod, sin tocar el modelo', async () => {
+    requirePermissionMock.mockResolvedValue({ userId: 'u1', role: 'consulta', permissions: ['payments.read'] })
+
+    for (const invalidId of [0, -1, 1.5]) {
+      const result = await getMemberQuickView(invalidId)
+      expect(result.ok).toBe(false)
+    }
+    expect(getMemberAccountMock).not.toHaveBeenCalled()
+  })
+
+  it('socio inexistente (getMemberAccount devuelve null): error de dominio "No encontramos ese socio", nunca un throw sin capturar', async () => {
+    requirePermissionMock.mockResolvedValue({ userId: 'u1', role: 'consulta', permissions: ['payments.read'] })
+    getMemberAccountMock.mockResolvedValue(null)
+
+    const result = await getMemberQuickView(999)
+
+    expect(result).toEqual({ ok: false, error: 'No encontramos ese socio' })
+    // La segunda lectura (teléfono) nunca se ejecuta si el socio no existe.
+    expect(createClientMock).not.toHaveBeenCalled()
+  })
+
+  it('éxito: junta MemberAccount con phone de la segunda lectura (members.phone)', async () => {
+    requirePermissionMock.mockResolvedValue({ userId: 'u1', role: 'consulta', permissions: ['payments.read'] })
+    getMemberAccountMock.mockResolvedValue({ memberId: 12, fullName: 'Test Socia', balanceCents: 0 })
+    maybeSingleMock.mockResolvedValue({ data: { phone: '+54 9 11 5555-5555' }, error: null })
+
+    const result = await getMemberQuickView(12)
+
+    expect(result).toEqual({
+      ok: true,
+      data: { memberId: 12, fullName: 'Test Socia', balanceCents: 0, phone: '+54 9 11 5555-5555' },
+    })
+  })
+
+  it('fila de members ausente (maybeSingle sin data): phone null, nunca un 500 por single() estricto', async () => {
+    requirePermissionMock.mockResolvedValue({ userId: 'u1', role: 'consulta', permissions: ['payments.read'] })
+    getMemberAccountMock.mockResolvedValue({ memberId: 12, fullName: 'Test Socia' })
+    maybeSingleMock.mockResolvedValue({ data: null, error: null })
+
+    const result = await getMemberQuickView(12)
+
+    expect(result).toEqual({ ok: true, data: { memberId: 12, fullName: 'Test Socia', phone: null } })
+  })
+
+  it('error de Postgres en la segunda lectura se captura y devuelve un ActionResult de error (no una excepción)', async () => {
+    requirePermissionMock.mockResolvedValue({ userId: 'u1', role: 'consulta', permissions: ['payments.read'] })
+    getMemberAccountMock.mockResolvedValue({ memberId: 12, fullName: 'Test Socia' })
+    maybeSingleMock.mockResolvedValue({ data: null, error: new Error('boom') })
+
+    const result = await getMemberQuickView(12)
+
+    expect(result.ok).toBe(false)
   })
 })

@@ -62,16 +62,20 @@ export function BillingSection({ billing, hasDefaultFeePrice }: BillingSectionPr
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {/* Los dos hechos que Tesorería busca primero acá, con más peso
+                que antes (`text-base font-semibold`, antes `text-sm
+                font-medium`): "¿está activo?" y "¿hasta cuándo generó?" son
+                la clarity que pidió Tomás para esta sección. */}
+            <dl className="grid grid-cols-1 gap-4 rounded-lg bg-muted/40 p-3 sm:grid-cols-2">
               <div className="flex flex-col gap-0.5">
                 <dt className="text-xs text-muted-foreground">Activas desde</dt>
-                <dd className="text-sm font-medium">
+                <dd className="text-base font-semibold tabular-nums">
                   <PeriodText period={billing.startPeriod!} />
                 </dd>
               </div>
               <div className="flex flex-col gap-0.5">
                 <dt className="text-xs text-muted-foreground">Último mes generado</dt>
-                <dd className="text-sm font-medium">
+                <dd className="text-base font-semibold tabular-nums">
                   {billing.lastGeneratedPeriod ? <PeriodText period={billing.lastGeneratedPeriod} /> : 'Todavía ninguno'}
                 </dd>
               </div>

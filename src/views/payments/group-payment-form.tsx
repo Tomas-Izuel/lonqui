@@ -9,7 +9,6 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Panel } from '@/views/shared/panel'
 import { AmountField, DateField, TextareaField } from '@/views/shared/form-fields'
 import { paymentMethodLabels, memberStatusLabels } from '@/views/shared/labels'
 import { toClubDate } from '@/lib/dates'
@@ -52,7 +51,8 @@ const schema = z
 type FormValues = z.infer<typeof schema>
 
 /**
- * Pago de grupo familiar (`/cobranza/nuevo?grupo=`): un integrante por fila,
+ * Pago de grupo familiar (`?pagar=grupo:<id>`, overlay global de cobranza):
+ * un integrante por fila,
  * cuota precargada editable, UN solo `batchId` para todo el lote (T2, D22) —
  * el índice único `(batch_id, member_id)` en `payments` es lo que hace que un
  * doble toque reintente el mismo lote en vez de duplicar filas.
@@ -61,11 +61,14 @@ export function GroupPaymentForm({
   members,
   familyGroup,
   onDone,
+  onSuccess,
 }: {
   members: MemberAccount[]
   familyGroup: FamilyGroupSummary
   /** Qué pasa después de un registro exitoso (ver el comentario en `PaymentForm`). */
   onDone: () => void
+  /** Avisa el total del lote justo antes de `onDone` (ver `PaymentForm`). */
+  onSuccess?: (amountCents: number) => void
 }) {
   const [batchId] = useState(() => crypto.randomUUID())
   const [file, setFile] = useState<File | null>(null)
@@ -162,20 +165,20 @@ export function GroupPaymentForm({
         ? 'El pago ya estaba registrado'
         : `Pago registrado para ${checkedRows.length} ${checkedRows.length === 1 ? 'integrante' : 'integrantes'}.`,
     )
+    onSuccess?.(totalCents)
     onDone()
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
-      <Panel>
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-xl font-semibold text-balance">Pago del grupo familiar</h1>
-          <p className="text-sm text-muted-foreground">{familyGroup.label}</p>
-        </div>
-      </Panel>
+    <div className="mx-auto flex w-full max-w-xl flex-col">
+      <div className="flex flex-col gap-1 pb-4">
+        <p className="text-lg font-semibold text-balance">{familyGroup.label}</p>
+        <p className="text-sm text-muted-foreground">Grupo familiar</p>
+      </div>
 
-      <Panel title="Integrantes">
+      <div className="border-t border-border pt-4">
         <form id="group-payment-form" onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4">
+          <p className="text-sm font-medium">Integrantes</p>
           <ul className="flex flex-col divide-y divide-border">
             {fields.map((field, index) => {
               const account = accountByMemberId.get(field.memberId)
@@ -283,7 +286,7 @@ export function GroupPaymentForm({
             </Button>
           ) : null}
         </form>
-      </Panel>
+      </div>
     </div>
   )
 }

@@ -1,127 +1,150 @@
-import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
+'use client'
+
+import { Banknote } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
-import { SearchInput } from '@/views/shared/search-input'
+import { HeroFigure } from '@/views/shared/hero-figure'
 import { Amount } from '@/views/shared/money'
-import { EmptyState } from '@/views/shared/states'
+import { CobranzaTabs } from '@/views/payments/cobranza-tabs'
+import { DailyCollectionChart, DailyCollectionTableHidden } from '@/views/payments/daily-collection-chart'
+import { useOverlayParam } from '@/views/shared/overlay-params'
 import { formatPeriod } from '@/lib/dates'
-import type { BillingStatus, MemberSummary, MonthCollection, Permission } from '@/models/types'
+import { formatCentsCompact } from '@/lib/money'
+import type { BillingStatus, DailyCollectionPoint, MonthCollection, Permission } from '@/models/types'
 
-type HubLink = { href: string; label: string }
+/**
+ * Efectivo vs. transferencia: dos segmentos con etiqueta directa (amount +
+ * nombre del medio) en vez de una leyenda aparte — a solo dos series, una
+ * leyenda separada es una indirección de más (dataviz: "identidad nunca solo
+ * color", ya cubierto acá con el texto de cada etiqueta). `chart-brand` (la
+ * marca del club) para efectivo, tinta para transferencia: ninguno es un
+ * color de estado, así que no se pisan con "al día"/"en deuda".
+ */
+function CashTransferBar({ cashCents, transferCents }: { cashCents: number; transferCents: number }) {
+  const total = cashCents + transferCents
+  if (total <= 0) return null
+  const cashPct = (cashCents / total) * 100
 
-const LISTING_LINKS: HubLink[] = [
-  { href: '/cobranza/pagos', label: 'Pagos del mes' },
-  { href: '/cobranza/deuda', label: 'Con deuda' },
-  { href: '/cobranza/al-dia', label: 'Al día' },
-  { href: '/cobranza/por-categoria', label: 'Deuda por categoría' },
-]
-
-function HubRow({ href, label }: HubLink) {
   return (
-    <li>
-      <Link
-        href={href}
-        className="flex min-h-11 items-center justify-between gap-3 px-3 py-3 hover:bg-muted/50 focus-visible:bg-muted/50"
+    <div className="flex flex-col gap-2">
+      <div
+        role="img"
+        aria-label={`Efectivo ${formatCentsCompact(cashCents)}, transferencia ${formatCentsCompact(transferCents)}`}
+        className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
       >
-        <span className="font-medium">{label}</span>
-        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-      </Link>
-    </li>
-  )
-}
-
-function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium tabular-nums">{value}</span>
+        <div className="h-full bg-chart-brand" style={{ width: `${cashPct}%` }} />
+        <div className="h-full bg-foreground/70" style={{ width: `${100 - cashPct}%` }} />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden className="size-2 rounded-full bg-chart-brand" />
+          Efectivo <Amount cents={cashCents} className="font-medium" />
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden className="size-2 rounded-full bg-foreground/70" />
+          Transferencia <Amount cents={transferCents} className="font-medium" />
+        </span>
+      </div>
     </div>
   )
 }
 
 /**
- * Hub de `/cobranza` (route-cobranza.md). Cero data fetching: `collection`,
- * `billing` y `searchResults` llegan resueltos de la page. El buscador de
- * socio escribe `?q=` (mismo `SearchInput` que `/socios`) y la page vuelve a
- * pedir el padrón filtrado — no hay combobox propio: es el mismo patrón ya
- * establecido en el resto del panel, no uno nuevo para esta pantalla.
+ * "% de las cuotas del mes cobrado" (agregado de alcance 1): mismo lenguaje
+ * visual que el medidor del inicio (relleno de estado "cobrado", riel del
+ * mismo tono más claro), reescrito acá porque `dashboard/` no se importa
+ * desde `payments/` (slices sin archivos compartidos).
+ */
+function CollectionRateMeter({ collectedCents, feesCents }: { collectedCents: number; feesCents: number }) {
+  const pct = feesCents > 0 ? Math.round((collectedCents / feesCents) * 100) : null
+  const barWidth = pct == null ? 0 : Math.min(pct, 100)
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2 text-sm">
+        <span className="text-muted-foreground">Cuotas del mes cobradas</span>
+        <span className="font-medium tabular-nums">{pct != null ? `${pct}%` : 'Sin cuotas'}</span>
+      </div>
+      <div
+        role="img"
+        aria-label={pct != null ? `${pct}% de las cuotas del mes cobrado` : 'Todavía no se generaron las cuotas de este mes'}
+        className="h-2 w-full overflow-hidden rounded-full bg-status-up-to-date/15"
+      >
+        <div className="h-full rounded-full bg-status-up-to-date transition-[width] duration-300" style={{ width: `${barWidth}%` }} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Hub de `/cobranza` (route-cobranza.md). Cero data fetching: todo llega
+ * resuelto de la page. El buscador que antes vivía acá (una lista de
+ * resultados con `<Link>` a `/cobranza/nuevo`) desapareció: "Registrar pago"
+ * ahora abre el overlay global (`PaymentOverlayHost`, `?pagar=buscar`) sobre
+ * esta misma pantalla — la redirección que Tomás señaló ("muchas
+ * redirecciones") ya no existe para el flujo más usado del sistema.
  */
 export function CobranzaHubView({
   collection,
   billing,
+  daily,
   permissions,
-  q,
-  searchResults,
 }: {
   collection: MonthCollection
   billing: BillingStatus
+  daily: DailyCollectionPoint[]
   permissions: Permission[]
-  q?: string
-  searchResults: MemberSummary[] | null
 }) {
   const canRegister = permissions.includes('payments.register')
+  const paymentOverlay = useOverlayParam('pagar')
   const periodLabel = formatPeriod(collection.period)
-  const percent = collection.feesCents > 0 ? Math.round((collection.collectedCents / collection.feesCents) * 100) : null
 
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Cobranza" description="Registrá pagos y mirá cómo viene el mes." />
+      <CobranzaTabs />
 
       {canRegister ? (
-        <Panel title="Registrar pago" description="Buscá al socio para cargar su pago.">
-          <div className="flex flex-col gap-3">
-            <SearchInput placeholder="Buscar por nombre o DNI…" autoFocus />
-            {q ? (
-              searchResults && searchResults.length > 0 ? (
-                <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
-                  {searchResults.map((member) => (
-                    <li key={member.id}>
-                      <Link
-                        href={`/cobranza/nuevo?socio=${member.id}&volver=${encodeURIComponent('/cobranza')}`}
-                        className="flex min-h-11 items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/50 focus-visible:bg-muted/50"
-                      >
-                        <span className="flex min-w-0 flex-col">
-                          <span className="truncate font-medium">{member.fullName}</span>
-                          <span className="text-xs text-muted-foreground">{member.dni ?? 'DNI pendiente'}</span>
-                        </span>
-                        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState title="No encontramos socios" description={`Sin resultados para "${q}".`} />
-              )
-            ) : null}
-          </div>
-        </Panel>
+        <Button type="button" size="lg" className="h-12 w-full" onClick={() => paymentOverlay.set('buscar')}>
+          <Banknote aria-hidden />
+          Registrar pago
+        </Button>
       ) : null}
 
       <Panel title="Este mes" description={periodLabel}>
-        {!billing.active ? (
-          <p className="text-sm text-muted-foreground">Las cuotas todavía no están activadas: no hay cuotas del mes para comparar.</p>
-        ) : null}
-        <div className="flex flex-col divide-y divide-border">
-          <StatRow label={`Cobrado en ${periodLabel}`} value={<Amount cents={collection.collectedCents} />} />
-          {billing.active ? (
-            <>
-              <StatRow label={`Cuotas de ${periodLabel}`} value={<Amount cents={collection.feesCents} />} />
-              <StatRow label="Del valor de las cuotas del mes" value={percent != null ? `${percent}%` : '—'} />
-            </>
+        <div className="flex flex-col gap-4">
+          {!billing.active ? (
+            <p className="text-sm text-muted-foreground">
+              Las cuotas todavía no están activadas: no hay cuotas del mes para comparar, pero se puede registrar un pago igual.
+            </p>
           ) : null}
-          <StatRow label="Efectivo" value={<Amount cents={collection.cashCents} />} />
-          <StatRow label="Transferencia" value={<Amount cents={collection.transferCents} />} />
-          <StatRow label="Cantidad de pagos" value={collection.paymentsCount} />
+          <HeroFigure
+            label={`Cobrado en ${periodLabel}`}
+            cents={collection.collectedCents}
+            href="/cobranza/pagos"
+            countUpKey={`cobranza-hub-${collection.period}`}
+            supporting={
+              billing.active ? (
+                <span>
+                  <Amount cents={collection.feesCents} /> en cuotas de {periodLabel} · {collection.paymentsCount}{' '}
+                  {collection.paymentsCount === 1 ? 'pago' : 'pagos'}
+                </span>
+              ) : (
+                `${collection.paymentsCount} ${collection.paymentsCount === 1 ? 'pago' : 'pagos'}`
+              )
+            }
+          />
+          {billing.active ? <CollectionRateMeter collectedCents={collection.collectedCents} feesCents={collection.feesCents} /> : null}
+          <CashTransferBar cashCents={collection.cashCents} transferCents={collection.transferCents} />
         </div>
       </Panel>
 
-      <Panel title="Listados">
-        <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
-          {LISTING_LINKS.map((link) => (
-            <HubRow key={link.href} {...link} />
-          ))}
-        </ul>
+      <Panel title="Ritmo del mes" description="Lo cobrado día a día, acumulado.">
+        <div className="flex flex-col gap-4">
+          <DailyCollectionChart points={daily} feesCents={billing.active ? collection.feesCents : 0} />
+          <DailyCollectionTableHidden points={daily} />
+        </div>
       </Panel>
     </div>
   )

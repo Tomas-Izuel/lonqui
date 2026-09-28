@@ -1,6 +1,7 @@
 import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
 import { Amount } from '@/views/shared/money'
+import { CobranzaTabs } from '@/views/payments/cobranza-tabs'
 import { MonthSelector } from '@/views/payments/month-selector'
 import { MonthPaymentsList } from '@/views/payments/month-payments-list'
 import type { MonthCollection, Page, PaymentListItem } from '@/models/types'
@@ -20,6 +21,7 @@ export function MonthPaymentsView({
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Pagos del mes" />
+      <CobranzaTabs />
       <MonthSelector period={period} basePath="/cobranza/pagos" />
 
       <Panel>

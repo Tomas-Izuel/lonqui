@@ -31,7 +31,10 @@ export function MemberStatusActions({ memberId, status }: { memberId: number; st
 
   return (
     <>
-      <Button type="button" variant="outline" className="h-11" onClick={() => setOpen(true)}>
+      {/* `size="sm"` (screenshot review, ronda 2): sigue dando 44px de alto,
+          menos peso visual que un botón "default" junto a "Editar" — no
+          compite con la cuenta de abajo, que es la respuesta real de la página. */}
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         {status === 'active' ? 'Dar de baja' : 'Reactivar'}
       </Button>
       <ReasonDialog

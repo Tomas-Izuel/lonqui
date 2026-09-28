@@ -55,6 +55,20 @@
     --color-status-up-to-date: var(--status-up-to-date);
     --color-status-in-debt: var(--status-in-debt);
     --color-status-inactive: var(--status-inactive);
+    /* Pipeline 2026-09-28 (UI expresiva): lienzo gris cálido detrás de los
+       paneles blancos, tinte suave del naranja y la serie de gráficos. */
+    --color-canvas: var(--canvas);
+    --color-brand-soft: var(--brand-soft);
+    --color-chart-brand: var(--chart-brand);
+    --color-chart-track: var(--chart-track);
+    --shadow-raised: 0 1px 2px 0 rgb(17 24 39 / 0.04), 0 1px 3px 0 rgb(17 24 39 / 0.06);
+    --shadow-lifted: 0 2px 4px -1px rgb(17 24 39 / 0.05), 0 8px 16px -4px rgb(17 24 39 / 0.08);
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+    @keyframes shimmer {
+        from { background-position: 150% 0; }
+        to { background-position: -50% 0; }
+    }
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -81,7 +95,10 @@
     --secondary: #F7F7F8;
     --secondary-foreground: #111827;
     --muted: #F7F7F8;
-    --muted-foreground: #6B7280;
+    /* Un punto más oscuro que el #6B7280 original: el texto secundario ahora
+       también se lee sobre el lienzo gris (--canvas), no solo sobre blanco.
+       #5F6673 = 5,78:1 sobre blanco, 5,3:1 sobre el lienzo y sobre --brand-soft. */
+    --muted-foreground: #5F6673;
     --accent: #F7F7F8;
     --accent-foreground: #111827;
     --destructive: #B91C1C;
@@ -102,6 +119,16 @@
     --status-in-debt: #B91C1C;
     --status-inactive: #6B7280;
 
+    /* UI expresiva (2026-09-28). El lienzo es la capa de atrás: los paneles
+       blancos se despegan con --shadow-raised en vez de solo un borde gris
+       (vara Mercado Pago). --brand-soft es el naranja al ~7% sobre blanco,
+       para superficies destacadas (cifra principal, fila activa); nunca
+       lleva texto naranja institucional encima. */
+    --canvas: #F5F5F4;
+    --brand-soft: #FEF3EC;
+    --chart-brand: #F26A1B;
+    --chart-track: #EDEDED;
+
     /* Barra lateral / navegación: segunda capa neutra, más fría que el
        contenido (operate.md: "a second neutral layer for sidebars"). */
     --sidebar: #F7F7F8;
@@ -119,7 +146,7 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground text-base;
+    @apply bg-canvas text-foreground text-base;
     }
   html {
     @apply font-sans;
@@ -130,6 +157,19 @@
   ::selection {
     background-color: color-mix(in oklch, var(--primary), transparent 78%);
     color: var(--foreground);
+  }
+  /* La animación de navegación de React (<ViewTransition>) usa las mismas
+     curvas que motion: un crossfade corto, nunca coreografía (operate.md). */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 180ms;
+    animation-timing-function: var(--ease-out-expo);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none;
+    }
   }
   :focus-visible {
     outline: 2px solid var(--ring);

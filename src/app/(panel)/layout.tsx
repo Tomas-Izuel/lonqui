@@ -28,5 +28,9 @@ export default async function PanelLayout({ children }: { children: React.ReactN
     return <NoAccessState />
   }
 
-  return <AppShell session={{ displayName: session.displayName ?? session.email, role: session.role }}>{children}</AppShell>
+  return (
+    <AppShell session={{ displayName: session.displayName ?? session.email, role: session.role, permissions: session.permissions }}>
+      {children}
+    </AppShell>
+  )
 }

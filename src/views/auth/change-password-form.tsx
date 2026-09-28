@@ -6,12 +6,14 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { PasswordField } from '@/views/shared/form-fields'
 import { passwordPolicySchema } from '@/lib/passwords'
 import { changePassword, signOut } from '@/controllers/auth.actions'
 import type { ActionResult } from '@/lib/action-result'
 import { cn } from '@/lib/utils'
+import { DURATION, EASE_ENTER, useMotionPreference } from '@/views/shared/motion'
 
 const POLICY_TEXT = 'Al menos 10 caracteres, con letras y números.'
 
@@ -56,6 +58,7 @@ export function ChangePasswordForm({ mode, next }: { mode: 'mandatory' | 'volunt
   const [isTransitionPending, startTransition] = useTransition()
   const [signOutPending, startSignOutTransition] = useTransition()
   const pending = isActionPending || isTransitionPending
+  const { pick } = useMotionPreference()
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -122,11 +125,21 @@ export function ChangePasswordForm({ mode, next }: { mode: 'mandatory' | 'volunt
           disabled={pending}
         />
 
-        {genericError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {genericError}
-          </p>
-        ) : null}
+        <AnimatePresence initial={false}>
+          {genericError ? (
+            <motion.p
+              key={genericError}
+              role="alert"
+              initial={{ opacity: 0, y: pick(-4, 0) }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: DURATION.state, ease: EASE_ENTER }}
+              className="text-sm text-destructive"
+            >
+              {genericError}
+            </motion.p>
+          ) : null}
+        </AnimatePresence>
 
         <Button type="submit" disabled={pending} className="mt-1 h-11 w-full">
           {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}

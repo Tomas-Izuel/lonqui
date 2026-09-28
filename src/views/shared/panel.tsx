@@ -20,7 +20,7 @@ export function Panel({
   className?: string
 }) {
   return (
-    <section className={cn('rounded-lg border border-border bg-card', className)}>
+    <section className={cn('rounded-xl border border-border/70 bg-card shadow-raised', className)}>
       {title ? (
         // Apilado en móvil (finish review, fix 7 — "ceiling"): un título largo
         // ("Disciplinas y categorías") junto a una acción ("Nueva disciplina")

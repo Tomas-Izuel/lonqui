@@ -92,15 +92,21 @@ function AuditDetailSheetInner({ entry }: { entry: AuditEntryDetail }) {
           ) : (
             rows.map((row) => (
               // Apilado (campo arriba, valores abajo): legible a 390px sin
-              // scroll horizontal, no una tabla ancha (spec F3).
-              <div key={row.field} className="flex flex-col gap-1 rounded-lg border border-border p-3">
+              // scroll horizontal, no una tabla ancha (spec F3). El antes/
+              // después lleva su propia etiqueta ("Antes"/"Después"), no solo
+              // el tachado (piso de calidad: ningún estado solo con estilo) —
+              // pulido pipeline 2026-09-28: antes las dos líneas no decían
+              // cuál era cuál, había que inferirlo del tachado.
+              <div key={row.field} className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
                 <span className="text-sm font-medium">{row.field}</span>
                 {entry.op === 'INSERT' ? (
                   <span className="text-sm tabular-nums">{row.after}</span>
                 ) : (
-                  <div className="flex flex-col gap-1 text-sm">
-                    <span className="text-muted-foreground line-through decoration-destructive/60 tabular-nums">{row.before}</span>
-                    <span className="tabular-nums">{row.after}</span>
+                  <div className="grid grid-cols-[3.5rem_1fr] items-baseline gap-x-3 gap-y-1 text-sm">
+                    <span className="text-xs text-muted-foreground">Antes</span>
+                    <span className="tabular-nums text-muted-foreground line-through decoration-destructive/60">{row.before}</span>
+                    <span className="text-xs text-muted-foreground">Después</span>
+                    <span className="tabular-nums font-medium">{row.after}</span>
                   </div>
                 )}
               </div>

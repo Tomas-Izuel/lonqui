@@ -1,51 +1,63 @@
+'use client'
+
 import { Banknote, UserPlus } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { HomeSearch } from '@/views/shell/home-search'
+import { useOverlayParam } from '@/views/shared/overlay-params'
+import { cn } from '@/lib/utils'
 import type { Permission } from '@/models/types'
 
 /**
  * Cabecera del panel inicial: saludo chico + buscador + accesos por rol —
- * nunca un `Panel`, nunca un botón de ancho completo. El `h1` sigue
- * existiendo (landmark para el lector de pantalla), pero visualmente es
- * chico y mudo: el texto más grande de la página es la plata
- * (`MoneySummaryStrip`), no el saludo.
+ * nunca un `Panel`. El `h1` sigue existiendo (landmark para el lector de
+ * pantalla), pero visualmente es chico y mudo: el texto más grande de la
+ * página es la cifra hero (`MoneySummaryStrip` → `HeroFigure`), no el saludo.
  *
- * Dos filas, no una (revisión del coordinador, 2026-09-28): el buscador
- * necesita su ancho completo para que el placeholder no se corte a 390
- * ("Buscar un socio por nombre o DNI…" no entra si comparte fila con dos
- * botones); los accesos van debajo, con ícono + texto corto VISIBLE
- * ("Pago", "Alta" — no solo `aria-label`), en `size="sm"` de shadcn, que en
- * este repo da 44px de alto siempre (mismo piso que cualquier botón, nunca
- * menos por ser "chico"). El texto visible es subconjunto literal del
- * `title` completo (WCAG 2.5.3, "Label in Name"): "Pago" está contenido en
- * "Registrar pago", así que no hace falta (ni conviene) un `aria-label` que
- * lo reemplace — el nombre accesible es el texto que se ve.
+ * Ronda 2 (2026-09-28, revisión sobre capturas reales a 390/1440 con datos
+ * de demo): los accesos eran chips de ícono + una palabra que leían chicos
+ * (~36px de alto aparente) aunque `size="sm"` ya daba 44px técnicos — el
+ * problema era de PROPORCIÓN, no de altura: ancho de contenido y texto de
+ * una sola palabra los hacía leer como chips, no como botones. Ahora son
+ * botones reales con la etiqueta completa ("Registrar pago", "Ficha de
+ * ingreso"), en grilla de 2 columnas que llena el ancho a 390 (el pulgar no
+ * tiene que apuntar a un botón angosto) y ancho automático lado a lado desde
+ * `sm`. "Registrar pago" es la acción primaria (variant por defecto); "Ficha
+ * de ingreso" es secundaria (`outline`) — coherente con que cargar un pago es
+ * la operación más frecuente del sistema (Product Principle 2).
+ *
+ * "Registrar pago" abre el overlay global de cobranza en vez de navegar
+ * (pipeline 2026-09-28-ui-expresiva, C2/C7):
+ * `useOverlayParam('pagar').set('buscar')` monta `PaymentOverlayHost` (dueño:
+ * F-cobranza) con el buscador de socios encima de la página actual, sin la
+ * ida y vuelta de `/cobranza/nuevo`. "Ficha de ingreso" NO cambia — sigue
+ * siendo navegación real a `/socios/nuevo`, fuera del alcance de overlays de
+ * este pipeline (00-architecture.md D1).
  */
 export function DashboardHeader({ greeting, permissions }: { greeting: string; permissions: Permission[] }) {
   const canRegisterPayment = permissions.includes('payments.register')
   const canCreateMember = permissions.includes('members.write')
   const hasActions = canRegisterPayment || canCreateMember
+  const bothActions = canRegisterPayment && canCreateMember
+  const paymentOverlay = useOverlayParam('pagar')
 
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-sm font-medium text-muted-foreground">{greeting}</h1>
       <HomeSearch />
       {hasActions ? (
-        <div className="flex flex-wrap gap-2">
+        <div className={cn('grid gap-2 sm:flex sm:flex-wrap', bothActions ? 'grid-cols-2' : 'grid-cols-1')}>
           {canRegisterPayment ? (
-            <Button asChild variant="outline" size="sm" className="shrink-0">
-              <Link href="/cobranza/nuevo" title="Registrar pago">
-                <Banknote aria-hidden className="size-4" />
-                Pago
-              </Link>
+            <Button type="button" className="h-11 w-full sm:w-auto" onClick={() => paymentOverlay.set('buscar')}>
+              <Banknote aria-hidden className="size-4" />
+              Registrar pago
             </Button>
           ) : null}
           {canCreateMember ? (
-            <Button asChild variant="outline" size="sm" className="shrink-0">
-              <Link href="/socios/nuevo" title="Cargar ficha de ingreso">
+            <Button asChild variant="outline" className="h-11 w-full sm:w-auto">
+              <Link href="/socios/nuevo">
                 <UserPlus aria-hidden className="size-4" />
-                Alta
+                Ficha de ingreso
               </Link>
             </Button>
           ) : null}

@@ -18,9 +18,10 @@ export const metadata: Metadata = {
 }
 
 // Tema claro fijo (sin toggle oscuro en este slice): el color de la barra
-// del navegador en iOS/Android coincide con el fondo del panel.
+// del navegador en iOS/Android coincide con el lienzo del panel (`--canvas`,
+// pipeline 2026-09-28 — antes el fondo de página era blanco puro).
 export const viewport: Viewport = {
-  themeColor: '#FFFFFF',
+  themeColor: '#F5F5F4',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

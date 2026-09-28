@@ -1,11 +1,89 @@
 ---
-version: 3
+version: 5
 slug: "route-inicio"
 primary_target: "route:/"
 related_targets: []
 ---
 
 # Panel inicial — de la ronda de composición a la definitiva (F3)
+
+## Ronda 2 (2026-09-28): redundancia y accesos de la cabecera
+
+Revisión del coordinador sobre capturas reales a 390/1440 con datos de demo
+(~200 socios), sobre lo construido en v4 (abajo). Tres correcciones, sin
+tocar nada fuera de `src/views/dashboard/**`:
+
+1. **Los accesos de la cabecera eran chips, no botones.** `size="sm"` de
+   shadcn ya daba 44px técnicos, pero el ancho de contenido (una palabra:
+   "Pago", "Alta") y el padding chico los hacían LEER como chips. Ahora son
+   botones con la etiqueta completa ("Registrar pago", "Ficha de ingreso"),
+   en grilla de 2 columnas que llena el ancho a 390 y ancho automático lado
+   a lado desde `sm`. "Registrar pago" es la acción primaria; "Ficha de
+   ingreso" es `outline`.
+2. **Se borraron los `Panel`s "Este mes" y "Deuda" enteros — eran
+   redundancia pura, no una segunda lectura del mismo dato.** "Deuda"
+   repetía "N socios deben" (ya en el `supporting` de la `HeroFigure`, con
+   el mismo link) Y "Deuda de socios dados de baja" (ya en "Otros
+   pendientes" del panel "Qué hay que resolver"). "Este mes"
+   (efectivo/transferencia/cantidad de pagos) repetía la relación
+   cobrado/cuotas que ya cubre el medidor del hero. Efectivo/transferencia
+   pasaron a una barra fina de 2 segmentos + texto directo ("Efectivo $X ·
+   Transferencia $Y · N pagos") debajo del medidor, dentro del mismo bloque
+   sobre `bg-brand-soft`. **Estructura final**: hero → "Qué hay que
+   resolver" → "Evolución" → "Padrón". `month-rows.tsx` se borró entero
+   (era el único consumidor de `MonthDetailRows`); `DebtDetailRows` se sacó
+   de `debt-rows.tsx` por el mismo motivo (sin consumidor).
+3. **Los puntos de "meses de atraso" leían ruidosos con moras largas**
+   ("●●●●●● +3" al lado de "9 meses" — la misma cifra tres veces). Se sacó
+   el contador "+N": ahora son como mucho 6 puntos llenos y nada más: el
+   número exacto sigue en el texto, los puntos solo dan una lectura rápida
+   de severidad sin sumar otro número a mirar.
+
+## v4 (2026-09-28): pipeline `2026-09-28-ui-expresiva` — hero figure, charts, stagger
+
+Tomás, después de ver el sistema funcionando: "home es todo números, ni un
+gráfico, ni una animación, poco atractiva". No reabre la decisión de v3 (la
+composición sigue siendo "Qué hay que resolver", plata → pendientes → este
+mes → deuda → evolución → padrón): ejecuta esa misma composición con menos
+"planilla" y más lectura de un vistazo, sobre los contratos que fijó el
+hilo principal (`motion.ts`, `hero-figure.tsx`, `chart-kit.tsx`,
+`overlay-params.ts`, `01-tasks.md` de ese pipeline).
+
+- **La plata (`MoneySummaryStrip`) ya no es dos líneas de texto sueltas.**
+  "Deuda total" pasó a ser la única `HeroFigure` de la página (tipografía
+  proporcional ≥48px, cuenta desde 0 una sola vez por sesión de browser,
+  `sessionStorage`) con el medidor lineal de "% de las cuotas del mes
+  cobrado" al lado (relleno recortado a 100%, el número sigue leyendo el
+  valor real si excede). Las dos comparten un único bloque sobre
+  `bg-brand-soft` — la única superficie no blanca del panel entero, a
+  propósito, para que el ojo aterrice ahí primero a 390px.
+- **"Los socios más atrasados" entra con una animación escalonada**
+  (`staggerDelay`, techo ≤ 400ms combinado, opacidad sola con
+  `prefers-reduced-motion`) y cada fila visualiza los meses de atraso con
+  puntos además del texto (`MonthsBehindDots`, decorativo, nunca reemplaza
+  el número). Un click plano sobre la fila abre la vista rápida
+  (`?ver=<id>`) en vez de navegar de una — Cmd/Ctrl/clic del medio siguen
+  yendo directo a la ficha.
+- **El gráfico de evolución dejó de "romperse" al tocarlo.** La causa real
+  no era visual: sin `isAnimationActive` explícito, recharts volvía a
+  animar las barras en CADA re-render, incluido el que dispara el propio
+  hover del tooltip — se sentía como que el gráfico "saltaba". Ahora usa
+  `useChartEntrance()` (`chart-kit.tsx`): se dibuja una vez al montar y
+  queda quieto. También suma un dominio de eje Y con margen (nunca el pico
+  pegado al borde) y los colores/tooltip compartidos de `chart-kit`.
+- **"Socios y deuda por categoría" pasó de una columna de números a
+  `CategoryDebtChart` (compacto)**: una barra de magnitud detrás de cada
+  fila (mismo componente que usa `/cobranza`, contrato C5 del pipeline,
+  dueño F-cobranza) — de un vistazo se ve quién debe más, no hay que leer
+  doce números para compararlos.
+- **"Pago" en la cabecera dejó de navegar a `/cobranza/nuevo`**: abre el
+  overlay global de cobranza (`?pagar=buscar`) encima de la página actual.
+  "Alta" no cambió (sigue yendo a `/socios/nuevo`, fuera del alcance de
+  overlays de este pipeline).
+
+Detalle completo (decisiones de color/contraste del medidor, por qué no se
+reutilizó `Panel` para el bloque de plata, y los archivos tocados) en
+`docs/pipelines/2026-09-28-ui-expresiva/02-development-frontend-inicio.md`.
 
 ## Decisión final (v3, 2026-09-28)
 

@@ -5,10 +5,12 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { TextField, PasswordField } from '@/views/shared/form-fields'
 import { signIn } from '@/controllers/auth.actions'
 import type { ActionResult } from '@/lib/action-result'
+import { DURATION, EASE_ENTER, useMotionPreference } from '@/views/shared/motion'
 
 const loginSchema = z.object({
   email: z.email('Ingresá un email válido'),
@@ -27,6 +29,7 @@ export function LoginForm({ next }: { next?: string }) {
   const [state, formAction, isActionPending] = useActionState<ActionResult | null, FormData>(signIn, null)
   const [isTransitionPending, startTransition] = useTransition()
   const pending = isActionPending || isTransitionPending
+  const { pick } = useMotionPreference()
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -82,11 +85,27 @@ export function LoginForm({ next }: { next?: string }) {
       />
       <PasswordField control={form.control} name="password" label="Contraseña" autoComplete="current-password" disabled={pending} />
 
-      {genericError ? (
-        <p role="alert" className="text-sm text-destructive">
-          {genericError}
-        </p>
-      ) : null}
+      {/*
+        Feedback de estado, no decoración (animate.md): el error de
+        credenciales aparece con el mismo fundido+asentamiento que la llegada
+        de la tarjeta, nunca un salto brusco. `AnimatePresence` también anima
+        la salida cuando la persona corrige y reenvía.
+      */}
+      <AnimatePresence initial={false}>
+        {genericError ? (
+          <motion.p
+            key={genericError}
+            role="alert"
+            initial={{ opacity: 0, y: pick(-4, 0) }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: DURATION.state, ease: EASE_ENTER }}
+            className="text-sm text-destructive"
+          >
+            {genericError}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
 
       <Button type="submit" disabled={pending} className="mt-1 h-11 w-full">
         {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}

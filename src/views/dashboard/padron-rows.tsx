@@ -1,7 +1,5 @@
-import { ChevronDown } from 'lucide-react'
-import { Amount } from '@/views/shared/money'
 import { DataRow, DataRowGroup } from '@/views/dashboard/data-row'
-import type { DashboardSummary, DebtByCategoryRow } from '@/models/types'
+import type { DashboardSummary } from '@/models/types'
 
 /** Activos, altas (+ reactivaciones aparte, nunca sumadas — T9), bajas del mes. */
 export function PadronHeadlineRows({ summary }: { summary: DashboardSummary }) {
@@ -42,55 +40,14 @@ export function MedicalClearanceRows({ summary }: { summary: DashboardSummary })
   )
 }
 
-function categoryHref(row: DebtByCategoryRow): string | undefined {
-  if (row.kind === 'category' && row.categoryId != null) return `/socios?categoryId=${row.categoryId}`
-  if (row.kind === 'social') return '/socios?memberType=non_practicing'
-  return undefined
-}
-
-function CategoryRow({ row }: { row: DebtByCategoryRow }) {
-  return (
-    <DataRow
-      label={row.categoryName}
-      sublabel={`${row.members} ${row.members === 1 ? 'socio' : 'socios'}${row.membersInDebt > 0 ? ` · ${row.membersInDebt} con deuda` : ''}`}
-      value={<Amount cents={row.debtCents} />}
-      tone={row.debtCents > 0 ? 'debt' : undefined}
-      href={categoryHref(row)}
-    />
-  )
-}
-
 /**
- * Deuda por categoría (D32/D14): cada cargo se atribuye a la categoría
- * congelada en él, con "Cuota social" y "Saldo anterior" como filas
- * especiales — las tres suman la deuda total (route.md). Sin `moreRows`,
- * muestra `rows` entera; con `moreRows`, el llamador ya decidió qué queda
- * siempre visible (las especiales, típicamente) y qué cola larga va en un
- * `<details>` nativo (sin JS, sin modal) para no alargar el primer scroll —
- * la variante decide el corte, este componente solo lo dibuja.
+ * Deuda por categoría (D32/D14): ya no vive acá — pasó a
+ * `<CategoryDebtChart rows={byCategory} variant="compact" />`
+ * (`views/payments/category-debt-chart.tsx`, dueño: F-cobranza, contrato
+ * C5). Reemplaza uno a uno la vieja `CategoryList`/`CategoryRow`: la barra
+ * de magnitud detrás de cada fila hace legible de un vistazo "quién debe
+ * más", cosa que una columna de números sueltos no lograba (queja de Tomás:
+ * "todo números, ni un gráfico"). El corte a N filas + "Ver todas" ahora es
+ * responsabilidad del propio componente (`limit`, default 6), no de quien
+ * lo llama — ver `dashboard-content.tsx`.
  */
-export function CategoryList({ rows, moreRows = [] }: { rows: DebtByCategoryRow[]; moreRows?: DebtByCategoryRow[] }) {
-  const visible = rows
-  const rest = moreRows
-
-  return (
-    <DataRowGroup>
-      {visible.map((row) => (
-        <CategoryRow key={`${row.kind}-${row.categoryId ?? 'x'}`} row={row} />
-      ))}
-      {rest.length > 0 ? (
-        <details className="group/details">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-medium text-primary marker:content-none hover:underline">
-            Ver las {rest.length} categorías restantes
-            <ChevronDown aria-hidden className="size-4 shrink-0 transition-transform group-open/details:rotate-180" />
-          </summary>
-          <DataRowGroup>
-            {rest.map((row) => (
-              <CategoryRow key={`${row.kind}-${row.categoryId ?? 'x'}`} row={row} />
-            ))}
-          </DataRowGroup>
-        </details>
-      ) : null}
-    </DataRowGroup>
-  )
-}

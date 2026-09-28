@@ -8,7 +8,7 @@
 
 import { formatCentsCompact } from '@/lib/money'
 import { formatPeriod } from '@/lib/dates'
-import type { CurrentFeeLine, MemberAccount, MemberCategoryRef } from '@/models/types'
+import type { CurrentFeeLine, DebtByCategoryRow, MemberAccount, MemberCategoryRef } from '@/models/types'
 
 /** `/cobranza/deuda` vs. `/cobranza/al-dia`: mismo `debt_status` que espera `AccountListFilters['debt']`. */
 export type ListingVariant = 'in_debt' | 'up_to_date'
@@ -61,4 +61,11 @@ export function currentFeeLabel(member: Pick<MemberAccount, 'currentFeeCents' | 
 
   const breakdown = member.currentFees.map(feeLineLabel).join(' + ')
   return `Cuota de ${periodLabel}: ${formatCentsCompact(member.currentFeeCents)} (${breakdown})`
+}
+
+/** Rótulo de una fila de deuda por categoría (las dos filas especiales tienen su propio texto). */
+export function categoryRowLabel(row: DebtByCategoryRow): string {
+  if (row.kind === 'social') return 'Cuota social · no practicantes'
+  if (row.kind === 'opening_balance') return 'Saldo anterior al sistema'
+  return row.disciplineName ? `${row.disciplineName} · ${row.categoryName}` : row.categoryName
 }

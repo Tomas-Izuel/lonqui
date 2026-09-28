@@ -11,6 +11,7 @@ import { Dni } from '@/views/shared/dni'
 import { MedicalClearanceNotice } from '@/views/members/medical-clearance-notice'
 import { Amount } from '@/views/shared/money'
 import { categoriesLabel } from '@/views/payments/account-format'
+import { useOverlayParam, isPlainLeftClick } from '@/views/shared/overlay-params'
 import { loadMoreMembers } from '@/controllers/members.actions'
 import type { MemberFilters, MemberSummary, Page } from '@/models/types'
 
@@ -74,6 +75,27 @@ export function MemberList({
     nextCursor: initialPage.nextCursor,
   })
   const [loadError, setLoadError] = useState<string | null>(null)
+  const quickView = useOverlayParam('ver')
+
+  /**
+   * La fila sigue siendo un `<a href="/socios/[id]">` real, tanto en la fila
+   * apilable como en cada celda de la tabla (`DataList`, sin tocar) — clic
+   * medio, Cmd/Ctrl+click y lectores de pantalla siguen yendo directo a la
+   * ficha completa, porque esos gestos nunca disparan este `click` (D2,
+   * `00-architecture.md`). Un click plano sí: se intercepta en captura
+   * (antes de que el propio `Link` navegue) y abre la vista rápida en su
+   * lugar — mismo patrón que usa `next/link` para no robarle los
+   * modificadores al navegador, documentado en `isPlainLeftClick`.
+   */
+  function handleRowClickCapture(event: React.MouseEvent<HTMLDivElement>) {
+    if (!isPlainLeftClick(event)) return
+    const anchor = (event.target as HTMLElement).closest('a[href]')
+    if (!(anchor instanceof HTMLAnchorElement)) return
+    const match = /^\/socios\/(\d+)$/.exec(anchor.getAttribute('href') ?? '')
+    if (!match) return
+    event.preventDefault()
+    quickView.set(match[1])
+  }
 
   async function handleLoadMore(cursor: string) {
     setLoadError(null)
@@ -160,7 +182,7 @@ export function MemberList({
   )
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" onClickCapture={handleRowClickCapture}>
       <DataList items={state.items} getKey={(m) => m.id} columns={columns} renderRow={renderRow} emptyState={emptyState} />
       {loadError ? (
         <p role="alert" className="text-sm text-destructive">

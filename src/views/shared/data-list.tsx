@@ -48,6 +48,24 @@ type DataListProps<T> = {
 }
 
 /**
+ * Entrada escalonada de las primeras filas (pipeline 2026-09-28, motion.ts:
+ * STAGGER). CSS puro (tw-animate-css) y no `motion`: `DataList` se usa desde
+ * Server Components que le pasan funciones (`renderRow`), así que no puede
+ * volverse Client Component. Solo anima al montar la fila (cambio de filtro
+ * o de página = filas nuevas); `motion-reduce` deja solo la opacidad.
+ */
+const STAGGER_STEP_MS = 40
+const STAGGER_MAX_ROWS = 8
+
+function rowEntrance(index: number): { className: string; style: React.CSSProperties } {
+  return {
+    className:
+      'animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-both duration-300 ease-(--ease-out-expo) motion-reduce:slide-in-from-bottom-0',
+    style: { animationDelay: `${Math.min(index, STAGGER_MAX_ROWS) * STAGGER_STEP_MS}ms` },
+  }
+}
+
+/**
  * Lista/tabla responsive: filas apilables en móvil (`< md`), tabla en
  * escritorio. Nunca las dos estructuras a la vez — es el mismo dato, dos
  * lecturas del layout, como pide la convención de la categoría.
@@ -68,9 +86,10 @@ export function DataList<T>({
   return (
     <div className={className}>
       {/* Móvil: filas apilables */}
-      <ul className="flex flex-col divide-y divide-border rounded-lg border border-border md:hidden">
-        {items.map((item) => {
+      <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border/70 bg-card shadow-raised md:hidden">
+        {items.map((item, itemIndex) => {
           const row = renderRow(item)
+          const entrance = rowEntrance(itemIndex)
           const content = (
             <div className="flex min-h-11 items-center gap-3 px-3 py-3">
               {/*
@@ -91,9 +110,9 @@ export function DataList<T>({
             </div>
           )
           return (
-            <li key={getKey(item)}>
+            <li key={getKey(item)} className={entrance.className} style={entrance.style}>
               {row.href ? (
-                <Link href={row.href} className="block hover:bg-muted/50 focus-visible:bg-muted/50">
+                <Link href={row.href} className="block transition-colors duration-150 hover:bg-muted/50 focus-visible:bg-muted/50 active:bg-muted">
                   {content}
                 </Link>
               ) : (
@@ -105,7 +124,7 @@ export function DataList<T>({
       </ul>
 
       {/* Escritorio: tabla */}
-      <div className="hidden overflow-hidden rounded-lg border border-border md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border/70 bg-card shadow-raised md:block">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -117,15 +136,16 @@ export function DataList<T>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((item) => {
+            {items.map((item, itemIndex) => {
               const row = renderRow(item)
+              const entrance = rowEntrance(itemIndex)
               const rowContent = columns.map((col) => (
                 <TableCell key={col.key} className={cn(col.numeric && 'text-right tabular-nums', col.className)}>
                   {col.render(item)}
                 </TableCell>
               ))
               return row.href ? (
-                <TableRow key={getKey(item)} className="cursor-pointer">
+                <TableRow key={getKey(item)} className={cn('cursor-pointer', entrance.className)} style={entrance.style}>
                   {columns.map((col, index) => (
                     <TableCell key={col.key} className={cn(col.numeric && 'text-right tabular-nums', col.className, 'p-0')}>
                       {/*
@@ -147,7 +167,9 @@ export function DataList<T>({
                   ))}
                 </TableRow>
               ) : (
-                <TableRow key={getKey(item)}>{rowContent}</TableRow>
+                <TableRow key={getKey(item)} className={entrance.className} style={entrance.style}>
+                  {rowContent}
+                </TableRow>
               )
             })}
           </TableBody>

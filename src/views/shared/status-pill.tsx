@@ -33,7 +33,11 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        'inline-flex h-6 w-fit items-center gap-1.5 rounded-full px-2.5 text-xs font-medium whitespace-nowrap',
+        // `transition-colors`: un pago que se registra y cambia "Con deuda" →
+        // "Al día" en el mismo `router.refresh()` se ve cambiar de color, no
+        // saltar de golpe — el mismo criterio de "state" de C1, sin traer la
+        // dependencia de `motion` para algo que una transición CSS resuelve.
+        'inline-flex h-6 w-fit items-center gap-1.5 rounded-full px-2.5 text-xs font-medium whitespace-nowrap transition-colors duration-150',
         STYLES[variant],
         className,
       )}

@@ -15,4 +15,4 @@ Modo: **Operate**. Reemplaza la ficha en papel que pide el estatuto.
 - **Estados:** validación inline al salir del campo y al enviar (foco al primer error), enviando, error de servidor genérico con reintento, éxito con toast. En edición, `joined_on` y estado no se editan (se muestran como texto).
 - **Interacción:** autocompletar de navegador apagado en DNI; selects nativos en móvil; el botón primario dice "Dar de alta" en alta y "Guardar cambios" en edición.
 - **Anti-objetivos:** wizard de varios pasos, modales, campos que no pide el contrato, subir el apto físico acá (se hace desde la ficha).
-- **Dirección seleccionada:** hereda D0.
+- **Dirección seleccionada:** hereda D0. Sin cambios de flujo en el pipeline 2026-09-28-ui-expresiva: hereda el lienzo (`bg-canvas`) y los `Panel`s elevados del resto del panel, sin overlays ni charts nuevos (no hay pedido de Tomás que alcance esta pantalla).

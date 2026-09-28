@@ -7,7 +7,6 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Panel } from '@/views/shared/panel'
 import { AmountField, DateField, TextareaField } from '@/views/shared/form-fields'
 import { DebtStatusPill } from '@/views/shared/status-pill'
 import { paymentMethodLabels } from '@/views/shared/labels'
@@ -49,18 +48,30 @@ function resultingAccountMessage(member: MemberAccount, amountCents: number): st
 }
 
 /**
- * Registrar pago de UN socio (`/cobranza/nuevo?socio=`). El pago de grupo
+ * Registrar pago de UN socio (`?pagar=socio:<id>`, overlay global de
+ * cobranza). El pago de grupo
  * familiar es `GroupPaymentForm`, un formulario distinto (lote de N filas):
  * comparten el "look" pero no la forma de los datos, así que no vale la pena
  * forzar una sola implementación genérica (se probó y quedaba más difícil de
  * leer que dos componentes chicos).
  *
- * `onDone` decide qué pasa después de un registro exitoso: `/cobranza/nuevo`
- * (page.tsx) le pasa `() => router.push(volverHref)`; `RegisterPaymentSheet`
- * (para quien la embeba, p. ej. F2 desde la ficha) le pasa "cerrar el sheet y
- * refrescar" — el formulario no sabe ni le importa cuál de las dos es.
+ * `onDone` decide qué pasa después de un registro exitoso: lo llama
+ * `RegisterPaymentSheetBody` (overlay global de cobranza, pipeline
+ * 2026-09-28-ui-expresiva) para cerrar el sheet y refrescar — el formulario
+ * no sabe ni le importa qué hace. `onSuccess`, opcional, avisa el monto justo
+ * ANTES de `onDone`: es lo que le permite a `RegisterPaymentSheetBody` mostrar
+ * el momento autorado (check + monto) sin que este componente conozca nada de
+ * esa animación.
  */
-export function PaymentForm({ member, onDone }: { member: MemberAccount; onDone: () => void }) {
+export function PaymentForm({
+  member,
+  onDone,
+  onSuccess,
+}: {
+  member: MemberAccount
+  onDone: () => void
+  onSuccess?: (amountCents: number) => void
+}) {
   const [batchId] = useState(() => crypto.randomUUID())
   const [file, setFile] = useState<File | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -144,24 +155,29 @@ export function PaymentForm({ member, onDone }: { member: MemberAccount; onDone:
     }
 
     toast.success(result.data.alreadyRegistered ? 'El pago ya estaba registrado' : resultingAccountMessage(member, cents))
+    onSuccess?.(cents)
     onDone()
   }
 
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
-      <Panel>
-        <div className="flex flex-col gap-1.5">
-          <h1 className="font-heading text-xl font-semibold text-balance">{member.fullName}</h1>
-          <p className="text-sm text-muted-foreground">{categoriesLabel(member.categories)}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <DebtStatusPill status={member.debtStatus} />
-            <span className="text-sm">{accountLineText(member)}</span>
-          </div>
-          {precargaLabel ? <p className="text-sm text-muted-foreground">{precargaLabel}</p> : null}
-        </div>
-      </Panel>
+  // La pill repite el mismo texto que `accountLineText` exactamente cuando
+  // está al día ("Al día" al lado de "Al día"): se muestra solo cuando dice
+  // algo que la línea de cuenta no dice (deuda con monto y meses, saldo a
+  // favor), nunca como decoración redundante del mismo estado.
+  const showDebtPill = member.debtStatus !== 'up_to_date'
 
-      <Panel title="Registrar pago">
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col">
+      <div className="flex flex-col gap-1.5 pb-4">
+        <p className="text-lg font-semibold text-balance">{member.fullName}</p>
+        <p className="text-sm text-muted-foreground">{categoriesLabel(member.categories)}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          {showDebtPill ? <DebtStatusPill status={member.debtStatus} /> : null}
+          <span className="text-sm">{accountLineText(member)}</span>
+        </div>
+        {precargaLabel ? <p className="text-sm text-muted-foreground">{precargaLabel}</p> : null}
+      </div>
+
+      <div className="border-t border-border pt-4">
         <form
           id="payment-form"
           onSubmit={form.handleSubmit(onValid)}
@@ -245,7 +261,7 @@ export function PaymentForm({ member, onDone }: { member: MemberAccount; onDone:
             </Button>
           ) : null}
         </form>
-      </Panel>
+      </div>
     </div>
   )
 }

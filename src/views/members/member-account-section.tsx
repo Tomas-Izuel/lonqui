@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -10,12 +9,11 @@ import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Panel } from '@/views/shared/panel'
-import { DebtStatusPill } from '@/views/shared/status-pill'
 import { Amount } from '@/views/shared/money'
-import { DateText } from '@/views/shared/date-text'
 import { AmountField, TextareaField } from '@/views/shared/form-fields'
+import { useOverlayParam, paymentOverlayValue } from '@/views/shared/overlay-params'
+import { MemberAccountAnswer } from '@/views/members/member-account-answer'
 import { createOpeningBalance } from '@/controllers/payments.actions'
-import { accountLineText } from '@/views/payments/account-format'
 import type { BillingStatus, Fee, MemberAccount } from '@/models/types'
 
 /**
@@ -37,12 +35,14 @@ const openingBalanceSchema = z
 type OpeningBalanceValues = z.infer<typeof openingBalanceSchema>
 
 /**
- * Sección de cuenta, arriba del todo de la ficha (§13.6): estado + último
- * pago + accesos a `/cobranza/nuevo` (Registrar pago / Pago del grupo, ese
- * formulario lo construye F1 en paralelo) + "Cargar saldo anterior" cuando
- * no hay uno vigente y la facturación está activa. Con facturación
- * inactiva: una sola línea que lo explica, sin ceros que puedan asustar
- * (un "Debe $0 · 0 meses" se lee como una deuda real).
+ * Sección de cuenta, arriba del todo de la ficha (§13.6) — LA respuesta del
+ * producto ("¿debe? ¿desde cuándo? ¿cuánto?"), por eso `MemberAccountAnswer`
+ * (screenshot review, ronda 2) lleva el tratamiento más grande de toda la
+ * ficha, antes de cualquier otro dato. Debajo: "Registrar pago" / "Pago del
+ * grupo" (pipeline 2026-09-28-ui-expresiva, D1: abren el overlay de cobranza
+ * sobre esta misma página con `useOverlayParam('pagar')`, nunca navegan a
+ * `/cobranza/nuevo`) + "Cargar saldo anterior" cuando no hay uno vigente y la
+ * facturación está activa.
  */
 export function MemberAccountSection({
   memberId,
@@ -60,6 +60,7 @@ export function MemberAccountSection({
   canRegister: boolean
 }) {
   const router = useRouter()
+  const paymentOverlay = useOverlayParam('pagar')
   const [showOpeningForm, setShowOpeningForm] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -69,7 +70,6 @@ export function MemberAccountSection({
   })
 
   const pending = form.formState.isSubmitting
-  const volver = `/socios/${memberId}`
 
   async function onValid(values: OpeningBalanceValues) {
     setFormError(null)
@@ -91,32 +91,29 @@ export function MemberAccountSection({
   return (
     <Panel title="Cuenta">
       <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <DebtStatusPill status={account.debtStatus} />
-          {/* Mismo texto que `PaymentForm`/`GroupPaymentForm` (F1, `account-format.ts`):
-              una sola fuente para "Debe $X · N meses" / "Al día" / "Saldo a
-              favor $X" / "Dado de baja · debe $X" en toda la app. */}
-          <p className="text-sm">{accountLineText(account)}</p>
-        </div>
-
-        {account.lastPaymentOn ? (
-          <p className="text-sm text-muted-foreground">
-            Último pago: <Amount cents={account.lastPaymentCents ?? 0} /> el <DateText date={account.lastPaymentOn} />
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">Todavía no registró ningún pago.</p>
-        )}
+        {/* `variant="plain"` (code-review, ronda 3): ya estamos dentro de
+            `Panel title="Cuenta"` — la tarjeta propia de `MemberAccountAnswer`
+            se leía como una tarjeta anidada dentro de otra. */}
+        <MemberAccountAnswer account={account} variant="plain" />
 
         {!billing.active ? <p className="text-sm text-muted-foreground">La facturación de cuotas todavía no está activada.</p> : null}
 
         {canRegister ? (
           <div className="flex flex-wrap gap-2">
-            <Button asChild className="h-11">
-              <Link href={`/cobranza/nuevo?socio=${memberId}&volver=${volver}`}>Registrar pago</Link>
+            {/* Overlay sobre la página actual (D1, pipeline 2026-09-28): nunca
+                se navega a /cobranza/nuevo, que ahora es solo un redirect fino
+                para links viejos guardados. */}
+            <Button type="button" className="h-11" onClick={() => paymentOverlay.set(paymentOverlayValue({ mode: 'socio', memberId }))}>
+              Registrar pago
             </Button>
             {familyGroupId != null ? (
-              <Button asChild variant="outline" className="h-11">
-                <Link href={`/cobranza/nuevo?grupo=${familyGroupId}&socio=${memberId}&volver=${volver}`}>Pago del grupo</Link>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11"
+                onClick={() => paymentOverlay.set(paymentOverlayValue({ mode: 'grupo', familyGroupId }))}
+              >
+                Pago del grupo
               </Button>
             ) : null}
           </div>
