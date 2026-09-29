@@ -21,7 +21,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     <main className="flex min-h-dvh flex-col bg-canvas">
       <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-4 py-8 sm:py-12">
         <div className="flex flex-col items-center gap-3 rounded-3xl bg-brand-soft px-6 pt-10 pb-14 text-center">
-          <ClubMark size="lg" className="size-16 text-2xl" />
+          <ClubMark size="lg" className="size-20" />
           <div className="flex flex-col gap-0.5">
             <p className="font-heading text-lg font-semibold text-balance">Naranja y Blanco</p>
             <p className="text-sm text-muted-foreground">Club Social y Deportivo</p>

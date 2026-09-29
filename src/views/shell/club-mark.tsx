@@ -1,24 +1,26 @@
+import Image from 'next/image'
+
 import { cn } from '@/lib/utils'
 
 /**
- * Placeholder tipográfico del escudo: el escudo real todavía no llegó. Un
- * monograma "NB" (Naranja y Blanco) sobre el naranja de marca — nunca un
- * emoji — pensado para reemplazarse por la imagen real sin tocar el layout
- * que lo rodea (mismo tamaño cuadrado, mismo radio).
+ * Escudo del club. El PNG (465×512, transparente) trae su propia forma, así que
+ * no lleva caja ni fondo de marca: el cuadrado de cada tamaño es solo el
+ * contenedor que reserva el lugar, y `object-contain` deja el escudo entero
+ * sin deformarlo (no es cuadrado). Es decorativo (`alt=""`): en todos los usos
+ * el nombre del club se renderiza al lado, y repetirlo sería ruido para el
+ * lector de pantalla. Se sirve tal cual desde /public: el archivo ya está
+ * dimensionado para el uso más grande (lg), así que no hace falta `priority`.
  */
 export function ClubMark({ size = 'md', className }: { size?: 'sm' | 'md' | 'lg'; className?: string }) {
-  const dimensions = { sm: 'size-7 text-xs', md: 'size-9 text-sm', lg: 'size-14 text-xl' }[size]
+  const dimensions = { sm: 'size-7', md: 'size-9', lg: 'size-14' }[size]
 
   return (
-    <span
-      aria-hidden
-      className={cn(
-        'flex shrink-0 items-center justify-center rounded-lg bg-brand font-heading font-bold text-brand-foreground',
-        dimensions,
-        className,
-      )}
-    >
-      NB
-    </span>
+    <Image
+      src="/escudo.png"
+      alt=""
+      width={465}
+      height={512}
+      className={cn('shrink-0 object-contain', dimensions, className)}
+    />
   )
 }
