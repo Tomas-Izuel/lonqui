@@ -23,7 +23,7 @@ export default async function CambiarContrasenaPage({ searchParams }: { searchPa
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-heading text-xl font-semibold">Cambiar contraseña</h1>
+      <h1 className="font-heading text-2xl font-semibold text-balance">Cambiar contraseña</h1>
       <ChangePasswordForm mode={mode} next={next} />
     </div>
   )

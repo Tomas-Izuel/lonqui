@@ -21,7 +21,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-heading text-xl font-semibold">Ingresar</h1>
+      <h1 className="font-heading text-2xl font-semibold text-balance">Ingresá a la gestión del club</h1>
       <LoginForm next={safeNext} />
     </div>
   )

@@ -112,7 +112,7 @@ export function LoginForm({ next }: { next?: string }) {
         {pending ? 'Ingresando…' : 'Ingresar'}
       </Button>
 
-      <p className="text-center text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         ¿Te olvidaste la contraseña? Pedile una nueva a un administrador del club.
       </p>
     </form>

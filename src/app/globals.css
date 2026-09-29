@@ -191,3 +191,23 @@
     background-color: var(--primary-hover);
   }
 }
+
+@layer components {
+  /* Bastones de la camiseta: anchos IGUALES y tono sobre tono (--brand y un
+     naranja apenas más claro). El durazno/blanco contra el naranja vibraba y
+     el naranja medía el doble. --stripe escala el patrón entre el encabezado
+     móvil y el panel de escritorio. Solo decoración: nunca lleva texto. */
+  .club-stripes {
+    --stripe: 1.25rem;
+    background-image: repeating-linear-gradient(
+      270deg,
+      var(--brand) 0 var(--stripe),
+      #F58540 var(--stripe) calc(var(--stripe) * 2)
+    );
+  }
+  @media (min-width: 64rem) {
+    .club-stripes {
+      --stripe: 2.5rem;
+    }
+  }
+}
