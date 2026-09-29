@@ -26,18 +26,20 @@ import type { MonthlyHistoryPoint } from '@/models/types'
 function ChartTooltip({
   active,
   payload,
-  label,
 }: {
   active?: boolean
-  payload?: { dataKey?: string | number; value?: number }[]
-  label?: string
+  payload?: { dataKey?: string | number; value?: number; payload?: MonthlyHistoryPoint }[]
 }) {
   if (!active || !payload?.length) return null
   const collected = payload.find((p) => p.dataKey === 'collectedCents')?.value ?? 0
   const debt = payload.find((p) => p.dataKey === 'debtAtCloseCents')?.value ?? 0
+  // El período sale de la fila, no de `label`: `label` es el valor del eje X
+  // (`shortMonth`, "sep"), y `formatPeriod("sep")` arma un `Date` inválido
+  // que hace tirar a `Intl.DateTimeFormat` y voltea todo el inicio al hover.
+  const period = payload[0].payload?.period
 
   return (
-    <ChartTooltipFrame title={label ? formatPeriod(label) : ''}>
+    <ChartTooltipFrame title={period ? formatPeriod(period) : ''}>
       <TooltipRow color={CHART_COLORS.collected} label="Cobrado" value={formatCentsCompact(collected)} />
       <TooltipRow color={CHART_COLORS.debt} label="Deuda al cierre" value={formatCentsCompact(debt)} />
     </ChartTooltipFrame>
