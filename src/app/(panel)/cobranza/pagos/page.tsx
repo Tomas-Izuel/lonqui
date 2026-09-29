@@ -5,7 +5,7 @@ import { getMonthCollection } from '@/models/reports.model'
 import { toPeriod } from '@/lib/dates'
 import { MonthPaymentsView } from '@/views/payments/month-payments-view'
 
-export const metadata: Metadata = { title: 'Pagos del mes — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Pagos del mes — Lonqui' }
 
 type SearchParams = Record<string, string | string[] | undefined>
 

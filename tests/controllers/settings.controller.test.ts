@@ -50,7 +50,7 @@ describe('getSettingsPage', () => {
 
   it('con el permiso, compone settings + disciplinas (todas y solo activas) + feePrices + billing en paralelo', async () => {
     requirePanelPermissionMock.mockResolvedValue({ role: 'admin' })
-    getSettingsMock.mockResolvedValue({ clubName: 'Club Naranja y Blanco', billingStartPeriod: '2026-09-01' })
+    getSettingsMock.mockResolvedValue({ clubName: 'Lonqui', billingStartPeriod: '2026-09-01' })
     listDisciplinesMock
       .mockResolvedValueOnce([{ id: 1, name: 'Fútbol masculino', isActive: true, categories: [] }])
       .mockResolvedValueOnce([{ id: 1, name: 'Fútbol masculino', isActive: true, categories: [] }])
@@ -59,7 +59,7 @@ describe('getSettingsPage', () => {
 
     const page = await getSettingsPage()
 
-    expect(page.settings.clubName).toBe('Club Naranja y Blanco')
+    expect(page.settings.clubName).toBe('Lonqui')
     expect(listDisciplinesMock).toHaveBeenCalledWith({ includeInactive: true })
     expect(listDisciplinesMock).toHaveBeenCalledWith({ includeInactive: false })
     expect(page.feePrices.history).toEqual([])

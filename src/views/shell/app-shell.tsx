@@ -62,7 +62,7 @@ export function AppShell({ session, children }: { session: AppShellSession; chil
         <aside className="hidden md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col md:border-r md:border-border md:bg-card">
           <div className="flex h-14 shrink-0 items-center gap-2 px-4">
             <ClubMark />
-            <span className="truncate font-heading text-sm font-semibold">Naranja y Blanco</span>
+            <span className="truncate font-heading text-sm font-semibold">Lonqui</span>
           </div>
           <div className="flex min-h-0 flex-1 flex-col py-2">
             <DesktopNavList role={session.role} />
@@ -95,7 +95,7 @@ export function AppShell({ session, children }: { session: AppShellSession; chil
           {/* Móvil: barra superior blanca translúcida con blur, pegada arriba del lienzo. */}
           <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-4 backdrop-blur-md md:hidden">
             <ClubMark size="sm" />
-            <span className="truncate font-heading text-sm font-semibold">Naranja y Blanco</span>
+            <span className="truncate font-heading text-sm font-semibold">Lonqui</span>
             <div className="ml-auto">
               <UserMenu displayName={session.displayName} role={session.role} />
             </div>

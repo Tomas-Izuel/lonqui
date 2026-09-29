@@ -6,7 +6,7 @@ import { DashboardHeader } from '@/views/dashboard/dashboard-header'
 import { DashboardContent } from '@/views/dashboard/dashboard-content'
 import { EmptyState } from '@/views/shared/states'
 
-export const metadata: Metadata = { title: 'Inicio — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Inicio — Lonqui' }
 
 /**
  * Panel inicial definitivo (F3, fase 2 — reemplaza entero el de antes, que

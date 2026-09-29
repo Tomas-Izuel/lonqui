@@ -4,7 +4,7 @@ import { getDebtListing } from '@/controllers/reports.controller'
 import { listDisciplines } from '@/models/catalogs.model'
 import { MemberAccountsListingView } from '@/views/payments/member-accounts-listing-view'
 
-export const metadata: Metadata = { title: 'Con deuda — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Con deuda — Lonqui' }
 
 type SearchParams = Record<string, string | string[] | undefined>
 

@@ -7,7 +7,7 @@ import { AuditList } from '@/views/audit/audit-list'
 import { AuditDetailSheet } from '@/views/audit/audit-detail-sheet'
 import type { AuditedTable, AuditFilters as AuditFiltersInput } from '@/models/types'
 
-export const metadata: Metadata = { title: 'Auditoría — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Auditoría — Lonqui' }
 
 // Blocker B1 (03-review.md, tercera pasada): las tres tablas de cobranza
 // (fee_prices/fees/payments) ya aparecen en el select de `audit-labels.ts`

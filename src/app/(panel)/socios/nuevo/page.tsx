@@ -5,7 +5,7 @@ import { listFamilyGroups } from '@/models/family-groups.model'
 import { AccessDenied } from '@/views/shell/access-denied'
 import { MemberForm } from '@/views/members/member-form'
 
-export const metadata: Metadata = { title: 'Ficha de ingreso — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Ficha de ingreso — Lonqui' }
 
 /**
  * `consulta` no ve el botón de alta en `/socios`, pero la ruta igual se

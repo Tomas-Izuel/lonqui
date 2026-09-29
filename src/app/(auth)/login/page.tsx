@@ -4,7 +4,7 @@ import { getSession } from '@/controllers/session.controller'
 import { LoginForm } from '@/views/auth/login-form'
 import { isInternalRedirectPath } from '@/lib/safe-redirect'
 
-export const metadata: Metadata = { title: 'Ingresar — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Ingresar — Lonqui' }
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const { next } = await searchParams

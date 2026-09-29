@@ -3,7 +3,7 @@ import { requirePanelAccess } from '@/controllers/session.controller'
 import { listUsers } from '@/controllers/users.controller'
 import { UsersView } from '@/views/users/users-view'
 
-export const metadata: Metadata = { title: 'Usuarios — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Usuarios — Lonqui' }
 
 /**
  * Solo lectura acá: `listUsers()` ya exige `admin` (`requireRole` adentro).

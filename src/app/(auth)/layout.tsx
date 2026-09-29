@@ -35,7 +35,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="flex flex-col items-center gap-5 rounded-3xl bg-background px-14 py-12 text-center shadow-lifted">
           <ClubMark size="lg" className="h-52 w-auto" />
           <div className="flex flex-col gap-1">
-            <p className="font-heading text-2xl font-semibold text-balance">Naranja y Blanco</p>
+            <p className="font-heading text-2xl font-semibold text-balance">Lonqui</p>
             <p className="text-sm text-muted-foreground">Club Social y Deportivo</p>
           </div>
         </div>
@@ -45,7 +45,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           centrado en vertical solo cuando hay panel de marca al lado. */}
       <div className="mx-auto flex w-full max-w-sm flex-1 flex-col gap-6 px-4 pt-3 pb-8 lg:max-w-95 lg:justify-center lg:px-0 lg:py-12">
         <div className="flex min-h-12 flex-col justify-center pl-28 lg:hidden">
-          <p className="font-heading text-lg leading-tight font-semibold text-balance">Naranja y Blanco</p>
+          <p className="font-heading text-lg leading-tight font-semibold text-balance">Lonqui</p>
           <p className="text-sm text-muted-foreground">Club Social y Deportivo</p>
         </div>
         <AuthCard>{children}</AuthCard>

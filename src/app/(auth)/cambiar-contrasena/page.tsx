@@ -3,7 +3,7 @@ import { requireSession } from '@/controllers/session.controller'
 import { ChangePasswordForm } from '@/views/auth/change-password-form'
 import { isInternalRedirectPath } from '@/lib/safe-redirect'
 
-export const metadata: Metadata = { title: 'Cambiar contraseña — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Cambiar contraseña — Lonqui' }
 
 export default async function CambiarContrasenaPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   // Sin sesión, `requireSession()` ya manda a `/login` (sin `next`: esta

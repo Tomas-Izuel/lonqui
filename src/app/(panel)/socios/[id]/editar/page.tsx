@@ -8,7 +8,7 @@ import { isDomainError } from '@/lib/errors'
 import { AccessDenied } from '@/views/shell/access-denied'
 import { MemberForm } from '@/views/members/member-form'
 
-export const metadata: Metadata = { title: 'Editar socio — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Editar socio — Lonqui' }
 
 export default async function EditMemberPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

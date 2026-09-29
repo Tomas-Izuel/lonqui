@@ -9,7 +9,7 @@ import { MemberDetailView } from '@/views/members/member-detail-view'
 // Título genérico a propósito: nunca el DNI, y evita una segunda lectura de
 // `getMemberPage` solo para el nombre en `generateMetadata` (repetiría la
 // consulta y la firma de la URL del certificado).
-export const metadata: Metadata = { title: 'Ficha del socio — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Ficha del socio — Lonqui' }
 
 export default async function MemberPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

@@ -23,7 +23,7 @@ const serverSchema = z.object({
    */
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
-  RESEND_FROM_NAME: z.string().default('Club Naranja y Blanco'),
+  RESEND_FROM_NAME: z.string().default('Lonqui'),
 })
 
 let cached: z.infer<typeof serverSchema> | null = null

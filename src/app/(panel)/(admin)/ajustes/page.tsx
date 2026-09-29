@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { getSettingsPage } from '@/controllers/settings.controller'
 import { SettingsPageView } from '@/views/settings/settings-page-view'
 
-export const metadata: Metadata = { title: 'Ajustes — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Ajustes — Lonqui' }
 
 /**
  * Routing fino (CLAUDE.md): la page llama al controller y renderiza la vista.

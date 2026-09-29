@@ -11,8 +11,8 @@ import './globals.css'
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' })
 
 export const metadata: Metadata = {
-  title: 'Club Naranja y Blanco — Gestión',
-  description: 'Sistema de gestión administrativa del Club Social y Deportivo Naranja y Blanco.',
+  title: 'Lonqui — Gestión',
+  description: 'Sistema de gestión administrativa de Lonqui.',
   // Es un panel interno con datos personales: no tiene nada que indexar.
   robots: { index: false, follow: false },
 }

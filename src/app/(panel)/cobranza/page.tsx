@@ -3,7 +3,7 @@ import { requirePanelPermission } from '@/controllers/session.controller'
 import { getCobranzaHub } from '@/controllers/reports.controller'
 import { CobranzaHubView } from '@/views/payments/cobranza-hub-view'
 
-export const metadata: Metadata = { title: 'Cobranza — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Cobranza — Lonqui' }
 
 /**
  * Hub de `/cobranza` (route-cobranza.md). El buscador de socio ya no vive

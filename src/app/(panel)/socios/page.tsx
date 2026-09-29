@@ -7,7 +7,7 @@ import { getBillingStatus } from '@/models/billing.model'
 import { MemberListView } from '@/views/members/member-list-view'
 import type { MemberFilters, MemberStatus } from '@/models/types'
 
-export const metadata: Metadata = { title: 'Socios — Club Naranja y Blanco' }
+export const metadata: Metadata = { title: 'Socios — Lonqui' }
 
 type SearchParams = Record<string, string | string[] | undefined>
 
