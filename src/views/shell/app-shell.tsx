@@ -84,10 +84,13 @@ export function AppShell({ session, children }: { session: AppShellSession; chil
           El scrollbar en sí (Firefox vía `scrollbar-width`/`-color`, WebKit
           vía los pseudo-elementos) es fino y del color de `--border`, nunca
           el gris del navegador por defecto (craft-floor: "browser surfaces
-          still carry the design").
+          still carry the design"). `md:relative` hace que este
+          contenedor sea el bloque contenedor de los `absolute` de adentro
+          (tooltips de recharts, `sr-only`): sin eso escapan al documento y
+          aparece un segundo scroll de página entera.
         */}
         <div
-          className="flex min-w-0 flex-1 flex-col md:h-dvh md:overflow-y-auto md:[scrollbar-gutter:stable] md:[scrollbar-width:thin] md:[scrollbar-color:var(--border)_transparent] md:[&::-webkit-scrollbar]:w-2.5 md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-border md:[&::-webkit-scrollbar-track]:bg-transparent"
+          className="flex min-w-0 flex-1 flex-col md:relative md:h-dvh md:overflow-y-auto md:[scrollbar-gutter:stable] md:[scrollbar-width:thin] md:[scrollbar-color:var(--border)_transparent] md:[&::-webkit-scrollbar]:w-2.5 md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-border md:[&::-webkit-scrollbar-track]:bg-transparent"
         >
           {/* Móvil: barra superior blanca translúcida con blur, pegada arriba del lienzo. */}
           <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-4 backdrop-blur-md md:hidden">
