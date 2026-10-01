@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Camera, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RECEIPT_ALLOWED_MIME_TYPES, validateReceiptFile } from '@/views/payments/receipt-upload'
@@ -15,14 +15,19 @@ export function ReceiptPicker({
   file,
   onChange,
   disabled,
+  error: externalError,
 }: {
   file: File | null
   onChange: (file: File | null) => void
   disabled?: boolean
+  /** Error que llega de la subida o del servidor (`receiptPath`): se muestra acá, debajo del control. */
+  error?: string | null
 }) {
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
+  const errorId = useId()
+  const shownError = error ?? externalError ?? null
 
   function pick(selected: File | null) {
     if (!selected) {
@@ -48,7 +53,15 @@ export function ReceiptPicker({
           <Camera aria-hidden />
           Sacar foto
         </Button>
-        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          aria-invalid={Boolean(shownError)}
+          aria-describedby={shownError ? errorId : undefined}
+          onClick={() => fileInputRef.current?.click()}
+        >
           <Upload aria-hidden />
           Elegir archivo
         </Button>
@@ -88,9 +101,9 @@ export function ReceiptPicker({
         onChange={(e) => pick(e.target.files?.[0] ?? null)}
       />
       <p className="text-xs text-muted-foreground">JPG, PNG, WEBP o PDF, hasta 10 MB.</p>
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
+      {shownError ? (
+        <p id={errorId} role="alert" className="text-sm text-destructive">
+          {shownError}
         </p>
       ) : null}
     </div>

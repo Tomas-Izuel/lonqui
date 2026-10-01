@@ -22,9 +22,10 @@ import type { Category, Discipline, DisciplineWithCategories } from './types'
 // -----------------------------------------------------------------------------
 
 const nameSchema = z
-  .string()
+  .string('El nombre tiene que tener al menos 2 caracteres')
   .trim()
   .min(2, 'El nombre tiene que tener al menos 2 caracteres')
+  .max(120, 'El nombre no puede tener más de 120 caracteres')
 
 export const createDisciplineSchema = z
   .object({
@@ -42,7 +43,10 @@ export type UpdateDisciplineInput = z.infer<typeof updateDisciplineSchema>
 
 export const createCategorySchema = z
   .object({
-    disciplineId: z.number().int().positive(),
+    disciplineId: z
+      .number('Elegí una disciplina')
+      .int('Elegí una disciplina')
+      .positive('Elegí una disciplina'),
     name: nameSchema,
   })
   .strict()
@@ -135,6 +139,27 @@ function isUniqueViolation(error: { code?: string }): boolean {
   return error.code === '23505'
 }
 
+/**
+ * CHECK de largo del nombre (`*_name_check`, autogenerado) y FK de la
+ * disciplina: red de seguridad si algo esquiva el Zod. Devuelve el error
+ * original si no reconoce la causa, para que el controller lo trate como falla
+ * interna.
+ */
+function translateCatalogError(error: { code?: string; message?: string }, kind: 'disciplina' | 'categoría'): unknown {
+  if (isUniqueViolation(error)) {
+    return new DomainError(`Ya existe ${kind === 'disciplina' ? 'una disciplina' : 'una categoría'} con ese nombre`, {
+      field: 'name',
+    })
+  }
+  if (error.code === '23514' && error.message?.includes('_name_check')) {
+    return new DomainError('El nombre tiene que tener al menos 2 caracteres', { field: 'name' })
+  }
+  if (error.code === '23503' && kind === 'categoría') {
+    return new DomainError('Esa disciplina no existe', { field: 'disciplineId' })
+  }
+  return error
+}
+
 export async function createDiscipline(input: CreateDisciplineInput): Promise<Discipline> {
   const supabase = await createClient()
   const { data, error } = await supabase
@@ -143,12 +168,7 @@ export async function createDiscipline(input: CreateDisciplineInput): Promise<Di
     .select('id, name, is_active, sort_order')
     .single()
 
-  if (error) {
-    if (isUniqueViolation(error)) {
-      throw new DomainError('Ya existe una disciplina con ese nombre', { field: 'name' })
-    }
-    throw error
-  }
+  if (error) throw translateCatalogError(error, 'disciplina')
 
   return toDiscipline(data)
 }
@@ -162,12 +182,7 @@ export async function updateDiscipline(id: number, patch: UpdateDisciplineInput)
     .select('id, name, is_active, sort_order')
     .single()
 
-  if (error) {
-    if (isUniqueViolation(error)) {
-      throw new DomainError('Ya existe una disciplina con ese nombre', { field: 'name' })
-    }
-    throw error
-  }
+  if (error) throw translateCatalogError(error, 'disciplina')
 
   return toDiscipline(data)
 }
@@ -209,12 +224,7 @@ export async function createCategory(input: CreateCategoryInput): Promise<Catego
     .select('id, discipline_id, name, is_active, sort_order')
     .single()
 
-  if (error) {
-    if (isUniqueViolation(error)) {
-      throw new DomainError('Ya existe una categoría con ese nombre', { field: 'name' })
-    }
-    throw error
-  }
+  if (error) throw translateCatalogError(error, 'categoría')
 
   return toCategory(data)
 }
@@ -228,12 +238,7 @@ export async function updateCategory(id: number, patch: UpdateCategoryInput): Pr
     .select('id, discipline_id, name, is_active, sort_order')
     .single()
 
-  if (error) {
-    if (isUniqueViolation(error)) {
-      throw new DomainError('Ya existe una categoría con ese nombre', { field: 'name' })
-    }
-    throw error
-  }
+  if (error) throw translateCatalogError(error, 'categoría')
 
   return toCategory(data)
 }

@@ -37,6 +37,8 @@ function makeInsertClient(result: QueryResult<unknown>) {
 const createClientMock = vi.fn()
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
 
+import { addMonths, previousPeriod, toPeriod } from '@/lib/dates'
+
 beforeEach(() => {
   createClientMock.mockReset()
 })
@@ -45,10 +47,12 @@ async function importModel() {
   return import('@/models/fee-prices.model')
 }
 
+// Un valor nuevo no puede aplicar desde un mes pasado: se deriva del reloj.
+const CURRENT_PERIOD = toPeriod()
 const BASE = {
   scope: 'default' as const,
   amountCents: 1_000_000,
-  validFrom: '2026-10-01',
+  validFrom: CURRENT_PERIOD,
 }
 
 describe('createFeePriceSchema: coherencia scope <-> memberType/categoryId', () => {
@@ -138,14 +142,25 @@ describe('createFeePriceSchema: amountCents y validFrom', () => {
 
   it('validFrom que no es el primer día del mes: rechaza ("Tiene que ser el primer día de un mes")', async () => {
     const { createFeePriceSchema } = await importModel()
-    const result = createFeePriceSchema.safeParse({ ...BASE, validFrom: '2026-10-15' })
+    const result = createFeePriceSchema.safeParse({ ...BASE, validFrom: `${CURRENT_PERIOD.slice(0, 8)}15` })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.issues[0].message).toBe('Tiene que ser el primer día de un mes')
   })
 
   it('validFrom el primer día del mes: acepta', async () => {
     const { createFeePriceSchema } = await importModel()
-    expect(createFeePriceSchema.safeParse({ ...BASE, validFrom: '2027-01-01' }).success).toBe(true)
+    expect(createFeePriceSchema.safeParse({ ...BASE, validFrom: addMonths(CURRENT_PERIOD, 3) }).success).toBe(true)
+  })
+
+  it('validFrom del mes actual: acepta (frontera); del mes anterior: rechaza con mensaje claro en validFrom', async () => {
+    const { createFeePriceSchema } = await importModel()
+    expect(createFeePriceSchema.safeParse({ ...BASE, validFrom: CURRENT_PERIOD }).success).toBe(true)
+    const result = createFeePriceSchema.safeParse({ ...BASE, validFrom: previousPeriod(CURRENT_PERIOD) })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(['validFrom'])
+      expect(result.error.issues[0].message).toBe('Un valor de cuota nuevo aplica desde este mes o uno futuro')
+    }
   })
 
   it('claves desconocidas: rechaza (.strict())', async () => {

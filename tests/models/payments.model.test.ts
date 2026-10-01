@@ -162,13 +162,24 @@ describe('registerPayment: una sola sentencia, N filas', () => {
     expect(result).toEqual({ paymentIds: [10], totalCents: 1_000_000, alreadyRegistered: true })
   })
 
-  it('un error que NO es la unique de batch/member se relanza tal cual', async () => {
-    const rawError = { code: '23503', message: 'foreign key violation' }
+  it('FK de socio inexistente (23503): DomainError claro con field memberId', async () => {
+    const rawError = { code: '23503', message: 'insert or update on table "payments" violates foreign key constraint "payments_member_id_fkey"' }
     createClientMock.mockResolvedValue({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: rawError }) }) }) })
     const { registerPayment } = await importModel()
-    await expect(
-      registerPayment({ batchId: '33333333-3333-4333-8333-333333333333', paidOn: '2026-09-01', method: 'cash', items: [{ memberId: 999, amountCents: 100 }] }),
-    ).rejects.toEqual(rawError)
+    const { DomainError } = await import('@/lib/errors')
+    const err = await registerPayment({ batchId: '33333333-3333-4333-8333-333333333333', paidOn: '2026-09-01', method: 'cash', items: [{ memberId: 999, amountCents: 100 }] }).catch((e) => e)
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.field).toBe('memberId')
+    expect(err.message).not.toMatch(/constraint|payments_member_id_fkey/)
+  })
+
+  it('un error desconocido (no de dominio) se relanza tal cual, sin mostrarse al usuario', async () => {
+    const rawError = { code: '57014', message: 'canceling statement due to statement timeout' }
+    createClientMock.mockResolvedValue({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: rawError }) }) }) })
+    const { registerPayment } = await importModel()
+    const { DomainError } = await import('@/lib/errors')
+    const err = await registerPayment({ batchId: '44444444-4444-4444-8444-444444444444', paidOn: '2026-09-01', method: 'cash', items: [{ memberId: 1, amountCents: 100 }] }).catch((e) => e)
+    expect(err).not.toBeInstanceOf(DomainError)
   })
 })
 

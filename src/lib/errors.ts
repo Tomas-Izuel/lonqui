@@ -11,6 +11,7 @@
  * mostrando el detalle de una constraint de Postgres.
  */
 
+import '@/lib/zod-locale'
 import { log } from '@/lib/log'
 
 export class DomainError extends Error {

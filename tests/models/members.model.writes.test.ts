@@ -183,6 +183,36 @@ describe('translateMemberError (vía createMember/updateMember)', () => {
     })
   })
 
+  it('23514 sobre members_birth_date_sane -> DomainError field birthDate (si algo esquiva el Zod)', async () => {
+    createClientMock.mockResolvedValue(
+      makeFakeMembersClient({
+        dniExists: false,
+        insertResult: {
+          data: null,
+          error: { code: '23514', message: 'new row for relation "members" violates check constraint "members_birth_date_sane"' },
+        },
+      }),
+    )
+    await expect(createMember(BASE_INPUT)).rejects.toMatchObject({
+      message: 'La fecha de nacimiento no puede ser anterior a 1900. Revisá el año',
+      field: 'birthDate',
+    })
+  })
+
+  it('23514 sobre members_birth_date_sane en updateMember -> el mismo DomainError', async () => {
+    createClientMock.mockResolvedValue(
+      makeFakeMembersClient({
+        updateResult: {
+          data: null,
+          error: { code: '23514', message: 'new row for relation "members" violates check constraint "members_birth_date_sane"' },
+        },
+      }),
+    )
+    await expect(updateMember(1, { firstName: 'Ana', lastName: 'Test', dni: '99123456' })).rejects.toMatchObject({
+      field: 'birthDate',
+    })
+  })
+
   it('un error de Postgres no reconocido se relanza tal cual (nunca se le muestra el texto crudo al usuario sin traducir)', async () => {
     const rawError = { code: '42501', message: 'permission denied for table members' }
     createClientMock.mockResolvedValue(

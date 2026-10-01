@@ -13,7 +13,11 @@ import { createCategory, updateCategory } from '@/controllers/settings.actions'
 import type { Category } from '@/models/types'
 
 const categorySchema = z.object({
-  name: z.string().trim().min(2, 'El nombre tiene que tener al menos 2 caracteres'),
+  name: z
+    .string({ error: 'El nombre tiene que tener al menos 2 caracteres' })
+    .trim()
+    .min(2, 'El nombre tiene que tener al menos 2 caracteres')
+    .max(120, 'El nombre no puede tener más de 120 caracteres'),
 })
 type CategoryValues = z.infer<typeof categorySchema>
 
@@ -30,6 +34,7 @@ export type CategoryFormSheetProps = {
 export function CategoryFormSheet({ open, onOpenChange, disciplineId, disciplineName, category }: CategoryFormSheetProps) {
   const isEdit = Boolean(category)
   const [pending, setPending] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const form = useForm<CategoryValues>({
     resolver: zodResolver(categorySchema),
@@ -43,6 +48,7 @@ export function CategoryFormSheet({ open, onOpenChange, disciplineId, discipline
 
   async function onValid(values: CategoryValues) {
     setPending(true)
+    setFormError(null)
     try {
       const result = isEdit
         ? await updateCategory(category!.id, values)
@@ -52,7 +58,7 @@ export function CategoryFormSheet({ open, onOpenChange, disciplineId, discipline
           form.setError('name', { message: result.error })
           form.setFocus('name')
         } else {
-          toast.error(result.error)
+          setFormError(result.error)
         }
         return
       }
@@ -66,14 +72,21 @@ export function CategoryFormSheet({ open, onOpenChange, disciplineId, discipline
   return (
     <ResponsiveSheet
       open={open}
-      onOpenChange={(next) => !pending && onOpenChange(next)}
+      onOpenChange={(next) => {
+        if (pending) return
+        if (!next) setFormError(null)
+        onOpenChange(next)
+      }}
       title={isEdit ? 'Editar categoría' : 'Nueva categoría'}
       description={
         isEdit ? `Categoría de ${disciplineName}. El cambio queda registrado en la auditoría.` : `Se crea dentro de ${disciplineName}.`
       }
       footer={
         <>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending} className="h-11">
+          <Button type="button" variant="outline" onClick={() => {
+              setFormError(null)
+              onOpenChange(false)
+            }} disabled={pending} className="h-11">
             Cancelar
           </Button>
           <Button type="submit" form="category-form" disabled={pending} className="h-11">
@@ -88,6 +101,12 @@ export function CategoryFormSheet({ open, onOpenChange, disciplineId, discipline
             sube la hoja es brusco en el celular (web-design-guidelines). Radix
             ya mueve el foco al contenido del Sheet al abrirse. */}
         <TextField control={form.control} name="name" label="Nombre" placeholder="5ta" disabled={pending} />
+
+        {formError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {formError}
+          </p>
+        ) : null}
       </form>
     </ResponsiveSheet>
   )

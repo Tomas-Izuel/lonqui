@@ -9,41 +9,55 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { FieldError } from '@/components/ui/field'
 import { AmountField, DateField, TextareaField } from '@/views/shared/form-fields'
 import { paymentMethodLabels, memberStatusLabels } from '@/views/shared/labels'
 import { toClubDate } from '@/lib/dates'
 import { formatCentsCompact } from '@/lib/money'
 import { registerPayment } from '@/controllers/payments.actions'
 import { accountLineText } from '@/views/payments/account-format'
+import {
+  AMOUNT_POSITIVE_MESSAGE,
+  METHOD_ERROR_ID,
+  AMOUNT_REQUIRED_MESSAGE,
+  PAYMENT_MIN_DATE,
+  methodSchema,
+  notesSchema,
+  paidOnSchema,
+} from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import type { FamilyGroupSummary, MemberAccount, PaymentMethod } from '@/models/types'
+import type { FamilyGroupSummary, MemberAccount } from '@/models/types'
 
 const rowSchema = z.object({
   memberId: z.number(),
   fullName: z.string(),
   status: z.enum(['active', 'inactive']),
   checked: z.boolean(),
+  // Solo se exige monto en las filas tildadas (superRefine abajo): una fila
+  // destildada puede quedar vacía sin molestar.
   amountCents: z.number().nullable(),
 })
 
 const schema = z
   .object({
-    paidOn: z.string().min(1, 'Elegí una fecha'),
-    method: z.enum(['cash', 'transfer'] satisfies PaymentMethod[]),
-    notes: z.string(),
+    paidOn: paidOnSchema,
+    method: methodSchema,
+    notes: notesSchema,
     rows: z.array(rowSchema),
   })
   .superRefine((data, ctx) => {
     const checkedRows = data.rows.filter((row) => row.checked)
     if (checkedRows.length === 0) {
-      ctx.addIssue({ code: 'custom', message: 'Elegí al menos un integrante', path: ['rows'] })
+      ctx.addIssue({ code: 'custom', message: 'Tildá al menos un integrante para registrar el pago', path: ['rows'] })
       return
     }
-    checkedRows.forEach((row) => {
-      if (row.amountCents == null || row.amountCents <= 0) {
-        const rowIndex = data.rows.indexOf(row)
-        ctx.addIssue({ code: 'custom', message: 'Ingresá un monto mayor a cero', path: ['rows', rowIndex, 'amountCents'] })
+    data.rows.forEach((row, rowIndex) => {
+      if (!row.checked) return
+      if (row.amountCents == null) {
+        ctx.addIssue({ code: 'custom', message: AMOUNT_REQUIRED_MESSAGE, path: ['rows', rowIndex, 'amountCents'] })
+      } else if (!Number.isInteger(row.amountCents) || row.amountCents <= 0) {
+        ctx.addIssue({ code: 'custom', message: AMOUNT_POSITIVE_MESSAGE, path: ['rows', rowIndex, 'amountCents'] })
       }
     })
   })
@@ -73,6 +87,7 @@ export function GroupPaymentForm({
   const [batchId] = useState(() => crypto.randomUUID())
   const [file, setFile] = useState<File | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [receiptError, setReceiptError] = useState<string | null>(null)
   const [needsOverpayConfirm, setNeedsOverpayConfirm] = useState(false)
   const [uploadStage, setUploadStage] = useState<'idle' | 'uploading'>('idle')
 
@@ -130,6 +145,7 @@ export function GroupPaymentForm({
       return
     }
     setFormError(null)
+    setReceiptError(null)
 
     let receiptPath: string | null = null
     if (values.method === 'transfer' && file) {
@@ -139,7 +155,7 @@ export function GroupPaymentForm({
       const uploaded = await uploadReceipt(checkedRows[0].memberId, file)
       setUploadStage('idle')
       if ('error' in uploaded) {
-        setFormError(uploaded.error)
+        setReceiptError(uploaded.error)
         return
       }
       receiptPath = uploaded.path
@@ -156,7 +172,18 @@ export function GroupPaymentForm({
     })
 
     if (!result.ok) {
-      setFormError(result.error)
+      // Cada error del servidor cae debajo del control que lo causó; sin campo
+      // reconocible, queda el mensaje del formulario.
+      if (result.field === 'paidOn' || result.field === 'method' || result.field === 'notes') {
+        form.setError(result.field, { message: result.error })
+        form.setFocus(result.field)
+      } else if (result.field === 'receiptPath') {
+        setReceiptError(result.error)
+      } else if (result.field === 'items' || result.field === 'amountCents' || result.field === 'familyGroupId') {
+        form.setError('rows', { message: result.error })
+      } else {
+        setFormError(result.error)
+      }
       return
     }
 
@@ -210,18 +237,14 @@ export function GroupPaymentForm({
               )
             })}
           </ul>
-          {rowsError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {rowsError}
-            </p>
-          ) : null}
+          {rowsError ? <FieldError role="alert">{rowsError}</FieldError> : null}
 
           <div className="flex items-center justify-between border-t border-border pt-3 text-sm font-medium">
             <span>Total del lote</span>
             <span className="tabular-nums">{formatCentsCompact(totalCents)}</span>
           </div>
 
-          <DateField control={form.control} name="paidOn" label="Fecha" max={toClubDate()} min="2020-01-01" disabled={pending} />
+          <DateField control={form.control} name="paidOn" label="Fecha" max={toClubDate()} min={PAYMENT_MIN_DATE} disabled={pending} />
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">Medio de pago</span>
@@ -234,15 +257,31 @@ export function GroupPaymentForm({
                   disabled={pending}
                   className="h-12 flex-1"
                   aria-pressed={method === value}
+                  aria-describedby={form.formState.errors.method ? METHOD_ERROR_ID : undefined}
                   onClick={() => form.setValue('method', value, { shouldValidate: true })}
                 >
                   {paymentMethodLabels[value]}
                 </Button>
               ))}
             </div>
+            {form.formState.errors.method ? (
+              <FieldError id={METHOD_ERROR_ID} role="alert">
+                {form.formState.errors.method.message}
+              </FieldError>
+            ) : null}
           </div>
 
-          {method === 'transfer' ? <ReceiptPicker file={file} onChange={setFile} disabled={pending} /> : null}
+          {method === 'transfer' ? (
+            <ReceiptPicker
+              file={file}
+              onChange={(next) => {
+                setReceiptError(null)
+                setFile(next)
+              }}
+              error={receiptError}
+              disabled={pending}
+            />
+          ) : null}
 
           <TextareaField control={form.control} name="notes" label="Notas (opcional)" disabled={pending} />
 

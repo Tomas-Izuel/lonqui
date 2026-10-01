@@ -471,3 +471,37 @@ describe.skipIf(!dbAvailable)('búsqueda normalizada (acentos, mayúsculas)', ()
     })
   })
 })
+
+describe.skipIf(!dbAvailable)('members_birth_date_sane: piso 1900-01-01', () => {
+  it('birth_date anterior a 1900 se rechaza con 23514 y nombra la constraint', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'editor')
+      await actAs(client, userId)
+      const err = await expectQueryError(
+        client,
+        `insert into public.members (first_name, last_name, birth_date, joined_on) values ('Vieja', 'Fecha Test', '1899-12-31', '2026-01-01')`,
+      )
+      expect((err as { code?: string }).code).toBe('23514')
+      expect(err.message).toMatch(/members_birth_date_sane/)
+    })
+  })
+
+  it('1900-01-01 (el borde) se acepta', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'editor')
+      await actAs(client, userId)
+      const id = await createMember(client, { firstName: 'Borde', lastName: 'Fecha Test', birthDate: '1900-01-01' })
+      expect(id).toBeGreaterThan(0)
+    })
+  })
+
+  it('un UPDATE a una fecha anterior a 1900 también se rechaza', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'editor')
+      await actAs(client, userId)
+      const id = await createMember(client, { firstName: 'Upd', lastName: 'Fecha Test' })
+      const err = await expectQueryError(client, `update public.members set birth_date = '0198-05-10' where id = $1`, [id])
+      expect((err as { code?: string }).code).toBe('23514')
+    })
+  })
+})

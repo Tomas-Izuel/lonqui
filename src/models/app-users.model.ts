@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
 import { passwordPolicySchema } from '@/lib/passwords'
+import { isRawPostgresMessage } from '@/models/pg-errors'
 import type { Tables, TablesUpdate } from '@/lib/supabase/database.types'
 import type { AppRole, AppUser } from '@/models/types'
 
@@ -20,12 +21,22 @@ import type { AppRole, AppUser } from '@/models/types'
 
 export const APP_ROLES = ['admin', 'editor', 'consulta'] as const satisfies readonly AppRole[]
 
-const roleSchema = z.enum(APP_ROLES, 'Rol inválido')
+const roleSchema = z.enum(APP_ROLES, 'Elegí un rol')
 
 // `z.email()` valida el string tal cual llega: encadenar `.trim()` DESPUÉS no
 // sirve, porque el formato ya se evaluó sobre el valor con espacios antes de
 // poder limpiarlo. `.pipe()` sanea primero y valida el resultado saneado.
-const emailSchema = z.string().trim().toLowerCase().pipe(z.email('Ingresá un email válido'))
+const emailSchema = z
+  .string('Ingresá un email válido')
+  .trim()
+  .toLowerCase()
+  .pipe(z.email('Ingresá un email válido').max(254, 'El email no puede tener más de 254 caracteres'))
+
+const displayNameSchema = z
+  .string('El nombre tiene que tener al menos 2 caracteres')
+  .trim()
+  .min(2, 'El nombre tiene que tener al menos 2 caracteres')
+  .max(120, 'El nombre no puede tener más de 120 caracteres')
 
 // -----------------------------------------------------------------------------
 // Schemas
@@ -34,7 +45,7 @@ const emailSchema = z.string().trim().toLowerCase().pipe(z.email('Ingresá un em
 export const signInSchema = z
   .object({
     email: emailSchema,
-    password: z.string().min(1, 'Ingresá tu contraseña'),
+    password: z.string('Ingresá tu contraseña').min(1, 'Ingresá tu contraseña'),
     /** Ruta a la que volver tras loguearse; se valida que sea interna en la action. */
     next: z.string().optional(),
   })
@@ -44,9 +55,9 @@ export type SignInInput = z.infer<typeof signInSchema>
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, 'Ingresá tu contraseña actual'),
+    currentPassword: z.string('Ingresá tu contraseña actual').min(1, 'Ingresá tu contraseña actual'),
     newPassword: passwordPolicySchema,
-    confirmPassword: z.string().min(1, 'Repetí la contraseña nueva'),
+    confirmPassword: z.string('Repetí la contraseña nueva').min(1, 'Repetí la contraseña nueva'),
     next: z.string().optional(),
   })
   .strict()
@@ -67,7 +78,7 @@ export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
 export const createAppUserSchema = z
   .object({
     email: emailSchema,
-    displayName: z.string().trim().min(2, 'El nombre tiene que tener al menos 2 caracteres'),
+    displayName: displayNameSchema,
     role: roleSchema,
   })
   .strict()
@@ -83,7 +94,7 @@ export const completeAppUserSchema = z
   .object({
     userId: z.uuid('Usuario inválido'),
     email: emailSchema,
-    displayName: z.string().trim().min(2, 'El nombre tiene que tener al menos 2 caracteres'),
+    displayName: displayNameSchema,
     role: roleSchema,
   })
   .strict()
@@ -185,6 +196,17 @@ function translateAppUsersWriteError(err: unknown): never {
     throw new DomainError(pgErr.message)
   }
 
+  // CHECK declarativos (nombres autogenerados): red de seguridad si algo esquiva el Zod.
+  if (pgErr?.code === '23514' && pgErr.message?.includes('app_users_display_name_check')) {
+    throw new DomainError('El nombre tiene que tener al menos 2 caracteres', { field: 'displayName' })
+  }
+  if (pgErr?.code === '23514' && pgErr.message?.includes('app_users_role_check')) {
+    throw new DomainError('Elegí un rol', { field: 'role' })
+  }
+  if (pgErr?.code === '23514' && pgErr.message?.includes('app_users_email_check')) {
+    throw new DomainError('Ingresá un email válido', { field: 'email' })
+  }
+
   throw err
 }
 
@@ -241,6 +263,14 @@ export async function updateAppUser(userId: string, patch: AppUserPatch): Promis
   if (error) translateAppUsersWriteError(error)
 }
 
+// Mensajes de `mark_password_reset` redactados para mostrarse tal cual
+// (migración 20260927120000_review_fixes). Si la función suma uno, va acá.
+const PASSWORD_RESET_USER_MESSAGES: ReadonlySet<string> = new Set([
+  'No tenés permiso para restablecer contraseñas',
+  'El usuario no existe',
+  'El usuario no tiene contraseña en Auth',
+])
+
 /**
  * RPC `mark_password_reset`: prende `must_change_password` y guarda el marker
  * del hash actual. La llama un admin (alta, restablecer contraseña) con el
@@ -250,10 +280,22 @@ export async function updateAppUser(userId: string, patch: AppUserPatch): Promis
 export async function markPasswordReset(userId: string): Promise<void> {
   const supabase = await createClient()
   const { error } = await supabase.rpc('mark_password_reset', { target_user_id: userId })
-  // Los mensajes de esta RPC ya están pensados para mostrarse tal cual
-  // ('El usuario no existe', 'No tenés permiso...'): no hay texto crudo de
-  // Postgres que filtrar acá.
-  if (error) throw new DomainError(error.message)
+  if (!error) return
+
+  // Solo son interfaz los mensajes que la función misma levanta con `raise
+  // exception` (42501 sin permiso, P0002 no existe / sin contraseña). Todo lo
+  // demás (un `permission denied for function` del motor, un error de red, un
+  // constraint) es falla interna: sube como error, se loguea arriba y el
+  // usuario ve el mensaje genérico. El `42501` crudo de Postgres tiene otro
+  // texto, por eso se compara el código Y que no sea un mensaje del motor.
+  if (
+    (error.code === '42501' || error.code === 'P0002') &&
+    !isRawPostgresMessage(error.message) &&
+    PASSWORD_RESET_USER_MESSAGES.has(error.message)
+  ) {
+    throw new DomainError(error.message)
+  }
+  throw error
 }
 
 /**

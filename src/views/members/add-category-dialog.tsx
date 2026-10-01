@@ -14,9 +14,9 @@ import type { DisciplineWithCategories } from '@/models/types'
 
 const schema = z
   .object({
-    disciplineId: z.string().min(1, 'Elegí una disciplina'),
-    categoryId: z.string().min(1, 'Elegí una categoría'),
-    effectiveOn: z.string().min(1, 'Elegí una fecha'),
+    disciplineId: z.string().min(1, 'Elegí el deporte que va a practicar'),
+    categoryId: z.string().min(1, 'Elegí la categoría del deporte'),
+    effectiveOn: z.string().min(1, 'Elegí desde qué fecha empieza'),
   })
   .refine((data) => data.effectiveOn <= toClubDate(), { message: 'La fecha no puede ser futura', path: ['effectiveOn'] })
 
@@ -45,6 +45,8 @@ export function AddCategoryDialog({
 }) {
   const form = useForm<Values>({
     resolver: zodResolver(schema),
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
     defaultValues: { disciplineId: '', categoryId: '', effectiveOn: toClubDate() },
   })
   const [pending, setPending] = useState(false)

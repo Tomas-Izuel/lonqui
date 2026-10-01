@@ -12,7 +12,7 @@ import { Panel } from '@/views/shared/panel'
 import { CheckboxField, DateField, DniField, PhoneField, TextField, TextareaField } from '@/views/shared/form-fields'
 import { DateText } from '@/views/shared/date-text'
 import { memberStatusLabels } from '@/views/shared/labels'
-import { toClubDate } from '@/lib/dates'
+import { BIRTH_DATE_TOO_OLD_MESSAGE, MIN_BIRTH_DATE, toClubDate } from '@/lib/dates'
 import { CategorySelector } from '@/views/members/category-selector'
 import { FamilyGroupCombobox, NO_GROUP, NEW_GROUP } from '@/views/members/family-group-combobox'
 import { createFamilyGroup, createMember, setMemberCategories, updateMember } from '@/controllers/members.actions'
@@ -38,21 +38,29 @@ function sameCategorySet(a: number[], b: number[]): boolean {
  * cuando la selección cambió respecto de la inicial.
  */
 const baseShape = {
-  firstName: z.string().trim().min(1, 'El nombre es obligatorio'),
-  lastName: z.string().trim().min(1, 'El apellido es obligatorio'),
+  firstName: z
+    .string()
+    .trim()
+    .min(1, 'El nombre es obligatorio')
+    .max(120, 'El nombre no puede tener más de 120 caracteres'),
+  lastName: z
+    .string()
+    .trim()
+    .min(1, 'El apellido es obligatorio')
+    .max(120, 'El apellido no puede tener más de 120 caracteres'),
   dni: z.string().trim(),
   dniPending: z.boolean(),
   birthDate: z.string(),
-  address: z.string(),
-  phone: z.string(),
-  email: z.string(),
+  address: z.string().trim().max(300, 'El domicilio no puede tener más de 300 caracteres'),
+  phone: z.string().trim().max(40, 'El teléfono no puede tener más de 40 caracteres'),
+  email: z.string().trim().max(254, 'El email no puede tener más de 254 caracteres'),
   categoryIds: z.array(z.number()),
   effectiveOn: z.string(),
   familyGroupChoice: z.string(),
-  newGroupName: z.string(),
-  newGroupPayerContactName: z.string(),
-  newGroupPayerContactPhone: z.string(),
-  notes: z.string(),
+  newGroupName: z.string().trim().max(120, 'El nombre del grupo no puede tener más de 120 caracteres'),
+  newGroupPayerContactName: z.string().trim().max(120, 'El nombre del responsable no puede tener más de 120 caracteres'),
+  newGroupPayerContactPhone: z.string().trim().max(40, 'El teléfono del responsable no puede tener más de 40 caracteres'),
+  notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres'),
 }
 
 type BaseData = {
@@ -77,8 +85,13 @@ function sharedRefine(data: BaseData, ctx: z.RefinementCtx) {
     ctx.addIssue({ code: 'custom', message: 'No podés cargar un DNI y marcarlo pendiente al mismo tiempo', path: ['dni'] })
   }
 
-  if (data.birthDate && data.birthDate > toClubDate()) {
+  if (data.birthDate && !z.iso.date().safeParse(data.birthDate).success) {
+    ctx.addIssue({ code: 'custom', message: 'La fecha de nacimiento no es válida', path: ['birthDate'] })
+  } else if (data.birthDate && data.birthDate > toClubDate()) {
     ctx.addIssue({ code: 'custom', message: 'La fecha de nacimiento no puede ser futura', path: ['birthDate'] })
+  } else if (data.birthDate && data.birthDate < MIN_BIRTH_DATE) {
+    // El piso es el mismo que el CHECK de la base: sin esto el error llegaba recién del servidor.
+    ctx.addIssue({ code: 'custom', message: BIRTH_DATE_TOO_OLD_MESSAGE, path: ['birthDate'] })
   }
 
   if (data.email && !z.email().safeParse(data.email).success) {
@@ -100,12 +113,16 @@ function buildSchema(mode: 'create' | 'edit', initialCategoryIds: number[]) {
       if (mode === 'create') {
         if (!data.joinedOn) {
           ctx.addIssue({ code: 'custom', message: 'Elegí una fecha', path: ['joinedOn'] })
+        } else if (!z.iso.date().safeParse(data.joinedOn).success) {
+          ctx.addIssue({ code: 'custom', message: 'La fecha de alta no es válida', path: ['joinedOn'] })
         } else if (data.joinedOn > toClubDate()) {
           ctx.addIssue({ code: 'custom', message: 'La fecha de alta no puede ser futura', path: ['joinedOn'] })
         }
       } else if (!sameCategorySet(data.categoryIds, initialCategoryIds)) {
         if (!data.effectiveOn) {
           ctx.addIssue({ code: 'custom', message: 'Elegí a partir de cuándo', path: ['effectiveOn'] })
+        } else if (!z.iso.date().safeParse(data.effectiveOn).success) {
+          ctx.addIssue({ code: 'custom', message: 'La fecha no es válida', path: ['effectiveOn'] })
         } else if (data.effectiveOn > toClubDate()) {
           ctx.addIssue({ code: 'custom', message: 'La fecha no puede ser futura', path: ['effectiveOn'] })
         }
@@ -115,23 +132,37 @@ function buildSchema(mode: 'create' | 'edit', initialCategoryIds: number[]) {
 
 type FormValues = z.infer<ReturnType<typeof buildSchema>>
 
-const KNOWN_FIELDS = [
-  'firstName',
-  'lastName',
-  'dni',
-  'dniPending',
-  'birthDate',
-  'address',
-  'phone',
-  'email',
-  'categoryIds',
-  'effectiveOn',
-  'joinedOn',
-  'notes',
-] as const
+/**
+ * Campo del servidor -> campo del formulario. Los nombres del payload no
+ * coinciden 1 a 1 con los del form (el grupo familiar es un solo combobox, y
+ * el grupo nuevo vive en `newGroup*`): sin este mapa un error con `field`
+ * caía al mensaje general en vez de quedar bajo su input.
+ */
+const SERVER_FIELD_TO_FORM_FIELD: Record<string, Path<FormValues>> = {
+  firstName: 'firstName',
+  lastName: 'lastName',
+  dni: 'dni',
+  dniPending: 'dni',
+  birthDate: 'birthDate',
+  address: 'address',
+  phone: 'phone',
+  email: 'email',
+  categoryIds: 'categoryIds',
+  effectiveOn: 'effectiveOn',
+  joinedOn: 'joinedOn',
+  notes: 'notes',
+  familyGroupId: 'familyGroupChoice',
+  newFamilyGroup: 'familyGroupChoice',
+  'newFamilyGroup.name': 'newGroupName',
+  'newFamilyGroup.payerContactName': 'newGroupPayerContactName',
+  'newFamilyGroup.payerContactPhone': 'newGroupPayerContactPhone',
+  name: 'newGroupName',
+  payerContactName: 'newGroupPayerContactName',
+  payerContactPhone: 'newGroupPayerContactPhone',
+}
 
-function isKnownField(field: string | undefined): field is Path<FormValues> {
-  return (KNOWN_FIELDS as readonly string[]).includes(field ?? '')
+function toFormField(field: string | undefined): Path<FormValues> | null {
+  return field != null ? (SERVER_FIELD_TO_FORM_FIELD[field] ?? null) : null
 }
 
 /** Un deporte que se agrega o se deja, para la consecuencia escrita bajo "A partir de" (§13.6). */
@@ -269,9 +300,10 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
             : undefined,
       })
       if (!result.ok) {
-        if (isKnownField(result.field)) {
-          form.setError(result.field, { message: result.error })
-          form.setFocus(result.field)
+        const target = toFormField(result.field)
+        if (target) {
+          form.setError(target, { message: result.error })
+          form.setFocus(target)
         } else {
           setServerError(result.error)
         }
@@ -295,7 +327,13 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
         payerContactPhone: values.newGroupPayerContactPhone.trim() || undefined,
       })
       if (!groupResult.ok) {
-        setServerError(groupResult.error)
+        const target = toFormField(groupResult.field)
+        if (target) {
+          form.setError(target, { message: groupResult.error })
+          form.setFocus(target)
+        } else {
+          setServerError(groupResult.error)
+        }
         return
       }
       familyGroupId = groupResult.data.id
@@ -305,9 +343,10 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
 
     const result = await updateMember(member!.id, { ...shared, familyGroupId })
     if (!result.ok) {
-      if (isKnownField(result.field)) {
-        form.setError(result.field, { message: result.error })
-        form.setFocus(result.field)
+      const target = toFormField(result.field)
+      if (target) {
+        form.setError(target, { message: result.error })
+        form.setFocus(target)
       } else {
         setServerError(result.error)
       }
@@ -324,8 +363,9 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
         // Los datos personales YA se guardaron (commit propio): se avisa del
         // residual en vez de dejar la pantalla como si nada hubiera pasado.
         toast.error(`Se guardaron los datos, pero no pudimos actualizar los deportes: ${categoriesResult.error}`)
-        if (isKnownField(categoriesResult.field)) {
-          form.setError(categoriesResult.field, { message: categoriesResult.error })
+        const target = toFormField(categoriesResult.field)
+        if (target) {
+          form.setError(target, { message: categoriesResult.error })
           return
         }
         router.push(`/socios/${member!.id}`)
@@ -358,7 +398,7 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
             <TextField control={form.control} name="lastName" label="Apellido" disabled={pending} />
             <DniField control={form.control} name="dni" disabled={pending || dniPending} />
             <CheckboxField control={form.control} name="dniPending" label="Todavía no tengo el DNI" disabled={pending} />
-            <DateField control={form.control} name="birthDate" label="Fecha de nacimiento" max={toClubDate()} disabled={pending} />
+            <DateField control={form.control} name="birthDate" label="Fecha de nacimiento" min={MIN_BIRTH_DATE} max={toClubDate()} disabled={pending} />
             <TextField control={form.control} name="address" label="Domicilio" disabled={pending} />
             <PhoneField control={form.control} name="phone" label="Teléfono" disabled={pending} />
             <TextField

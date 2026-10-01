@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/controllers/session.controller'
 import { success, failure, invalid, type ActionResult } from '@/lib/action-result'
 import { zodToApiError } from '@/lib/errors'
+import { toPeriod } from '@/lib/dates'
 import { createFeePriceSchema, createFeePrice as modelCreateFeePrice } from '@/models/fee-prices.model'
 import {
   activateBilling as modelActivateBilling,
@@ -27,11 +28,18 @@ import type { FeePrice } from '@/models/types'
 
 const activateBillingSchema = z
   .object({
-    startPeriod: z.iso.date().refine((value) => value.endsWith('-01'), {
-      message: 'Tiene que ser el primer día de un mes',
-    }),
+    startPeriod: z
+      .iso.date('Elegí el mes de inicio')
+      .refine((value) => value.endsWith('-01'), {
+        message: 'Tiene que ser el primer día de un mes',
+      }),
   })
   .strict()
+  // Mismo texto que `settings_billing_guard`: la deuda anterior no entra por un mes pasado.
+  .refine((data) => !data.startPeriod.endsWith('-01') || data.startPeriod >= toPeriod(), {
+    message: 'El mes de inicio tiene que ser este mes o uno futuro; la deuda anterior se carga como saldo de arranque',
+    path: ['startPeriod'],
+  })
 
 export async function createFeePrice(input: unknown): Promise<ActionResult<FeePrice>> {
   try {

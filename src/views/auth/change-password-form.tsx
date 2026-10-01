@@ -15,7 +15,7 @@ import type { ActionResult } from '@/lib/action-result'
 import { cn } from '@/lib/utils'
 import { DURATION, EASE_ENTER, useMotionPreference } from '@/views/shared/motion'
 
-const POLICY_TEXT = 'Al menos 10 caracteres, con letras y números.'
+const POLICY_TEXT = 'Entre 10 y 72 caracteres, con al menos una letra y un número.'
 
 const schema = z
   .object({
@@ -28,7 +28,7 @@ const schema = z
     path: ['confirmPassword'],
   })
   .refine((data) => data.newPassword !== data.currentPassword, {
-    message: 'Elegí una contraseña distinta a la actual',
+    message: 'La contraseña nueva tiene que ser distinta a la actual',
     path: ['newPassword'],
   })
 

@@ -44,20 +44,31 @@ export function buildReceiptPath(memberId: number, mimeType: string): string {
 export const prepareReceiptUploadSchema = z
   .object({
     memberId: z.number().int().positive(),
-    mimeType: z.enum(ALLOWED_MIME_TYPES),
+    mimeType: z.enum(ALLOWED_MIME_TYPES, 'Subí un archivo PDF, JPG, PNG o WEBP'),
     sizeBytes: z
-      .number()
-      .int()
-      .positive()
+      .number('El archivo está vacío')
+      .int('El archivo está vacío')
+      .positive('El archivo está vacío')
       .max(MAX_RECEIPT_SIZE_BYTES, 'El archivo no puede pesar más de 10 MB'),
   })
   .strict()
 export type PrepareReceiptUploadInput = z.infer<typeof prepareReceiptUploadSchema>
 
+/**
+ * Piso de `paid_on`, igual al trigger `payments_paid_on_guard` (ahí es
+ * `date '2020-01-01'`): ataja el año mal tipeado en un `<input type="date">`.
+ */
+export const MIN_PAYMENT_DATE = '2020-01-01'
+const PAYMENT_DATE_TOO_OLD_MESSAGE = 'La fecha del pago no puede ser anterior a 2020. Revisá el año'
+const PAYMENT_DATE_FUTURE_MESSAGE = 'La fecha del pago no puede ser futura'
+
 const paymentItemSchema = z
   .object({
-    memberId: z.number().int().positive(),
-    amountCents: z.number().int().positive('El monto tiene que ser mayor a cero'),
+    memberId: z.number('Elegí el socio').int('Elegí el socio').positive('Elegí el socio'),
+    amountCents: z
+      .number('Ingresá el monto')
+      .int('El monto no es válido')
+      .positive('El monto tiene que ser mayor a cero'),
   })
   .strict()
 
@@ -71,9 +82,9 @@ export const registerPaymentSchema = z
   .object({
     batchId: z.uuid('El identificador del lote no es válido'),
     paidOn: z.iso.date('La fecha no es válida'),
-    method: z.enum(['cash', 'transfer'] satisfies PaymentMethod[]),
+    method: z.enum(['cash', 'transfer'] satisfies PaymentMethod[], 'Elegí el medio de pago: efectivo o transferencia'),
     items: z.array(paymentItemSchema).min(1, 'Cargá al menos un pago'),
-    notes: z.string().trim().max(500).nullish(),
+    notes: z.string().trim().max(500, 'Las notas no pueden tener más de 500 caracteres').nullish(),
     receiptPath: z
       .string()
       .refine((path) => path.startsWith(RECEIPT_PATH_PREFIX), 'El comprobante no corresponde a un pago')
@@ -83,7 +94,11 @@ export const registerPaymentSchema = z
   })
   .strict()
   .refine((data) => data.paidOn <= toClubDate(), {
-    message: 'La fecha del pago no puede ser futura',
+    message: PAYMENT_DATE_FUTURE_MESSAGE,
+    path: ['paidOn'],
+  })
+  .refine((data) => data.paidOn >= MIN_PAYMENT_DATE, {
+    message: PAYMENT_DATE_TOO_OLD_MESSAGE,
     path: ['paidOn'],
   })
 export type RegisterPaymentInput = z.infer<typeof registerPaymentSchema>
@@ -92,7 +107,7 @@ export const attachReceiptSchema = z
   .object({
     paymentId: z.number().int().positive(),
     path: z.string().refine((path) => path.startsWith(RECEIPT_PATH_PREFIX), 'El comprobante no corresponde a un pago'),
-    filename: z.string().trim().max(255).nullish(),
+    filename: z.string().trim().max(255, 'El nombre del archivo no puede tener más de 255 caracteres').nullish(),
   })
   .strict()
 export type AttachReceiptInput = z.infer<typeof attachReceiptSchema>
@@ -100,7 +115,11 @@ export type AttachReceiptInput = z.infer<typeof attachReceiptSchema>
 export const voidPaymentSchema = z
   .object({
     paymentId: z.number().int().positive(),
-    reason: z.string().trim().min(3, 'El motivo tiene que tener al menos 3 caracteres').max(500),
+    reason: z
+      .string('El motivo tiene que tener al menos 3 caracteres')
+      .trim()
+      .min(3, 'El motivo tiene que tener al menos 3 caracteres')
+      .max(500, 'El motivo no puede tener más de 500 caracteres'),
   })
   .strict()
 export type VoidPaymentInput = z.infer<typeof voidPaymentSchema>
@@ -145,9 +164,32 @@ function isBatchAlreadyRegistered(error: PostgrestError): boolean {
   return error.code === '23505' && error.message.includes(BATCH_MEMBER_UNIQUE_INDEX)
 }
 
+/**
+ * `payments_paid_on_guard` (fecha futura o demasiado vieja) y las FK de socio.
+ * El monto (`amount_cents > 0`) lo ataja Zod; si llegara a la base por
+ * PostgREST directo se traduce igual, con el mismo texto.
+ */
+function translateInsertError(error: PostgrestError): unknown {
+  if (error.code === '23514' && error.message === 'La fecha del pago no puede ser futura') {
+    return new DomainError(PAYMENT_DATE_FUTURE_MESSAGE, { field: 'paidOn' })
+  }
+  if (error.code === '23514' && error.message === 'La fecha del pago es demasiado vieja') {
+    return new DomainError(PAYMENT_DATE_TOO_OLD_MESSAGE, { field: 'paidOn' })
+  }
+  if (error.code === '23514' && error.message.includes('payments_amount_cents_check')) {
+    return new DomainError('El monto tiene que ser mayor a cero', { field: 'amountCents' })
+  }
+  if (error.code === '23503') {
+    return new DomainError('El socio no existe', { field: 'memberId' })
+  }
+  return error
+}
+
 const ALREADY_VOIDED_MESSAGE = 'Este pago ya está anulado'
 const ALREADY_HAS_RECEIPT_MESSAGE = 'El comprobante ya está cargado y no se reemplaza'
 const VOIDED_NO_RECEIPT_MESSAGE = 'Un pago anulado no lleva comprobante'
+const VOID_NEEDS_REASON_MESSAGE = 'Para anular un pago hace falta un motivo'
+const RECEIPT_FILE_MISSING_MESSAGE = 'Falta el archivo del comprobante'
 
 function translateUpdateError(error: PostgrestError): unknown {
   // check_violation (23514): mensajes ya redactados por `payments_update_guard`.
@@ -158,6 +200,15 @@ function translateUpdateError(error: PostgrestError): unknown {
       error.message === VOIDED_NO_RECEIPT_MESSAGE)
   ) {
     return new DomainError(error.message)
+  }
+  if (error.code === '23514' && error.message === VOID_NEEDS_REASON_MESSAGE) {
+    return new DomainError(error.message, { field: 'reason' })
+  }
+  if (error.code === '23514' && error.message === RECEIPT_FILE_MISSING_MESSAGE) {
+    return new DomainError(error.message)
+  }
+  if (error.code === '23514' && error.message.includes('payments_void_triad')) {
+    return new DomainError('El motivo tiene que tener al menos 3 caracteres', { field: 'reason' })
   }
   return error
 }
@@ -263,7 +314,7 @@ export async function registerPayment(
         alreadyRegistered: true,
       }
     }
-    throw error
+    throw translateInsertError(error)
   }
 
   const created = data ?? []

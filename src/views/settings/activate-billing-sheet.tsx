@@ -9,12 +9,24 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ResponsiveSheet } from '@/views/shared/responsive-sheet'
 import { SelectField } from '@/views/shared/form-fields'
-import { addMonths, formatPeriod, periodRange } from '@/lib/dates'
+import { addMonths, formatPeriod, periodRange, toPeriod } from '@/lib/dates'
 import { activateBilling } from '@/controllers/billing.actions'
 import type { BillingStatus } from '@/models/types'
 
+// Espeja `activateBillingSchema` (billing.actions.ts): fecha ISO que cae en
+// día 1. Las opciones del selector ya son todas días 1, pero el valor viaja
+// como string libre, así que se valida igual.
 const activateFormSchema = z.object({
-  startPeriod: z.string().min(1, 'Elegí un mes'),
+  startPeriod: z
+    .string({ error: 'Elegí el mes de inicio' })
+    .min(1, 'Elegí el mes de inicio')
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Elegí el mes de inicio')
+    .refine((value) => value.endsWith('-01'), 'Tiene que ser el primer día de un mes')
+    // Mismo texto y mismo reloj que `activateBillingSchema` y `settings_billing_guard`.
+    .refine(
+      (value) => !value.endsWith('-01') || value >= toPeriod(),
+      'El mes de inicio tiene que ser este mes o uno futuro; la deuda anterior se carga como saldo de arranque',
+    ),
 })
 type ActivateFormValues = z.infer<typeof activateFormSchema>
 
@@ -32,6 +44,7 @@ export type ActivateBillingSheetProps = {
  */
 export function ActivateBillingSheet({ open, onOpenChange, billing }: ActivateBillingSheetProps) {
   const [pending, setPending] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const monthOptions = periodRange(billing.currentPeriod, addMonths(billing.currentPeriod, 12)).map((period) => ({
     value: period,
     label: formatPeriod(period),
@@ -47,13 +60,14 @@ export function ActivateBillingSheet({ open, onOpenChange, billing }: ActivateBi
 
   async function onValid(values: ActivateFormValues) {
     setPending(true)
+    setFormError(null)
     try {
       const result = await activateBilling(values)
       if (!result.ok) {
         if (result.field === 'startPeriod') {
           form.setError('startPeriod', { message: result.error })
         } else {
-          toast.error(result.error)
+          setFormError(result.error)
         }
         return
       }
@@ -77,7 +91,10 @@ export function ActivateBillingSheet({ open, onOpenChange, billing }: ActivateBi
       open={open}
       onOpenChange={(next) => {
         if (pending) return
-        if (!next) form.reset({ startPeriod: billing.currentPeriod })
+        if (!next) {
+          form.reset({ startPeriod: billing.currentPeriod })
+          setFormError(null)
+        }
         onOpenChange(next)
       }}
       title="Activar cuotas"
@@ -111,6 +128,12 @@ export function ActivateBillingSheet({ open, onOpenChange, billing }: ActivateBi
           </p>
           <p className="font-medium text-foreground">El valor de ese mes no se puede cambiar después.</p>
         </div>
+
+        {formError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {formError}
+          </p>
+        ) : null}
       </form>
     </ResponsiveSheet>
   )

@@ -25,10 +25,12 @@ import type { BillingStatus, Fee, MemberAccount } from '@/models/types'
 const openingBalanceSchema = z
   .object({
     amountCents: z.number().nullable(),
-    description: z.string().trim().max(500),
+    description: z.string().trim().max(500, 'La descripción no puede tener más de 500 caracteres'),
   })
   .superRefine((data, ctx) => {
-    if (data.amountCents == null || data.amountCents <= 0) {
+    if (data.amountCents == null) {
+      ctx.addIssue({ code: 'custom', message: 'Ingresá el monto del saldo anterior', path: ['amountCents'] })
+    } else if (data.amountCents <= 0) {
       ctx.addIssue({ code: 'custom', message: 'El saldo anterior tiene que ser mayor a cero', path: ['amountCents'] })
     }
   })
@@ -66,6 +68,8 @@ export function MemberAccountSection({
 
   const form = useForm<OpeningBalanceValues>({
     resolver: zodResolver(openingBalanceSchema),
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
     defaultValues: { amountCents: null, description: '' },
   })
 
@@ -79,7 +83,11 @@ export function MemberAccountSection({
       description: values.description.trim() || undefined,
     })
     if (!result.ok) {
-      setFormError(result.error)
+      if (result.field === 'amountCents' || result.field === 'description') {
+        form.setError(result.field, { message: result.error })
+      } else {
+        setFormError(result.error)
+      }
       return
     }
     toast.success('Saldo anterior cargado')

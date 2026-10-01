@@ -11,8 +11,17 @@ import { DateField, TextareaField } from '@/views/shared/form-fields'
 import { toClubDate } from '@/lib/dates'
 
 const reasonSchema = z.object({
-  effectiveOn: z.string().min(1, 'Elegí una fecha'),
-  reason: z.string().trim().min(3, 'Contá el motivo (al menos 3 caracteres)'),
+  effectiveOn: z
+    .string()
+    .min(1, 'Elegí la fecha en que ocurrió')
+    .pipe(z.iso.date('La fecha no es válida'))
+    .refine((d) => d <= toClubDate(), 'La fecha no puede ser futura'),
+  // Mismos límites que `statusEventSchema`/`voidPaymentSchema` y el CHECK de la base.
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'El motivo tiene que tener al menos 3 caracteres')
+    .max(500, 'El motivo no puede tener más de 500 caracteres'),
 })
 
 export type ReasonDialogValues = z.infer<typeof reasonSchema>
@@ -68,12 +77,15 @@ export function ReasonDialog({
       if (!result.ok) {
         if (result.field === 'reason' || result.field === 'effectiveOn') {
           form.setError(result.field, { message: result.error })
+          form.setFocus(result.field)
         } else {
           setFormError(result.error)
         }
         return
       }
       handleOpenChange(false)
+    } catch {
+      setFormError('No pudimos completar la operación. Revisá tu conexión e intentá de nuevo.')
     } finally {
       setPending(false)
     }
@@ -86,7 +98,7 @@ export function ReasonDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{consequence}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(handleConfirm)} method="post" className="flex flex-col gap-4">
+        <form onSubmit={form.handleSubmit(handleConfirm)} noValidate method="post" className="flex flex-col gap-4">
           <DateField control={form.control} name="effectiveOn" label="Fecha" max={toClubDate()} />
           <TextareaField control={form.control} name="reason" label="Motivo" placeholder="Contá brevemente el motivo" />
           {formError ? (

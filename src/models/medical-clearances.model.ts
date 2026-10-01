@@ -34,11 +34,11 @@ export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
 export const prepareUploadSchema = z
   .object({
     memberId: z.number().int().positive(),
-    mimeType: z.enum(ALLOWED_MIME_TYPES),
+    mimeType: z.enum(ALLOWED_MIME_TYPES, 'Subí un archivo PDF, JPG, PNG o WEBP'),
     sizeBytes: z
-      .number()
-      .int()
-      .positive()
+      .number('El archivo está vacío')
+      .int('El archivo está vacío')
+      .positive('El archivo está vacío')
       .max(MAX_ATTACHMENT_SIZE_BYTES, 'El archivo no puede pesar más de 10 MB'),
   })
   .strict()
@@ -49,8 +49,12 @@ export const confirmClearanceSchema = z
     memberId: z.number().int().positive(),
     path: z.string().min(1),
     expiresOn: z.iso.date('La fecha no es válida'),
-    originalFilename: z.string().trim().max(255).nullish(),
-    notes: z.string().trim().max(2000).nullish(),
+    originalFilename: z
+      .string()
+      .trim()
+      .max(255, 'El nombre del archivo no puede tener más de 255 caracteres')
+      .nullish(),
+    notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres').nullish(),
   })
   .strict()
 export type ConfirmClearanceInput = z.infer<typeof confirmClearanceSchema>
@@ -60,7 +64,7 @@ export const createClearanceWithoutFileSchema = z
   .object({
     memberId: z.number().int().positive(),
     expiresOn: z.iso.date('La fecha no es válida'),
-    notes: z.string().trim().max(2000).nullish(),
+    notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres').nullish(),
   })
   .strict()
 export type CreateClearanceWithoutFileInput = z.infer<typeof createClearanceWithoutFileSchema>
@@ -69,7 +73,7 @@ export type CreateClearanceWithoutFileInput = z.infer<typeof createClearanceWith
 export const updateClearanceSchema = z
   .object({
     expiresOn: z.iso.date('La fecha no es válida').optional(),
-    notes: z.string().trim().max(2000).nullish(),
+    notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres').nullish(),
   })
   .strict()
 export type UpdateClearanceInput = z.infer<typeof updateClearanceSchema>
@@ -171,7 +175,8 @@ export async function createMedicalClearance(input: {
     .select('id')
     .single()
 
-  if (error) throw error
+  // FK de `member_id`: un socio que no existe. Lo demás (storage_path) lo arma el servidor, no el usuario.
+  if (error) throw error.code === '23503' ? new DomainError('El socio no existe', { status: 404 }) : error
   return { id: data.id }
 }
 

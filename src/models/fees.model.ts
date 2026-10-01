@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
+import { isRawPostgresMessage } from '@/models/pg-errors'
 import type { TablesInsert } from '@/lib/supabase/database.types'
 import type { Fee, FeeKind } from '@/models/types'
 
@@ -25,8 +26,11 @@ export const createOpeningBalanceSchema = z
     memberId: z.number().int().positive(),
     // El trigger `fees_opening_balance_guard` vuelve a exigir > 0 (defensa en
     // profundidad); acá se valida temprano para el mensaje de campo.
-    amountCents: z.number().int().positive('El saldo anterior tiene que ser mayor a cero'),
-    description: z.string().trim().max(500).nullish(),
+    amountCents: z
+      .number('Ingresá el monto del saldo anterior')
+      .int('El monto no es válido')
+      .positive('El saldo anterior tiene que ser mayor a cero'),
+    description: z.string().trim().max(500, 'La descripción no puede tener más de 500 caracteres').nullish(),
   })
   .strict()
 export type CreateOpeningBalanceInput = z.infer<typeof createOpeningBalanceSchema>
@@ -34,7 +38,11 @@ export type CreateOpeningBalanceInput = z.infer<typeof createOpeningBalanceSchem
 export const voidFeeSchema = z
   .object({
     feeId: z.number().int().positive(),
-    reason: z.string().trim().min(3, 'El motivo tiene que tener al menos 3 caracteres').max(500),
+    reason: z
+      .string('El motivo tiene que tener al menos 3 caracteres')
+      .trim()
+      .min(3, 'El motivo tiene que tener al menos 3 caracteres')
+      .max(500, 'El motivo no puede tener más de 500 caracteres'),
   })
   .strict()
 export type VoidFeeInput = z.infer<typeof voidFeeSchema>
@@ -56,7 +64,10 @@ function translateOpeningBalanceError(error: PostgrestError): unknown {
   // check_violation (23514): mensajes ya redactados por el trigger
   // (`fees_opening_balance_guard`) — "Primero activá las cuotas en Ajustes"
   // o "El saldo anterior tiene que ser mayor a cero".
-  if (error.code === '23514') {
+  if (error.code === '23514' && error.message.includes('fees_amount_cents_check')) {
+    return new DomainError('El saldo anterior tiene que ser mayor a cero', { field: 'amountCents' })
+  }
+  if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
     return new DomainError(error.message, { field: error.message.includes('mayor a cero') ? 'amountCents' : undefined })
   }
   return error
@@ -67,6 +78,12 @@ const ALREADY_VOIDED_MESSAGE = 'Este cargo ya está anulado'
 function translateVoidFeeError(error: PostgrestError): unknown {
   if (error.code === '23514' && error.message === ALREADY_VOIDED_MESSAGE) {
     return new DomainError(ALREADY_VOIDED_MESSAGE)
+  }
+  if (error.code === '23514' && error.message === 'Para anular un cargo hace falta un motivo') {
+    return new DomainError(error.message, { field: 'reason' })
+  }
+  if (error.code === '23514' && error.message.includes('fees_void_triad')) {
+    return new DomainError('El motivo tiene que tener al menos 3 caracteres', { field: 'reason' })
   }
   return error
 }

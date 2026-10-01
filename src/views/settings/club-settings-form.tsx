@@ -12,7 +12,11 @@ import { updateSettings } from '@/controllers/settings.actions'
 import type { Settings } from '@/models/types'
 
 const clubSettingsSchema = z.object({
-  clubName: z.string().trim().min(2, 'El nombre del club es demasiado corto'),
+  clubName: z
+    .string({ error: 'El nombre del club tiene que tener al menos 2 caracteres' })
+    .trim()
+    .min(2, 'El nombre del club tiene que tener al menos 2 caracteres')
+    .max(120, 'El nombre del club no puede tener más de 120 caracteres'),
 })
 type ClubSettingsValues = z.infer<typeof clubSettingsSchema>
 
@@ -28,6 +32,7 @@ type ClubSettingsValues = z.infer<typeof clubSettingsSchema>
  */
 export function ClubSettingsForm({ settings }: { settings: Settings }) {
   const [pending, setPending] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const form = useForm<ClubSettingsValues>({
     resolver: zodResolver(clubSettingsSchema),
     defaultValues: { clubName: settings.clubName },
@@ -35,6 +40,7 @@ export function ClubSettingsForm({ settings }: { settings: Settings }) {
 
   async function onValid(values: ClubSettingsValues) {
     setPending(true)
+    setFormError(null)
     try {
       const result = await updateSettings({ clubName: values.clubName, billingStartPeriod: settings.billingStartPeriod })
       if (!result.ok) {
@@ -42,7 +48,7 @@ export function ClubSettingsForm({ settings }: { settings: Settings }) {
           form.setError('clubName', { message: result.error })
           form.setFocus('clubName')
         } else {
-          toast.error(result.error)
+          setFormError(result.error)
         }
         return
       }
@@ -67,6 +73,11 @@ export function ClubSettingsForm({ settings }: { settings: Settings }) {
   return (
     <form onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4 sm:max-w-sm">
       <TextField control={form.control} name="clubName" label="Nombre del club" disabled={pending} />
+      {formError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {formError}
+        </p>
+      ) : null}
       <Button
         type="submit"
         variant={hasChanges ? 'default' : 'outline'}

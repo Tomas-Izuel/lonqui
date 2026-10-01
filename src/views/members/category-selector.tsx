@@ -2,6 +2,7 @@
 
 import { useId } from 'react'
 import { Label } from '@/components/ui/label'
+import { FieldError } from '@/components/ui/field'
 import { cn } from '@/lib/utils'
 import type { DisciplineWithCategories } from '@/models/types'
 
@@ -30,6 +31,8 @@ export function CategorySelector({
   disabled?: boolean
   error?: string
 }) {
+  const errorId = useId()
+
   function handlePick(disciplineCategoryIds: number[], picked: number | null) {
     const rest = value.filter((id) => !disciplineCategoryIds.includes(id))
     onChange(picked != null ? [...rest, picked] : rest)
@@ -50,14 +53,15 @@ export function CategorySelector({
             categories={discipline.categories.map((c) => ({ id: c.id, name: c.name }))}
             selected={selected}
             disabled={disabled}
+            errorId={error ? errorId : undefined}
             onPick={(picked) => handlePick(categoryIds, picked)}
           />
         )
       })}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <FieldError id={errorId} role="alert">
           {error}
-        </p>
+        </FieldError>
       ) : null}
     </div>
   )
@@ -68,19 +72,21 @@ function DisciplineGroup({
   categories,
   selected,
   disabled,
+  errorId,
   onPick,
 }: {
   disciplineName: string
   categories: { id: number; name: string }[]
   selected: number | null
   disabled?: boolean
+  errorId?: string
   onPick: (categoryId: number | null) => void
 }) {
   const name = useId()
   return (
-    <fieldset className="flex flex-col gap-1">
+    <fieldset className="flex flex-col gap-1" aria-describedby={errorId}>
       <legend className="mb-1 text-sm font-medium">{disciplineName}</legend>
-      <RadioOption groupName={name} label="Ninguna" checked={selected === null} disabled={disabled} onSelect={() => onPick(null)} />
+      <RadioOption groupName={name} label="Ninguna" checked={selected === null} disabled={disabled} errorId={errorId} onSelect={() => onPick(null)} />
       {categories.map((category) => (
         <RadioOption
           key={category.id}
@@ -88,6 +94,7 @@ function DisciplineGroup({
           label={category.name}
           checked={selected === category.id}
           disabled={disabled}
+          errorId={errorId}
           onSelect={() => onPick(category.id)}
         />
       ))}
@@ -100,12 +107,14 @@ function RadioOption({
   label,
   checked,
   disabled,
+  errorId,
   onSelect,
 }: {
   groupName: string
   label: string
   checked: boolean
   disabled?: boolean
+  errorId?: string
   onSelect: () => void
 }) {
   const id = useId()
@@ -120,6 +129,7 @@ function RadioOption({
         name={groupName}
         checked={checked}
         disabled={disabled}
+        aria-describedby={errorId}
         onChange={() => onSelect()}
         className="size-4 accent-primary"
       />

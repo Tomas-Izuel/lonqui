@@ -206,14 +206,15 @@ describe.skipIf(!dbAvailable)('fee_prices: append-only, coherencia y precedencia
     await withRollback(async (client) => {
       const { userId: adminId } = await createUserWithRole(client, 'admin')
       await actAs(client, adminId)
-      // El mes actual (setiembre 2026) ya tiene cuotas generadas por el seed:
+      // El mes actual ya tiene cuotas generadas por el seed:
       // no hace falta ningún fixture extra para disparar esta rama.
       const err = await expectQueryError(
         client,
         `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100, date_trunc('month', private.club_today())::date)`,
       )
       expect(err.message).toMatch(/ya se generaron con otro valor/)
-      expect(err.message).toMatch(/09\/2026/)
+      const mm = await client.query<{ label: string }>(`select to_char(private.club_today(), 'MM/YYYY') as label`)
+      expect(err.message).toContain(`Las cuotas de ${mm.rows[0].label} ya se generaron`)
     })
   })
 
@@ -502,7 +503,7 @@ describe.skipIf(!dbAvailable)('Generación mensual: D30, ascenso de categoría, 
       // D asciende de 5ta a 6ta a mitad del período; F deja todo (cierra su
       // única categoría); E se anota en vóley; G se anota en vóley además
       // de fútbol (ya tenía fútbol).
-      const midMonth = `(${period}::date + interval '14 days')::date`
+      const midMonth = `least(${period}::date + 14, private.club_today())`
       const midVal = await client.query<{ d: Date }>(`select ${midMonth} as d`)
       const midDate = midVal.rows[0].d.toISOString().slice(0, 10)
 
@@ -566,7 +567,7 @@ describe.skipIf(!dbAvailable)('Generación mensual: D30, ascenso de categoría, 
 
       const memberId = await createMember(client, { firstName: 'H', lastName: 'Ascenso', joinedOn: '2020-01-01' })
       const membership = await openMemberCategory(client, { memberId, categoryId: cat5ta, joinedOn: '2020-01-01' })
-      const midMonth = `(${period}::date + interval '10 days')::date`
+      const midMonth = `least(${period}::date + 10, private.club_today())`
       const midVal = await client.query<{ d: Date }>(`select ${midMonth} as d`)
       const midDate = midVal.rows[0].d.toISOString().slice(0, 10)
       await closeMemberCategory(client, { membershipId: membership, leftOn: midDate })

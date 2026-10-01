@@ -45,13 +45,18 @@ vi.mock('@/models/billing.model', async () => {
 const { createFeePrice, activateBilling, generatePendingFees } = await import('@/controllers/billing.actions')
 const { PartialBillingActivationError } = await import('@/models/billing.model')
 const { DomainError, PermissionError } = await import('@/lib/errors')
+const { toPeriod, addMonths } = await import('@/lib/dates')
+
+// Una regla de "no mes pasado" hace frágil cualquier fecha fija: se deriva del reloj.
+const CURRENT_PERIOD = toPeriod()
+const FUTURE_PERIOD = addMonths(CURRENT_PERIOD, 3)
 
 const ADMIN_SESSION = { userId: 'admin-1', role: 'admin' as const, permissions: ['billing.configure'] }
 
 const VALID_FEE_PRICE_INPUT = {
   scope: 'default' as const,
   amountCents: 1_000_000,
-  validFrom: '2026-10-01',
+  validFrom: CURRENT_PERIOD,
 }
 
 beforeEach(() => {
@@ -72,13 +77,13 @@ describe('createFeePrice', () => {
   })
 
   it('un scope inválido no llega al modelo', async () => {
-    const result = await createFeePrice({ scope: 'inventado', amountCents: 100, validFrom: '2026-10-01' })
+    const result = await createFeePrice({ scope: 'inventado', amountCents: 100, validFrom: CURRENT_PERIOD })
     expect(result.ok).toBe(false)
     expect(createFeePriceMock).not.toHaveBeenCalled()
   })
 
   it('caso feliz: llama al modelo, revalida el árbol entero y devuelve el valor creado', async () => {
-    const created = { id: 1, scope: 'default', memberType: null, categoryId: null, amountCents: 1_000_000, validFrom: '2026-10-01', notes: null, createdAt: '2026-09-01T00:00:00Z' }
+    const created = { id: 1, scope: 'default', memberType: null, categoryId: null, amountCents: 1_000_000, validFrom: CURRENT_PERIOD, notes: null, createdAt: '2026-09-01T00:00:00Z' }
     createFeePriceMock.mockResolvedValue(created)
 
     const result = await createFeePrice(VALID_FEE_PRICE_INPUT)
@@ -101,28 +106,28 @@ describe('createFeePrice', () => {
 describe('activateBilling', () => {
   it('exige billing.configure', async () => {
     requirePermissionMock.mockRejectedValue(new PermissionError())
-    const result = await activateBilling({ startPeriod: '2026-10-01' })
+    const result = await activateBilling({ startPeriod: CURRENT_PERIOD })
     expect(result.ok).toBe(false)
     expect(activateBillingMock).not.toHaveBeenCalled()
   })
 
   it('startPeriod que no es el primer día del mes: error de formato antes de llamar al modelo', async () => {
-    const result = await activateBilling({ startPeriod: '2026-10-15' })
+    const result = await activateBilling({ startPeriod: `${CURRENT_PERIOD.slice(0, 8)}15` })
     expect(result.ok).toBe(false)
     expect(activateBillingMock).not.toHaveBeenCalled()
   })
 
   it('mes actual: el modelo genera de una, la action pasa { generated } tal cual', async () => {
     activateBillingMock.mockResolvedValue({ generated: 42 })
-    const result = await activateBilling({ startPeriod: '2026-09-01' })
+    const result = await activateBilling({ startPeriod: CURRENT_PERIOD })
     expect(result).toEqual({ ok: true, data: { generated: 42 } })
-    expect(activateBillingMock).toHaveBeenCalledWith('2026-09-01')
+    expect(activateBillingMock).toHaveBeenCalledWith(CURRENT_PERIOD)
     expect(revalidatePathMock).toHaveBeenCalledWith('/', 'layout')
   })
 
   it('mes futuro: el modelo devuelve generated 0 (el cron lo genera el día 1), la action lo respeta', async () => {
     activateBillingMock.mockResolvedValue({ generated: 0 })
-    const result = await activateBilling({ startPeriod: '2027-01-01' })
+    const result = await activateBilling({ startPeriod: FUTURE_PERIOD })
     expect(result).toEqual({ ok: true, data: { generated: 0 } })
   })
 
@@ -130,7 +135,7 @@ describe('activateBilling', () => {
     activateBillingMock.mockRejectedValue(
       new DomainError('El mes de inicio no puede ser pasado', { field: 'startPeriod' }),
     )
-    const result = await activateBilling({ startPeriod: '2026-09-01' })
+    const result = await activateBilling({ startPeriod: CURRENT_PERIOD })
     expect(result).toMatchObject({ ok: false, error: 'El mes de inicio no puede ser pasado', field: 'startPeriod' })
   })
 
@@ -145,14 +150,14 @@ describe('activateBilling', () => {
         'La facturación quedó activada desde septiembre 2026, pero la generación de cuotas falló: motivo. Reintentá desde Ajustes.',
       ),
     )
-    const result = await activateBilling({ startPeriod: '2026-09-01' })
+    const result = await activateBilling({ startPeriod: CURRENT_PERIOD })
     expect(result.ok).toBe(false)
     expect(revalidatePathMock).toHaveBeenCalledWith('/', 'layout')
   })
 
   it('un DomainError que NO es PartialBillingActivationError no fuerza la revalidación extra', async () => {
     activateBillingMock.mockRejectedValue(new DomainError('El mes de inicio no puede ser pasado', { field: 'startPeriod' }))
-    await activateBilling({ startPeriod: '2026-09-01' })
+    await activateBilling({ startPeriod: CURRENT_PERIOD })
     expect(revalidatePathMock).not.toHaveBeenCalled()
   })
 })

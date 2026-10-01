@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { Camera, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { FieldError } from '@/components/ui/field'
 import { Panel } from '@/views/shared/panel'
 import { DateField } from '@/views/shared/form-fields'
 import { DateText } from '@/views/shared/date-text'
@@ -28,8 +29,15 @@ const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'applicatio
 const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
 const COMPRESS_THRESHOLD_BYTES = 2 * 1024 * 1024
 const BUCKET = 'attachments'
+const FILE_ERROR_ID = 'clearance-file-error'
+const FILE_BUTTON_ID = 'medical-clearance-file-button'
 
-const uploadSchema = z.object({ expiresOn: z.string().min(1, 'Elegí la fecha de vencimiento') })
+const uploadSchema = z.object({
+  expiresOn: z
+    .string()
+    .min(1, 'Elegí la fecha de vencimiento del certificado')
+    .refine((value) => z.iso.date().safeParse(value).success, 'La fecha no es válida'),
+})
 type UploadValues = z.infer<typeof uploadSchema>
 
 const STATUS_TEXT_CLASS: Record<MedicalClearanceStatus, string> = {
@@ -92,6 +100,8 @@ export function MedicalClearanceSection({
 
   const form = useForm<UploadValues>({
     resolver: zodResolver(uploadSchema),
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
     defaultValues: { expiresOn: currentClearance?.expiresOn ?? '' },
   })
 
@@ -104,11 +114,18 @@ export function MedicalClearanceSection({
       return
     }
     if (!ALLOWED_MIME_TYPES.includes(selected.type)) {
-      setFileError('Formato no admitido. Usá JPG, PNG, WEBP o PDF.')
+      setFile(null)
+      setFileError('Formato no admitido. Elegí una foto (JPG, PNG o WEBP) o un PDF.')
+      return
+    }
+    if (selected.size === 0) {
+      setFile(null)
+      setFileError('El archivo está vacío. Elegí otro o sacá la foto de nuevo.')
       return
     }
     if (selected.size > MAX_ATTACHMENT_SIZE_BYTES) {
-      setFileError('El archivo no puede pesar más de 10 MB.')
+      setFile(null)
+      setFileError('El archivo no puede pesar más de 10 MB. Elegí uno más liviano.')
       return
     }
     setFile(selected)
@@ -151,13 +168,32 @@ export function MedicalClearanceSection({
     }
   }
 
+  /** Un error con campo queda bajo su input; el resto, en el mensaje general del formulario. */
+  function showServerError(result: { error: string; field?: string }) {
+    if (result.field === 'expiresOn') {
+      form.setError('expiresOn', { message: result.error })
+      form.setFocus('expiresOn')
+    } else if (result.field === 'mimeType' || result.field === 'sizeBytes') {
+      setFileError(result.error)
+    } else {
+      setFormError(result.error)
+    }
+  }
+
   async function onValid(values: UploadValues) {
     setFormError(null)
+    // Un archivo rechazado no se descarta en silencio guardando solo la fecha: hay que elegir otro o cancelar.
+    if (fileError) {
+      // El error del archivo ya está en pantalla pero puede quedar fuera de vista en 390px:
+      // el foco al botón lo trae a la vista y lo anuncia (aria-describedby apunta al error).
+      document.getElementById(FILE_BUTTON_ID)?.focus()
+      return
+    }
     try {
       if (!file) {
         const result = await createMedicalClearance({ memberId, expiresOn: values.expiresOn })
         if (!result.ok) {
-          setFormError(result.error)
+          showServerError(result)
           return
         }
       } else {
@@ -167,7 +203,7 @@ export function MedicalClearanceSection({
         setStage('uploading')
         const prep = await prepareMedicalClearanceUpload({ memberId, mimeType: processed.type, sizeBytes: processed.size })
         if (!prep.ok) {
-          setFormError(prep.error)
+          showServerError(prep)
           return
         }
 
@@ -188,7 +224,7 @@ export function MedicalClearanceSection({
           originalFilename: file.name,
         })
         if (!confirm.ok) {
-          setFormError(confirm.error)
+          showServerError(confirm)
           return
         }
       }
@@ -249,11 +285,28 @@ export function MedicalClearanceSection({
             <DateField control={form.control} name="expiresOn" label="Vencimiento" disabled={busy} />
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => cameraInputRef.current?.click()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                aria-invalid={fileError ? true : undefined}
+                aria-describedby={fileError ? FILE_ERROR_ID : undefined}
+                onClick={() => cameraInputRef.current?.click()}
+              >
                 <Camera aria-hidden />
                 Tomar foto
               </Button>
-              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => fileInputRef.current?.click()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                aria-invalid={fileError ? true : undefined}
+                aria-describedby={fileError ? FILE_ERROR_ID : undefined}
+                id={FILE_BUTTON_ID}
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <Upload aria-hidden />
                 Elegir archivo
               </Button>
@@ -280,9 +333,9 @@ export function MedicalClearanceSection({
             </p>
 
             {fileError ? (
-              <p role="alert" className="text-sm text-destructive">
+              <FieldError id={FILE_ERROR_ID} role="alert">
                 {fileError}
-              </p>
+              </FieldError>
             ) : null}
             {formError ? (
               <p role="alert" className="text-sm text-destructive">

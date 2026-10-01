@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
-import { toClubDate } from '@/lib/dates'
+import { BIRTH_DATE_TOO_OLD_MESSAGE, MIN_BIRTH_DATE, toClubDate } from '@/lib/dates'
 import { createFamilyGroup, getFamilyGroup } from '@/models/family-groups.model'
 import { listMedicalClearances } from '@/models/medical-clearances.model'
 import {
@@ -45,8 +45,16 @@ import type {
 // -----------------------------------------------------------------------------
 
 const MEMBER_CORE_SHAPE = {
-  firstName: z.string().trim().min(1, 'El nombre es obligatorio').max(120),
-  lastName: z.string().trim().min(1, 'El apellido es obligatorio').max(120),
+  firstName: z
+    .string('El nombre es obligatorio')
+    .trim()
+    .min(1, 'El nombre es obligatorio')
+    .max(120, 'El nombre no puede tener más de 120 caracteres'),
+  lastName: z
+    .string('El apellido es obligatorio')
+    .trim()
+    .min(1, 'El apellido es obligatorio')
+    .max(120, 'El apellido no puede tener más de 120 caracteres'),
   // `dniPending` es el flag explícito de "todavía no tengo el DNI": sin él, el
   // DNI es obligatorio en la ficha de ingreso (el estatuto lo pide), aunque la
   // columna sea nullable en la base para no frenar la carga del padrón viejo.
@@ -56,11 +64,15 @@ const MEMBER_CORE_SHAPE = {
     .nullish(),
   dniPending: z.boolean().optional(),
   birthDate: z.iso.date('La fecha de nacimiento no es válida').nullish(),
-  address: z.string().trim().max(300).nullish(),
-  phone: z.string().trim().max(40).nullish(),
-  email: z.email('El email no es válido').nullish(),
-  familyGroupId: z.number().int().positive().nullish(),
-  notes: z.string().trim().max(2000).nullish(),
+  address: z.string().trim().max(300, 'El domicilio no puede tener más de 300 caracteres').nullish(),
+  phone: z.string().trim().max(40, 'El teléfono no puede tener más de 40 caracteres').nullish(),
+  email: z.email('El email no es válido').max(254, 'El email no puede tener más de 254 caracteres').nullish(),
+  familyGroupId: z
+    .number('Elegí un grupo familiar de la lista')
+    .int('Elegí un grupo familiar de la lista')
+    .positive('Elegí un grupo familiar de la lista')
+    .nullish(),
+  notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres').nullish(),
 }
 
 type MemberCoreInput = {
@@ -98,6 +110,10 @@ function checkMemberCoherence(data: MemberCoreInput, ctx: z.RefinementCtx) {
   if (data.birthDate && data.birthDate > toClubDate()) {
     ctx.addIssue({ code: 'custom', message: 'La fecha de nacimiento no puede ser futura', path: ['birthDate'] })
   }
+  // Misma cota que el CHECK `members_birth_date_sane`: acá da el mensaje antes de pegarle a la base.
+  if (data.birthDate && data.birthDate < MIN_BIRTH_DATE) {
+    ctx.addIssue({ code: 'custom', message: BIRTH_DATE_TOO_OLD_MESSAGE, path: ['birthDate'] })
+  }
 }
 
 /**
@@ -107,9 +123,17 @@ function checkMemberCoherence(data: MemberCoreInput, ctx: z.RefinementCtx) {
  */
 const NEW_FAMILY_GROUP_SHAPE = z
   .object({
-    name: z.string().trim().max(120).nullish(),
-    payerContactName: z.string().trim().max(120).nullish(),
-    payerContactPhone: z.string().trim().max(40).nullish(),
+    name: z.string().trim().max(120, 'El nombre del grupo no puede tener más de 120 caracteres').nullish(),
+    payerContactName: z
+      .string()
+      .trim()
+      .max(120, 'El nombre del responsable no puede tener más de 120 caracteres')
+      .nullish(),
+    payerContactPhone: z
+      .string()
+      .trim()
+      .max(40, 'El teléfono del responsable no puede tener más de 40 caracteres')
+      .nullish(),
   })
   .strict()
 
@@ -125,7 +149,14 @@ export const createMemberSchema = z
   .object({
     ...MEMBER_CORE_SHAPE,
     joinedOn: z.iso.date('La fecha de alta no es válida'),
-    categoryIds: z.array(z.number().int().positive()).max(20, 'Demasiadas categorías'),
+    categoryIds: z
+      .array(
+        z
+          .number('Elegí una categoría de la lista')
+          .int('Elegí una categoría de la lista')
+          .positive('Elegí una categoría de la lista'),
+      )
+      .max(20, 'Demasiadas categorías: elegí hasta 20'),
     /** Alternativa a `familyGroupId`: crea el grupo en la misma alta (D10 del review). Mutuamente excluyentes. */
     newFamilyGroup: NEW_FAMILY_GROUP_SHAPE.optional(),
   })
@@ -165,8 +196,12 @@ export const statusEventSchema = z
   .object({
     memberId: z.number().int().positive(),
     effectiveOn: z.iso.date('La fecha no es válida'),
-    reason: z.string().trim().min(3, 'El motivo tiene que tener al menos 3 caracteres').max(500),
-    notes: z.string().trim().max(2000).nullish(),
+    reason: z
+      .string('El motivo tiene que tener al menos 3 caracteres')
+      .trim()
+      .min(3, 'El motivo tiene que tener al menos 3 caracteres')
+      .max(500, 'El motivo no puede tener más de 500 caracteres'),
+    notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres').nullish(),
   })
   .strict()
 
@@ -181,7 +216,7 @@ export type StatusEventInput = z.infer<typeof statusEventSchema>
  */
 const memberFiltersSchema = z
   .object({
-    q: z.string().max(200).optional(),
+    q: z.string().max(200, 'La búsqueda es demasiado larga: usá menos de 200 caracteres').optional(),
     categoryId: z.number().int().positive().optional(),
     disciplineId: z.number().int().positive().optional(),
     status: z.enum(['active', 'inactive', 'all'] satisfies (MemberStatus | 'all')[]).optional(),
@@ -204,6 +239,8 @@ export type LoadMoreMembersInput = z.infer<typeof loadMoreMembersSchema>
 // -----------------------------------------------------------------------------
 
 const DNI_UNIQUE_CONSTRAINT = 'members_dni_key'
+// CHECK de la migración de socios: red de seguridad si algo esquiva el Zod (ej. PostgREST directo).
+const BIRTH_DATE_SANE_CHECK = 'members_birth_date_sane'
 // Migración `20260927120000_review_fixes.sql` (03-review.md, blocker 3): un
 // trigger BEFORE UPDATE OF family_group_id ya limpia `is_payment_responsible`
 // cuando cambia el grupo, así que en el camino normal estos dos ya no
@@ -212,6 +249,13 @@ const DNI_UNIQUE_CONSTRAINT = 'members_dni_key'
 // toque `is_payment_responsible` sin pasar por ese trigger.
 const RESPONSIBLE_HAS_GROUP_CHECK = 'members_responsible_has_group'
 const ONE_RESPONSIBLE_PER_GROUP_INDEX = 'members_one_responsible_per_group'
+// CHECK declarativos de la tabla (nombres autogenerados por Postgres): red de
+// seguridad si algo esquiva el Zod, por ejemplo una escritura directa a PostgREST.
+const FIRST_NAME_CHECK = 'members_first_name_check'
+const LAST_NAME_CHECK = 'members_last_name_check'
+const DNI_CHECK = 'members_dni_check'
+const EMAIL_CHECK = 'members_email_check'
+const FAMILY_GROUP_FK = 'members_family_group_id_fkey'
 
 function translateMemberError(error: PostgrestError): unknown {
   if (error.code === '23505' && error.message.includes(DNI_UNIQUE_CONSTRAINT)) {
@@ -220,8 +264,26 @@ function translateMemberError(error: PostgrestError): unknown {
   if (error.code === '23505' && error.message.includes(ONE_RESPONSIBLE_PER_GROUP_INDEX)) {
     return new DomainError('Ese grupo familiar ya tiene un responsable de pago', { field: 'familyGroupId' })
   }
+  if (error.code === '23514' && error.message.includes(BIRTH_DATE_SANE_CHECK)) {
+    return new DomainError(BIRTH_DATE_TOO_OLD_MESSAGE, { field: 'birthDate' })
+  }
   if (error.code === '23514' && error.message.includes(RESPONSIBLE_HAS_GROUP_CHECK)) {
     return new DomainError('El responsable de pago no puede quedar sin grupo familiar', { field: 'familyGroupId' })
+  }
+  if (error.code === '23514' && error.message.includes(FIRST_NAME_CHECK)) {
+    return new DomainError('El nombre es obligatorio', { field: 'firstName' })
+  }
+  if (error.code === '23514' && error.message.includes(LAST_NAME_CHECK)) {
+    return new DomainError('El apellido es obligatorio', { field: 'lastName' })
+  }
+  if (error.code === '23514' && error.message.includes(DNI_CHECK)) {
+    return new DomainError('El DNI tiene que tener 7 u 8 dígitos', { field: 'dni' })
+  }
+  if (error.code === '23514' && error.message.includes(EMAIL_CHECK)) {
+    return new DomainError('El email no es válido', { field: 'email' })
+  }
+  if (error.code === '23503' && error.message.includes(FAMILY_GROUP_FK)) {
+    return new DomainError('Ese grupo familiar no existe', { field: 'familyGroupId' })
   }
   return error
 }
@@ -232,7 +294,15 @@ const STATUS_MESSAGES_ON_DATE = new Set([
   'La fecha no puede ser anterior a la fecha de alta',
 ])
 
+const STATUS_REASON_CHECK = 'member_status_events_reason_check'
+
 function translateStatusEventError(error: PostgrestError): unknown {
+  if (error.code === '23514' && error.message.includes(STATUS_REASON_CHECK)) {
+    return new DomainError('El motivo tiene que tener al menos 3 caracteres', { field: 'reason' })
+  }
+  if (error.code === '23503') {
+    return new DomainError('El socio no existe', { status: 404 })
+  }
   if (error.code === '23514') {
     if (STATUS_MESSAGES_WITHOUT_FIELD.has(error.message)) return new DomainError(error.message)
     if (STATUS_MESSAGES_ON_DATE.has(error.message)) return new DomainError(error.message, { field: 'effectiveOn' })

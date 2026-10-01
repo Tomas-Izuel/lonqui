@@ -3,6 +3,7 @@ import 'server-only'
 import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isRawPostgresMessage } from '@/models/pg-errors'
 import { DomainError } from '@/lib/errors'
 import { toClubDate } from '@/lib/dates'
 import type { LeaveCategoryInput, MemberCategoryMembership, MemberCategoryRef, SetMemberCategoriesInput } from '@/models/types'
@@ -35,8 +36,13 @@ export const setMemberCategoriesSchema = z
   .object({
     memberId: z.number().int().positive(),
     categoryIds: z
-      .array(z.number().int().positive())
-      .max(20, 'Demasiadas categorías')
+      .array(
+        z
+          .number('Elegí una categoría de la lista')
+          .int('Elegí una categoría de la lista')
+          .positive('Elegí una categoría de la lista'),
+      )
+      .max(20, 'Demasiadas categorías: elegí hasta 20')
       .refine((ids) => new Set(ids).size === ids.length, 'Elegí cada categoría una sola vez'),
     effectiveOn: z.iso.date('La fecha no es válida').optional(),
   })
@@ -50,7 +56,7 @@ export const leaveCategorySchema = z
   .object({
     membershipId: z.number().int().positive(),
     leftOn: z.iso.date('La fecha no es válida'),
-    reason: z.string().trim().max(500).nullish(),
+    reason: z.string().trim().max(500, 'El motivo no puede tener más de 500 caracteres').nullish(),
   })
   .strict()
   .refine((data) => data.leftOn <= toClubDate(), {
@@ -61,7 +67,10 @@ export const leaveCategorySchema = z
 export const changeCategorySchema = z
   .object({
     membershipId: z.number().int().positive(),
-    newCategoryId: z.number().int().positive(),
+    newCategoryId: z
+      .number('Elegí la categoría nueva')
+      .int('Elegí la categoría nueva')
+      .positive('Elegí la categoría nueva'),
     effectiveOn: z.iso.date('La fecha no es válida'),
   })
   .strict()
@@ -78,6 +87,8 @@ export type ChangeCategoryInput = z.infer<typeof changeCategorySchema>
 const ONE_CATEGORY_PER_DISCIPLINE = 'Elegí una sola categoría por deporte'
 const CATEGORY_INACTIVE_MARKER = 'La categoría está dada de baja'
 const CATEGORY_MISSING_MARKER = 'La categoría no existe'
+const ALREADY_ENROLLED_MARKER = 'Ya está inscripto en'
+const LEFT_BEFORE_JOINED_CONSTRAINT = 'member_categories_left_after_joined'
 
 /** Mensajes de `set_member_categories` y del trigger `member_categories_insert_guard`, siempre con `field: 'categoryIds'` (la selección en bloque). */
 function translateSetCategoriesError(error: PostgrestError): unknown {
@@ -96,6 +107,12 @@ function translateSetCategoriesError(error: PostgrestError): unknown {
   if (error.code === '23514' && error.message.includes('futura')) {
     return new DomainError(error.message, { field: 'effectiveOn' })
   }
+  if (error.code === '23514' && error.message.includes(ALREADY_ENROLLED_MARKER)) {
+    return new DomainError(error.message, { field: 'categoryIds' })
+  }
+  if (error.code === '23503' && error.message.includes('El socio no existe')) {
+    return new DomainError('El socio no existe', { status: 404 })
+  }
   if (error.code === '42501') {
     return new DomainError('No tenés permiso para modificar socios')
   }
@@ -104,7 +121,13 @@ function translateSetCategoriesError(error: PostgrestError): unknown {
 
 /** Mensajes de `member_categories_update_guard` (cerrar una inscripción). */
 function translateCloseError(error: PostgrestError): unknown {
-  if (error.code === '23514') {
+  if (error.code === '23514' && error.message.includes(LEFT_BEFORE_JOINED_CONSTRAINT)) {
+    return new DomainError('La fecha de salida no puede ser anterior a la de ingreso a la categoría', {
+      field: 'leftOn',
+    })
+  }
+  // Mensajes de los triggers (ya redactados para el usuario), nunca el texto crudo de una constraint.
+  if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
     return new DomainError(error.message, { field: 'leftOn' })
   }
   return error

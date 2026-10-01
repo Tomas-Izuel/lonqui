@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
+import { isRawPostgresMessage } from '@/models/pg-errors'
 import { toPeriod } from '@/lib/dates'
 import type { FeePrice, FeePriceScope, FeePricesOverview, MemberType } from './types'
 
@@ -24,10 +25,13 @@ import type { FeePrice, FeePriceScope, FeePricesOverview, MemberType } from './t
 // Schema
 // -----------------------------------------------------------------------------
 
-const feePriceScopeEnum = z.enum(['default', 'member_type', 'category'])
-const memberTypeEnum = z.enum(['practicing', 'non_practicing'])
+const feePriceScopeEnum = z.enum(['default', 'member_type', 'category'], 'Elegí a quién aplica el valor')
+const memberTypeEnum = z.enum(['practicing', 'non_practicing'], 'Elegí un tipo de socio')
 
-const firstOfMonth = z.iso.date().refine((value) => value.endsWith('-01'), {
+/** Mismo texto que el trigger `fee_prices_insert_guard`: el cliente lo ve igual venga de Zod o de la base. */
+const VALID_FROM_IN_PAST_MESSAGE = 'Un valor de cuota nuevo aplica desde este mes o uno futuro'
+
+const firstOfMonth = z.iso.date('Elegí el mes desde el que aplica').refine((value) => value.endsWith('-01'), {
   message: 'Tiene que ser el primer día de un mes',
 })
 
@@ -35,16 +39,26 @@ export const createFeePriceSchema = z
   .object({
     scope: feePriceScopeEnum,
     memberType: memberTypeEnum.nullable().optional(),
-    categoryId: z.number().int().positive().nullable().optional(),
+    categoryId: z
+      .number('Elegí una categoría')
+      .int('Elegí una categoría')
+      .positive('Elegí una categoría')
+      .nullable()
+      .optional(),
     amountCents: z
-      .number()
+      .number('Ingresá el monto')
       .int('El monto tiene que ser un número entero de centavos')
       .nonnegative('El monto no puede ser negativo'),
     validFrom: firstOfMonth,
-    notes: z.string().trim().max(500).nullable().optional(),
+    notes: z.string().trim().max(500, 'Las notas no pueden tener más de 500 caracteres').nullable().optional(),
   })
   .strict()
   .superRefine((data, ctx) => {
+    // Un mes ya cerrado está congelado en `fees`: se rechaza antes de ir a la base.
+    if (data.validFrom.endsWith('-01') && data.validFrom < toPeriod()) {
+      ctx.addIssue({ code: 'custom', path: ['validFrom'], message: VALID_FROM_IN_PAST_MESSAGE })
+    }
+
     // Repite acá el CHECK `fee_prices_scope_shape`: un valor por categoría
     // lleva categoryId y nada de memberType, uno por tipo lleva memberType y
     // nada de categoryId, y el default no lleva ninguno de los dos.
@@ -173,8 +187,18 @@ function translateFeePriceError(error: PostgrestError): unknown {
   }
   // `fee_prices_insert_guard`: mes pasado, o mes que ya generó cuotas con
   // otro valor. El mensaje del trigger ya está pensado para el usuario.
-  if (error.code === '23514') {
+  if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
     return new DomainError(error.message, { field: 'validFrom' })
+  }
+  // CHECK declarativos (nombres autogenerados): red de seguridad si algo esquiva el Zod.
+  if (error.code === '23514' && error.message.includes('fee_prices_amount_cents_check')) {
+    return new DomainError('El monto no puede ser negativo', { field: 'amountCents' })
+  }
+  if (error.code === '23514' && error.message.includes('fee_prices_valid_from_check')) {
+    return new DomainError('Tiene que ser el primer día de un mes', { field: 'validFrom' })
+  }
+  if (error.code === '23514' && error.message.includes('fee_prices_scope_shape')) {
+    return new DomainError('Elegí una categoría o un tipo de socio que correspondan al alcance', { field: 'scope' })
   }
   // FK a categories: un id que no existe (o de una categoría borrada, que acá no pasa: on delete restrict).
   if (error.code === '23503') {

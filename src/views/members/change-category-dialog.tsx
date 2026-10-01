@@ -14,8 +14,8 @@ import type { Category } from '@/models/types'
 
 const schema = z
   .object({
-    newCategoryId: z.string().min(1, 'Elegí una categoría'),
-    effectiveOn: z.string().min(1, 'Elegí una fecha'),
+    newCategoryId: z.string().min(1, 'Elegí la categoría a la que pasa'),
+    effectiveOn: z.string().min(1, 'Elegí desde qué fecha rige el cambio'),
   })
   .refine((data) => data.effectiveOn <= toClubDate(), { message: 'La fecha no puede ser futura', path: ['effectiveOn'] })
 
@@ -44,7 +44,7 @@ export function ChangeCategoryDialog({
   otherCategories: Category[]
   onDone: () => void
 }) {
-  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { newCategoryId: '', effectiveOn: toClubDate() } })
+  const form = useForm<Values>({ resolver: zodResolver(schema), mode: 'onBlur', reValidateMode: 'onChange', defaultValues: { newCategoryId: '', effectiveOn: toClubDate() } })
   const [pending, setPending] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 

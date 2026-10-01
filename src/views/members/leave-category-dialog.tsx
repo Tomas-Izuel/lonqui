@@ -13,8 +13,8 @@ import { leaveCategory } from '@/controllers/members.actions'
 
 const schema = z
   .object({
-    leftOn: z.string().min(1, 'Elegí una fecha'),
-    reason: z.string().trim().max(500),
+    leftOn: z.string().min(1, 'Elegí desde qué fecha deja el deporte'),
+    reason: z.string().trim().max(500, 'El motivo no puede tener más de 500 caracteres'),
   })
   .refine((data) => data.leftOn <= toClubDate(), { message: 'La fecha no puede ser futura', path: ['leftOn'] })
 
@@ -44,7 +44,7 @@ export function LeaveCategoryDialog({
   categoryName: string
   onDone: () => void
 }) {
-  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { leftOn: toClubDate(), reason: '' } })
+  const form = useForm<Values>({ resolver: zodResolver(schema), mode: 'onBlur', reValidateMode: 'onChange', defaultValues: { leftOn: toClubDate(), reason: '' } })
   const [pending, setPending] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 

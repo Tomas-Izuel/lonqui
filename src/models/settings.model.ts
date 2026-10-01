@@ -22,7 +22,11 @@ import type { Settings } from './types'
 
 export const updateSettingsSchema = z
   .object({
-    clubName: z.string().trim().min(2, 'El nombre del club es demasiado corto'),
+    clubName: z
+      .string('El nombre del club tiene que tener al menos 2 caracteres')
+      .trim()
+      .min(2, 'El nombre del club tiene que tener al menos 2 caracteres')
+      .max(120, 'El nombre del club no puede tener más de 120 caracteres'),
   })
   .strict()
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>

@@ -16,10 +16,10 @@ const BUCKET = 'attachments'
 
 export function validateReceiptFile(file: File): string | null {
   if (!RECEIPT_ALLOWED_MIME_TYPES.includes(file.type)) {
-    return 'Formato no admitido. Usá JPG, PNG, WEBP o PDF.'
+    return 'Subí un archivo PDF, JPG, PNG o WEBP'
   }
   if (file.size > RECEIPT_MAX_SIZE_BYTES) {
-    return 'El archivo no puede pesar más de 10 MB.'
+    return 'El archivo no puede pesar más de 10 MB'
   }
   return null
 }

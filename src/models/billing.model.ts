@@ -4,6 +4,7 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError, PermissionError } from '@/lib/errors'
 import { formatPeriod, toPeriod } from '@/lib/dates'
+import { isRawPostgresMessage } from './pg-errors'
 import { getSettings } from './settings.model'
 import type { BillingRun, BillingRunStatus, BillingRunTrigger, BillingStatus } from './types'
 
@@ -185,7 +186,10 @@ export async function getBillingStatus(): Promise<BillingStatus> {
  * exige `billing.configure` antes de llegar acá.
  */
 function translateSettingsBillingError(error: PostgrestError): unknown {
-  if (error.code === '23514') {
+  if (error.code === '23514' && error.message.includes('billing_start_period_check')) {
+    return new DomainError('Tiene que ser el primer día de un mes', { field: 'startPeriod' })
+  }
+  if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
     return new DomainError(error.message, { field: 'startPeriod' })
   }
   if (error.code === '42501') {

@@ -10,6 +10,15 @@
 export const CLUB_TIME_ZONE = 'America/Argentina/Buenos_Aires'
 const LOCALE = 'es-AR'
 
+/**
+ * Fecha de nacimiento más vieja que se acepta. Espeja la constraint
+ * `members_birth_date_sane` de Postgres: si cambia una, cambia la otra. El
+ * caso real que ataja es el año mal tipeado en un `<input type="date">`
+ * ("0198" en vez de "1998").
+ */
+export const MIN_BIRTH_DATE = '1900-01-01'
+export const BIRTH_DATE_TOO_OLD_MESSAGE = `La fecha de nacimiento no puede ser anterior a ${MIN_BIRTH_DATE.slice(0, 4)}. Revisá el año`
+
 /** `YYYY-MM-DD` de ese instante en la zona del club. */
 export function toClubDate(instant: Date = new Date()): string {
   // `en-CA` formatea como ISO (YYYY-MM-DD) sin tener que reordenar partes.

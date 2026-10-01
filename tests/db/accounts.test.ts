@@ -92,6 +92,14 @@ async function insertPayment(
   return row.rows[0].id
 }
 
+/** Período (primer día del mes) y fecha de hoy según la base, en hora del club. Nunca hardcodear el mes: current_fee_cents y monthly_history(1) miran el mes en curso. */
+async function clubNow(client: ClientBase) {
+  const r = await client.query<{ period: string; today: string }>(
+    `select to_char(date_trunc('month', private.club_today()), 'YYYY-MM-DD') as period, to_char(private.club_today(), 'YYYY-MM-DD') as today`,
+  )
+  return r.rows[0]
+}
+
 describe.skipIf(!dbAvailable)('member_balance / member_fee_statement: cobertura oldest-first', () => {
   it('sin pagos: balance = 3 cuotas, months_due 3, oldest_due_period la más vieja; pago parcial reduce el más viejo primero', async () => {
     await withRollback(async (client) => {
@@ -419,11 +427,12 @@ describe.skipIf(!dbAvailable)('member_accounts: current_fee_cents / current_fees
       const voley = await createDiscipline(client, { name: 'Vóley CurrentFee' })
       const cat5ta = await createCategory(client, { disciplineId: futbol, name: '5ta CurrentFee' })
       const catSub18 = await createCategory(client, { disciplineId: voley, name: 'Sub 18 CurrentFee' })
+      const { period: currentPeriod } = await clubNow(client)
       const memberId = await createMember(client, { firstName: 'DosCuotas', lastName: 'CurrentFee', joinedOn: '2026-01-01' })
       await openMemberCategory(client, { memberId, categoryId: cat5ta, joinedOn: '2026-01-01' })
       await openMemberCategory(client, { memberId, categoryId: catSub18, joinedOn: '2026-01-01' })
-      await insertMonthlyFee(client, { memberId, period: '2026-09-01', amountCents: 1_000_000, categoryId: cat5ta, disciplineId: futbol })
-      await insertMonthlyFee(client, { memberId, period: '2026-09-01', amountCents: 1_200_000, categoryId: catSub18, disciplineId: voley })
+      await insertMonthlyFee(client, { memberId, period: currentPeriod, amountCents: 1_000_000, categoryId: cat5ta, disciplineId: futbol })
+      await insertMonthlyFee(client, { memberId, period: currentPeriod, amountCents: 1_200_000, categoryId: catSub18, disciplineId: voley })
 
       const { userId: consultaId } = await createUserWithRole(client, 'consulta')
       await actAs(client, consultaId)
@@ -506,13 +515,14 @@ describe.skipIf(!dbAvailable)('monthly_history', () => {
   it('collected_cents de un período P coincide con month_collection(P)', async () => {
     await withRollback(async (client) => {
       await actAsSuperuser(client)
+      const { period: currentPeriod, today } = await clubNow(client)
       const memberId = await createMember(client, { firstName: 'Coincide', lastName: 'Historia', joinedOn: '2026-01-01' })
-      await insertPayment(client, { memberId, amountCents: 1_000_000, paidOn: '2026-09-12' })
+      await insertPayment(client, { memberId, amountCents: 1_000_000, paidOn: today })
 
       const { userId: consultaId } = await createUserWithRole(client, 'consulta')
       await actAs(client, consultaId)
-      const history = await client.query(`select collected_cents from public.monthly_history(1) where period = '2026-09-01'`)
-      const collection = await client.query(`select collected_cents from public.month_collection('2026-09-01')`)
+      const history = await client.query(`select collected_cents from public.monthly_history(1) where period = $1::date`, [currentPeriod])
+      const collection = await client.query(`select collected_cents from public.month_collection($1::date)`, [currentPeriod])
       expect(history.rows[0].collected_cents).toBe(collection.rows[0].collected_cents)
     })
   })

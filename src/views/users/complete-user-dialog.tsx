@@ -13,8 +13,12 @@ import { completeUser } from '@/controllers/users.actions'
 import type { AppRole, AppUserListItem } from '@/models/types'
 
 const completeUserSchema = z.object({
-  displayName: z.string().trim().min(2, 'El nombre tiene que tener al menos 2 caracteres'),
-  role: z.enum(['admin', 'editor', 'consulta'], 'Elegí un rol'),
+  displayName: z
+    .string()
+    .trim()
+    .min(2, 'El nombre tiene que tener al menos 2 caracteres')
+    .max(120, 'El nombre no puede tener más de 120 caracteres'),
+  role: z.enum(['admin', 'editor', 'consulta'], 'Elegí un rol para el usuario'),
 })
 
 type CompleteUserValues = z.infer<typeof completeUserSchema>
@@ -76,6 +80,8 @@ export function CompleteUserDialog({
       }
       onCompleted(result.data.temporaryPassword, values.displayName)
       handleOpenChange(false)
+    } catch {
+      setFormError('No pudimos completar el alta. Revisá tu conexión e intentá de nuevo.')
     } finally {
       setPending(false)
     }

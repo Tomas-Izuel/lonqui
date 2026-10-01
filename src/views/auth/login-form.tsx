@@ -13,7 +13,11 @@ import type { ActionResult } from '@/lib/action-result'
 import { DURATION, EASE_ENTER, useMotionPreference } from '@/views/shared/motion'
 
 const loginSchema = z.object({
-  email: z.email('Ingresá un email válido'),
+  email: z
+    .string()
+    .trim()
+    .min(1, 'Ingresá un email válido')
+    .pipe(z.email('Ingresá un email válido')),
   password: z.string().min(1, 'Ingresá tu contraseña'),
 })
 

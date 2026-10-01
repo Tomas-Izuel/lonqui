@@ -11,6 +11,7 @@
  * envolver todo en un `<FormProvider>` que F2/F3/F4 no necesitan.
  */
 
+import '@/lib/zod-locale'
 import { useId, useState } from 'react'
 import { useController, type Control, type FieldValues, type Path } from 'react-hook-form'
 import { Eye, EyeOff } from 'lucide-react'

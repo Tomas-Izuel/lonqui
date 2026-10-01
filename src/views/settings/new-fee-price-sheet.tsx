@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { ResponsiveSheet } from '@/views/shared/responsive-sheet'
 import { SelectField, AmountField } from '@/views/shared/form-fields'
 import { feePriceScopeLabels, memberTypeLabels } from '@/views/shared/labels'
-import { addMonths, formatPeriod, periodRange } from '@/lib/dates'
+import { addMonths, formatPeriod, periodRange, toPeriod } from '@/lib/dates'
 import { createFeePrice } from '@/controllers/billing.actions'
 import type { BillingStatus, DisciplineWithCategories, FeePriceScope, MemberType } from '@/models/types'
 
@@ -25,18 +25,32 @@ import type { BillingStatus, DisciplineWithCategories, FeePriceScope, MemberType
  */
 const feePriceFormSchema = z
   .object({
-    scope: z.enum(['default', 'member_type', 'category']),
+    scope: z.enum(['default', 'member_type', 'category'], { error: 'Elegí a quién aplica el valor' }),
     memberType: z.enum(['practicing', 'non_practicing']).or(z.literal('')),
     categoryId: z.string(),
-    amountCents: z.number().int().nonnegative('El monto no puede ser negativo').nullable(),
+    amountCents: z
+      .number({ error: 'Ingresá el monto' })
+      .int('El monto tiene que ser un número entero de centavos')
+      // Mismo texto que el servidor. 0 es válido (cuota bonificada): el CHECK es >= 0.
+      .nonnegative('El monto no puede ser negativo')
+      .nullable(),
     validFrom: z.string(),
   })
   .superRefine((data, ctx) => {
     if (data.amountCents == null) {
-      ctx.addIssue({ code: 'custom', path: ['amountCents'], message: 'Ingresá un monto válido' })
+      ctx.addIssue({ code: 'custom', path: ['amountCents'], message: 'Ingresá el monto' })
     }
     if (!data.validFrom) {
-      ctx.addIssue({ code: 'custom', path: ['validFrom'], message: 'Elegí un mes' })
+      ctx.addIssue({ code: 'custom', path: ['validFrom'], message: 'Elegí el mes desde el que aplica' })
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(data.validFrom) || !data.validFrom.endsWith('-01')) {
+      ctx.addIssue({ code: 'custom', path: ['validFrom'], message: 'Tiene que ser el primer día de un mes' })
+    } else if (data.validFrom < toPeriod()) {
+      // Un mes ya cerrado está congelado en las cuotas: mismo texto que el servidor.
+      ctx.addIssue({
+        code: 'custom',
+        path: ['validFrom'],
+        message: 'Un valor de cuota nuevo aplica desde este mes o uno futuro',
+      })
     }
     if (data.scope === 'category' && !data.categoryId) {
       ctx.addIssue({ code: 'custom', path: ['categoryId'], message: 'Elegí una categoría' })
@@ -88,6 +102,7 @@ export type NewFeePriceSheetProps = {
  */
 export function NewFeePriceSheet({ open, onOpenChange, billing, categoriesByDiscipline }: NewFeePriceSheetProps) {
   const [pending, setPending] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const validFromOptions = buildValidFromOptions(billing)
 
   const categoryOptions = categoriesByDiscipline.flatMap((discipline) =>
@@ -109,6 +124,7 @@ export function NewFeePriceSheet({ open, onOpenChange, billing, categoriesByDisc
   })
 
   function resetForm() {
+    setFormError(null)
     form.reset({
       scope: 'default',
       memberType: '',
@@ -122,6 +138,7 @@ export function NewFeePriceSheet({ open, onOpenChange, billing, categoriesByDisc
 
   async function onValid(values: FeePriceFormValues) {
     setPending(true)
+    setFormError(null)
     try {
       const result = await createFeePrice({
         scope: values.scope,
@@ -134,7 +151,7 @@ export function NewFeePriceSheet({ open, onOpenChange, billing, categoriesByDisc
         if (result.field && result.field in values) {
           form.setError(result.field as keyof FeePriceFormValues, { message: result.error })
         } else {
-          toast.error(result.error)
+          setFormError(result.error)
         }
         return
       }
@@ -201,6 +218,12 @@ export function NewFeePriceSheet({ open, onOpenChange, billing, categoriesByDisc
           options={validFromOptions}
           disabled={pending}
         />
+
+        {formError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {formError}
+          </p>
+        ) : null}
       </form>
     </ResponsiveSheet>
   )

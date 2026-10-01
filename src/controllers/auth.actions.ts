@@ -118,6 +118,9 @@ export async function changePassword(prevState: ActionResult | null, formData: F
       if (error.code === 'invalid_credentials') {
         throw new DomainError('Tu contraseña actual no es correcta', { field: 'currentPassword' })
       }
+      if (error.code === 'weak_password') {
+        throw new DomainError('Esa contraseña es demasiado fácil de adivinar. Elegí otra', { field: 'newPassword' })
+      }
       if (error.code === 'same_password') {
         // Mismo mensaje que si el marker de D8 detecta que el hash no cambió:
         // es el mismo caso de negocio ("elegiste la misma de siempre") visto

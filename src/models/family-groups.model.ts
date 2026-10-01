@@ -17,10 +17,18 @@ import type { FamilyGroupMember, FamilyGroupSummary, MemberStatus } from '@/mode
 // -----------------------------------------------------------------------------
 
 const FAMILY_GROUP_SHAPE = {
-  name: z.string().trim().max(120).nullish(),
-  payerContactName: z.string().trim().max(120).nullish(),
-  payerContactPhone: z.string().trim().max(40).nullish(),
-  notes: z.string().trim().max(2000).nullish(),
+  name: z.string().trim().max(120, 'El nombre del grupo no puede tener más de 120 caracteres').nullish(),
+  payerContactName: z
+    .string()
+    .trim()
+    .max(120, 'El nombre del responsable no puede tener más de 120 caracteres')
+    .nullish(),
+  payerContactPhone: z
+    .string()
+    .trim()
+    .max(40, 'El teléfono del responsable no puede tener más de 40 caracteres')
+    .nullish(),
+  notes: z.string().trim().max(2000, 'Las notas no pueden tener más de 2000 caracteres').nullish(),
 }
 
 export const familyGroupInputSchema = z.object(FAMILY_GROUP_SHAPE).strict()
@@ -29,7 +37,10 @@ export type FamilyGroupInput = z.infer<typeof familyGroupInputSchema>
 export const setPaymentResponsibleSchema = z
   .object({
     groupId: z.number().int().positive(),
-    memberId: z.number().int().positive(),
+    memberId: z
+      .number('Elegí un integrante del grupo')
+      .int('Elegí un integrante del grupo')
+      .positive('Elegí un integrante del grupo'),
   })
   .strict()
 export type SetPaymentResponsibleInput = z.infer<typeof setPaymentResponsibleSchema>

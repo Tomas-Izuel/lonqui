@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { FieldError } from '@/components/ui/field'
 import { AmountField, DateField, TextareaField } from '@/views/shared/form-fields'
 import { DebtStatusPill } from '@/views/shared/status-pill'
 import { paymentMethodLabels } from '@/views/shared/labels'
@@ -14,26 +15,22 @@ import { toClubDate } from '@/lib/dates'
 import { formatCentsCompact } from '@/lib/money'
 import { registerPayment } from '@/controllers/payments.actions'
 import { accountLineText, categoriesLabel, currentFeeLabel } from '@/views/payments/account-format'
+import { METHOD_ERROR_ID, PAYMENT_MIN_DATE, amountCentsSchema, methodSchema, notesSchema, paidOnSchema } from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import type { MemberAccount, PaymentMethod } from '@/models/types'
+import type { MemberAccount } from '@/models/types'
 
-const schema = z
-  .object({
-    amountCents: z.number().nullable(),
-    paidOn: z.string().min(1, 'Elegí una fecha'),
-    method: z.enum(['cash', 'transfer'] satisfies PaymentMethod[]),
-    notes: z.string(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.amountCents == null || data.amountCents <= 0) {
-      ctx.addIssue({ code: 'custom', message: 'Ingresá un monto mayor a cero', path: ['amountCents'] })
-    }
-  })
+const schema = z.object({
+  amountCents: amountCentsSchema,
+  paidOn: paidOnSchema,
+  method: methodSchema,
+  notes: notesSchema,
+})
 
 type FormValues = z.infer<typeof schema>
 
 const KNOWN_FIELDS = ['amountCents', 'paidOn', 'method', 'notes'] as const
+const PAYMENT_PATH_FIELDS = ['items', 'memberId']
 
 function isKnownField(field: string | undefined): field is (typeof KNOWN_FIELDS)[number] {
   return (KNOWN_FIELDS as readonly string[]).includes(field ?? '')
@@ -75,6 +72,7 @@ export function PaymentForm({
   const [batchId] = useState(() => crypto.randomUUID())
   const [file, setFile] = useState<File | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [receiptError, setReceiptError] = useState<string | null>(null)
   const [needsOverpayConfirm, setNeedsOverpayConfirm] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [uploadStage, setUploadStage] = useState<'idle' | 'uploading'>('idle')
@@ -122,6 +120,7 @@ export function PaymentForm({
     }
 
     setFormError(null)
+    setReceiptError(null)
     let receiptPath: string | null = null
 
     if (values.method === 'transfer' && file) {
@@ -129,7 +128,8 @@ export function PaymentForm({
       const uploaded = await uploadReceipt(member.memberId, file)
       setUploadStage('idle')
       if ('error' in uploaded) {
-        setFormError(uploaded.error)
+        // Debajo del selector de comprobante, que es el control que lo causó.
+        setReceiptError(uploaded.error)
         return
       }
       receiptPath = uploaded.path
@@ -147,7 +147,14 @@ export function PaymentForm({
 
     if (!result.ok) {
       if (isKnownField(result.field)) {
+        if (result.field === 'notes') setNotesOpen(true)
         form.setError(result.field, { message: result.error })
+        form.setFocus(result.field)
+      } else if (result.field === 'receiptPath') {
+        setReceiptError(result.error)
+      } else if (result.field && PAYMENT_PATH_FIELDS.includes(result.field)) {
+        // Un error de `items` es el monto: el único ítem de este formulario.
+        form.setError('amountCents', { message: result.error })
       } else {
         setFormError(result.error)
       }
@@ -198,7 +205,7 @@ export function PaymentForm({
             ) : null}
           </div>
 
-          <DateField control={form.control} name="paidOn" label="Fecha" max={toClubDate()} min="2020-01-01" disabled={pending} />
+          <DateField control={form.control} name="paidOn" label="Fecha" max={toClubDate()} min={PAYMENT_MIN_DATE} disabled={pending} />
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">Medio de pago</span>
@@ -211,15 +218,31 @@ export function PaymentForm({
                   disabled={pending}
                   className="h-12 flex-1"
                   aria-pressed={method === value}
+                  aria-describedby={form.formState.errors.method ? METHOD_ERROR_ID : undefined}
                   onClick={() => form.setValue('method', value, { shouldValidate: true })}
                 >
                   {paymentMethodLabels[value]}
                 </Button>
               ))}
             </div>
+            {form.formState.errors.method ? (
+              <FieldError id={METHOD_ERROR_ID} role="alert">
+                {form.formState.errors.method.message}
+              </FieldError>
+            ) : null}
           </div>
 
-          {method === 'transfer' ? <ReceiptPicker file={file} onChange={setFile} disabled={pending} /> : null}
+          {method === 'transfer' ? (
+            <ReceiptPicker
+              file={file}
+              onChange={(next) => {
+                setReceiptError(null)
+                setFile(next)
+              }}
+              error={receiptError}
+              disabled={pending}
+            />
+          ) : null}
 
           {notesOpen ? (
             <TextareaField control={form.control} name="notes" label="Notas" placeholder="Opcional" disabled={pending} />

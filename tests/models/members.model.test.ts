@@ -334,3 +334,31 @@ describe('PADRON_PAGE_SIZE: mismo tamaño de página entre la primera tanda y "V
     expect(source).toMatch(/limit:\s*PADRON_PAGE_SIZE/)
   })
 })
+
+describe('fecha de nacimiento mínima (piso 1900-01-01)', () => {
+  const MSG = 'La fecha de nacimiento no puede ser anterior a 1900. Revisá el año'
+
+  it.each([
+    ['createMemberSchema', (birthDate: string) => createMemberSchema.safeParse({ ...VALID_CORE, birthDate, joinedOn: '2026-01-01' })],
+    ['updateMemberSchema', (birthDate: string) => updateMemberSchema.safeParse({ ...VALID_UPDATE_CORE, birthDate })],
+  ])('%s: 1899-12-31 se rechaza con issue en birthDate y el mensaje exacto', (_n, parse) => {
+    const result = parse('1899-12-31')
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path[0] === 'birthDate')
+      expect(issue?.message).toBe(MSG)
+    }
+  })
+
+  it.each([
+    ['createMemberSchema', (birthDate: string) => createMemberSchema.safeParse({ ...VALID_CORE, birthDate, joinedOn: '2026-01-01' })],
+    ['updateMemberSchema', (birthDate: string) => updateMemberSchema.safeParse({ ...VALID_UPDATE_CORE, birthDate })],
+  ])('%s: 1900-01-01 (el borde) se acepta', (_n, parse) => {
+    expect(parse('1900-01-01').success).toBe(true)
+  })
+
+  it('el año mal tipeado del caso real ("0198-05-10") se rechaza', () => {
+    const result = createMemberSchema.safeParse({ ...VALID_CORE, birthDate: '0198-05-10', joinedOn: '2026-01-01' })
+    expect(result.success).toBe(false)
+  })
+})

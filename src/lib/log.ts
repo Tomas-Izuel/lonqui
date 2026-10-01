@@ -20,6 +20,36 @@ export type LogFields = {
   [key: string]: unknown
 }
 
+/**
+ * supabase-js devuelve `PostgrestError` como objeto plano (no `Error`), y
+ * `String(obj)` da "[object Object]". Se loguea siempre `code` y `hint`.
+ *
+ * `details` queda afuera a propósito: en una violación de unique trae el valor
+ * ("Key (dni)=(12345678) already exists"), o sea datos personales.
+ *
+ * `message` se loguea solo si el `code` es de integridad (`23xxx`: trae el
+ * nombre de la constraint, no valores), de privilegios/sintaxis (`42xxx`) o de
+ * PostgREST (`PGRST`). En otros códigos, sobre todo la clase 22 (datos mal
+ * formados), el propio mensaje incluye el valor ofensor ("invalid input syntax
+ * for type date: <lo que tipeó el usuario>"), así que se descarta.
+ */
+const SAFE_MESSAGE_CODE = /^(23|42|PGRST)/
+
+function serializeNonError(error: unknown): Record<string, unknown> {
+  if (typeof error === 'object' && error !== null) {
+    const { code, message, hint } = error as Record<string, unknown>
+    if (typeof code === 'string' || typeof message === 'string') {
+      const messageIsSafe = typeof code === 'string' && SAFE_MESSAGE_CODE.test(code)
+      return {
+        ...(typeof code === 'string' && { code }),
+        ...(messageIsSafe && typeof message === 'string' && { message }),
+        ...(typeof hint === 'string' && hint !== '' && { hint }),
+      }
+    }
+  }
+  return { value: String(error) }
+}
+
 const isProduction = process.env.NODE_ENV === 'production'
 
 function emit(level: Level, context: string, message: string, fields?: LogFields, error?: unknown) {
@@ -29,7 +59,7 @@ function emit(level: Level, context: string, message: string, fields?: LogFields
     extras.error =
       error instanceof Error
         ? { name: error.name, message: error.message, stack: error.stack }
-        : { value: String(error) }
+        : serializeNonError(error)
   }
 
   const sink = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log

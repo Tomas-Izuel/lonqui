@@ -17,9 +17,19 @@ import type { AppRole } from '@/models/types'
 // Mismo patrón que `LoginForm` (F1): valida formato acá, la autoridad real
 // sigue siendo el `.safeParse()` de la action.
 const createUserSchema = z.object({
-  email: z.email('Ingresá un email válido'),
-  displayName: z.string().trim().min(2, 'El nombre tiene que tener al menos 2 caracteres'),
-  role: z.enum(['admin', 'editor', 'consulta'], 'Elegí un rol'),
+  // `trim` + `pipe`: igual que el servidor (`emailSchema`), un espacio de más al
+  // pegar el email no puede ser la causa de un "email inválido".
+  email: z
+    .string()
+    .trim()
+    .min(1, 'Ingresá un email válido')
+    .pipe(z.email('Ingresá un email válido').max(254, 'El email no puede tener más de 254 caracteres')),
+  displayName: z
+    .string()
+    .trim()
+    .min(2, 'El nombre tiene que tener al menos 2 caracteres')
+    .max(120, 'El nombre no puede tener más de 120 caracteres'),
+  role: z.enum(['admin', 'editor', 'consulta'], 'Elegí un rol para el usuario'),
 })
 
 type CreateUserValues = z.infer<typeof createUserSchema>
@@ -73,6 +83,9 @@ export function CreateUserDialog({
       }
       onCreated(result.data.temporaryPassword, values.displayName)
       handleOpenChange(false)
+    } catch {
+      // Falló la red o la action explotó: el formulario no se queda mudo.
+      setFormError('No pudimos crear el usuario. Revisá tu conexión e intentá de nuevo.')
     } finally {
       setPending(false)
     }
