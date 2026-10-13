@@ -5,7 +5,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 /**
  * Overlays globales direccionables por URL (pipeline 2026-09-28, D1/D2):
- * `?pagar=buscar|socio:<id>|grupo:<id>` y `?ver=<id>`. El overlay vive encima
+ * `?pagar=buscar|socio:<id>|grupo:<id>`, `?ver=<id>` y
+ * `?ingreso=nuevo|sponsor:<id>` (pipeline 2026-10-13). El overlay vive encima
  * de la página donde se abrió — nunca se navega a otra ruta — y el botón
  * atrás del celular lo cierra, que es lo que la gente espera de un panel que
  * sube desde abajo.
@@ -21,9 +22,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
  * `ver` por `pagar`).
  */
 
-export type OverlayName = 'pagar' | 'ver'
+export type OverlayName = 'pagar' | 'ver' | 'ingreso'
 
-const OVERLAY_NAMES: OverlayName[] = ['pagar', 'ver']
+const OVERLAY_NAMES: OverlayName[] = ['pagar', 'ver', 'ingreso']
 const MARK = '__lonquiOverlay'
 
 /** Overlay que esta pestaña acaba de abrir y todavía no marcó en el historial. */
@@ -122,4 +123,7 @@ export {
   parseQuickViewParam,
   isPlainLeftClick,
   type PaymentOverlayTarget,
+  parseIncomeOverlay,
+  incomeOverlayValue,
+  type IncomeOverlayTarget,
 } from './overlay-values'

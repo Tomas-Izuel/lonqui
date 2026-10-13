@@ -1,0 +1,41 @@
+name: Keep-alive de Supabase
+
+# El plan free de Supabase pausa el proyecto tras una semana con poca actividad
+# de base. Esto llama a public.keep_alive() (migración 20261011120000) cuatro
+# veces por día como `anon`: la doc pide "unas pocas queries por día".
+#
+# Configuración, en Settings → Secrets and variables → Actions → Variables (no
+# secrets: la publishable key viaja en el browser, no es secreta):
+#   SUPABASE_URL                 https://<ref>.supabase.co
+#   SUPABASE_PUBLISHABLE_KEY     sb_publishable_...
+# Sin esas variables el job se saltea, no falla.
+#
+# OJO: en un repo público GitHub desactiva los workflows programados después
+# de 60 días sin commits. Si el repo queda quieto, hay que reactivarlo desde la
+# pestaña Actions (o `gh workflow enable keep-alive.yml`).
+
+on:
+  schedule:
+    # Minuto 17 y no 0: en punto es cuando más se demoran los cron de GitHub.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    if: ${{ vars.SUPABASE_URL != '' && vars.SUPABASE_PUBLISHABLE_KEY != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Llamar a public.keep_alive()
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-delay 10 --retry-all-errors \
+            --request POST "$SUPABASE_URL/rest/v1/rpc/keep_alive" \
+            --header "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            --header "Content-Type: application/json" \
+            --data '{}'

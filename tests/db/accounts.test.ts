@@ -142,8 +142,17 @@ describe.skipIf(!dbAvailable)('member_balance / member_fee_statement: cobertura 
     await withRollback(async (client) => {
       await actAsSuperuser(client)
       const memberId = await createMember(client, { firstName: 'B', lastName: 'Arranque', joinedOn: '2026-01-01' })
-      await insertOpeningBalance(client, { memberId, period: '2026-08-01', amountCents: 2_000_000 })
-      await insertMonthlyFee(client, { memberId, period: '2026-09-01', amountCents: 1_000_000 })
+      const openingId = await insertOpeningBalance(client, { memberId, period: '2026-08-01', amountCents: 2_000_000 })
+      // El período del saldo de arranque lo fija el trigger (mes anterior a
+      // `billing_start_period`), no quien lo carga; y el seed arranca la
+      // facturación "este mes", así que depende de cuándo se hizo el reset.
+      // Se lee el período real y la cuota va al mes siguiente: el test no
+      // depende de la fecha de hoy.
+      const opening = await client.query<{ next_period: string }>(
+        `select to_char(period + interval '1 month', 'YYYY-MM-DD') as next_period from public.fees where id = $1`,
+        [openingId],
+      )
+      await insertMonthlyFee(client, { memberId, period: opening.rows[0].next_period, amountCents: 1_000_000 })
 
       const { userId: consultaId } = await createUserWithRole(client, 'consulta')
       await actAs(client, consultaId)
@@ -541,6 +550,45 @@ describe.skipIf(!dbAvailable)('log_export', () => {
       )
       expect(row.rows[0].actor_id).toBe(consultaId)
       expect(row.rows[0].context.listing).toBe('members')
+    })
+  })
+
+  it("'other_income' está en la lista cerrada: consulta (reports.export) deja una fila EXPORT con su actor y los filtros", async () => {
+    await withRollback(async (client) => {
+      const { userId: consultaId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, consultaId)
+      await client.query(`select public.log_export('other_income', '{"mes":"2026-09","concepto":3}'::jsonb, 7)`)
+
+      await actAsSuperuser(client)
+      const row = await client.query(
+        `select actor_id, actor_source, op, table_name, context from public.audit_log where table_name = 'other_income' and op = 'EXPORT' order by id desc limit 1`,
+      )
+      expect(row.rows[0].actor_id).toBe(consultaId)
+      expect(row.rows[0].actor_source).toBe('session')
+      expect(row.rows[0].context).toEqual({ listing: 'other_income', filters: { mes: '2026-09', concepto: 3 }, row_count: 7 })
+    })
+  })
+
+  it('las claves viejas de la lista cerrada siguen aceptadas tras sumar other_income (no se rompió ninguna)', async () => {
+    await withRollback(async (client) => {
+      const { userId: consultaId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, consultaId)
+      for (const listing of ['members', 'debt', 'up_to_date', 'debt_by_category', 'month_payments']) {
+        await client.query(`select public.log_export($1, '{}'::jsonb, 0)`, [listing])
+      }
+    })
+  })
+
+  it("'other_income' con filas negativas, o como anon, sigue rechazado", async () => {
+    await withRollback(async (client) => {
+      const { userId: consultaId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, consultaId)
+      const err = await expectQueryError(client, `select public.log_export('other_income', '{}'::jsonb, -1)`)
+      expect(err.message).toBe('Cantidad de filas inválida')
+      await actAsSuperuser(client)
+      await client.query('set local role anon')
+      const anon = await expectQueryError(client, `select public.log_export('other_income', '{}'::jsonb, 1)`)
+      expect(anon.message).toMatch(/permission denied/i)
     })
   })
 

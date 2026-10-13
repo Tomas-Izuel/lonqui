@@ -17,7 +17,7 @@ import type { DebtByCategoryRow } from '@/models/types'
  */
 /** Solo las categorías reales enlazan al listado filtrado (D32): las dos filas especiales no tienen un `categoryId` que filtrar. */
 function categoryHref(row: DebtByCategoryRow): string | undefined {
-  return row.kind === 'category' && row.categoryId != null ? `/cobranza/deuda?categoriaId=${row.categoryId}` : undefined
+  return row.kind === 'category' && row.categoryId != null ? `/caja/deuda?categoriaId=${row.categoryId}` : undefined
 }
 
 function rowKey(row: DebtByCategoryRow): string {
@@ -159,7 +159,7 @@ function FullChart({ rows }: { rows: DebtByCategoryRow[] }) {
 /**
  * Deuda por categoría, en dos lecturas (D4/C5 del pipeline 2026-09-28): el
  * inicio la usa `compact` dentro del panel "Padrón" (barra inline por fila,
- * import de solo lectura desde `views/dashboard`); `/cobranza/por-categoria`
+ * import de solo lectura desde `views/dashboard`); `/caja/por-categoria`
  * la usa `full` arriba de su `DataList`. Mismo dato, mismo componente, cero
  * duplicación del formato de nombre o del criterio de link.
  */

@@ -56,7 +56,7 @@ const { useOverlayParam, useCloseOverlay } = await import('@/views/shared/overla
 // Funciones puras: importadas de su origen real (`overlay-values.ts`), no del
 // re-export de `overlay-params.ts` — así el test sigue valiendo si algún día
 // el re-export cambia o desaparece.
-const { parsePaymentOverlay, paymentOverlayValue, parseQuickViewParam, isPlainLeftClick } = await import(
+const { parsePaymentOverlay, paymentOverlayValue, parseQuickViewParam, isPlainLeftClick, parseIncomeOverlay, incomeOverlayValue } = await import(
   '@/views/shared/overlay-values'
 )
 
@@ -215,5 +215,80 @@ describe('useOverlayParam / useCloseOverlay: back vs. replace', () => {
     close()
     expect(backMock).not.toHaveBeenCalled()
     expect(replaceMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('parseIncomeOverlay / incomeOverlayValue (?ingreso=)', () => {
+  it('"nuevo" y "sponsor:<id>" parsean y vuelven al mismo valor (ida y vuelta)', () => {
+    expect(parseIncomeOverlay('nuevo')).toEqual({ mode: 'nuevo' })
+    expect(incomeOverlayValue({ mode: 'nuevo' })).toBe('nuevo')
+    expect(parseIncomeOverlay('sponsor:7')).toEqual({ mode: 'nuevo', sponsorId: 7 })
+    expect(incomeOverlayValue({ mode: 'nuevo', sponsorId: 7 })).toBe('sponsor:7')
+  })
+
+  it.each([null, '', 'otra-cosa', 'sponsor:', 'sponsor:abc', 'sponsor:0', 'sponsor:-5', 'sponsor:1.5', 'sponsor:7:8', 'socio:1', 'NUEVO', ' nuevo', 'sponsor:99999999999999999999'])(
+    '%j no es un valor válido: null, nunca revienta ni abre un overlay a medias',
+    (value) => {
+      expect(parseIncomeOverlay(value)).toBeNull()
+    },
+  )
+})
+
+describe('?ingreso= convive con ?pagar= y ?ver= sin apilarse (exclusión mutua)', () => {
+  it('abrir ingreso con pagar abierto: replace, quita pagar y deja solo ingreso', () => {
+    mockPathname = '/caja'
+    mockSearchParams = new URLSearchParams('pagar=buscar')
+    const overlay = renderHook(() => useOverlayParam('ingreso'))
+    overlay.set('nuevo')
+    expect(replaceMock).toHaveBeenCalledWith('/caja?ingreso=nuevo', { scroll: false })
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('abrir ingreso con ver abierto: replace, quita ver', () => {
+    mockPathname = '/caja'
+    mockSearchParams = new URLSearchParams('ver=12')
+    renderHook(() => useOverlayParam('ingreso')).set('sponsor:3')
+    expect(replaceMock).toHaveBeenCalledWith('/caja?ingreso=sponsor%3A3', { scroll: false })
+  })
+
+  it('al revés: abrir pagar o ver con ingreso abierto también lo quita', () => {
+    mockPathname = '/caja'
+    mockSearchParams = new URLSearchParams('ingreso=nuevo')
+    renderHook(() => useOverlayParam('pagar')).set('buscar')
+    expect(replaceMock).toHaveBeenLastCalledWith('/caja?pagar=buscar', { scroll: false })
+    renderHook(() => useOverlayParam('ver')).set('9')
+    expect(replaceMock).toHaveBeenLastCalledWith('/caja?ver=9', { scroll: false })
+  })
+
+  it('conserva los demás params de la URL (mes, concepto) al abrir y al cerrar', () => {
+    mockPathname = '/caja/ingresos'
+    mockSearchParams = new URLSearchParams('mes=2026-09&concepto=3')
+    renderHook(() => useOverlayParam('ingreso')).set('nuevo')
+    expect(pushMock).toHaveBeenCalledWith('/caja/ingresos?mes=2026-09&concepto=3&ingreso=nuevo', { scroll: false })
+
+    mockSearchParams = new URLSearchParams('mes=2026-09&concepto=3&ingreso=nuevo')
+    renderHook(() => useCloseOverlay('ingreso'))()
+    expect(replaceMock).toHaveBeenCalledWith('/caja/ingresos?mes=2026-09&concepto=3', { scroll: false })
+  })
+
+  it('ingreso abierto por esta pestaña (con marca): cerrar usa back(); deep link sin marca: replace()', () => {
+    mockSearchParams = new URLSearchParams('ingreso=nuevo')
+    historyState = { __lonquiOverlay: 'ingreso' }
+    renderHook(() => useCloseOverlay('ingreso'))()
+    expect(backMock).toHaveBeenCalledOnce()
+
+    backMock.mockClear()
+    historyState = null
+    renderHook(() => useCloseOverlay('ingreso'))()
+    expect(backMock).not.toHaveBeenCalled()
+    expect(replaceMock).toHaveBeenCalled()
+  })
+
+  it('la marca de OTRO overlay no cuenta: cerrar ingreso con marca de "ver" usa replace()', () => {
+    mockSearchParams = new URLSearchParams('ingreso=nuevo')
+    historyState = { __lonquiOverlay: 'ver' }
+    renderHook(() => useCloseOverlay('ingreso'))()
+    expect(backMock).not.toHaveBeenCalled()
+    expect(replaceMock).toHaveBeenCalled()
   })
 })

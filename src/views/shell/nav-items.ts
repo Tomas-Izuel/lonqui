@@ -8,10 +8,10 @@ export type NavItem = {
   icon: LucideIcon
 }
 
-// `/cobranza` ya existe (F1): se prende acá, la única línea que F3 toca de
+// `/caja` ya existe (F1): se prende acá, la única línea que F3 toca de
 // `views/shell/**` — el algoritmo de abajo (escritorio y barra inferior) no
 // necesita ningún otro cambio para acomodarlo.
-const COBRANZA_ENABLED = true
+const CAJA_ENABLED = true
 
 type NavDestination = NavItem & {
   /**
@@ -28,7 +28,7 @@ type NavDestination = NavItem & {
 
 const REGISTRY: NavDestination[] = [
   { href: '/socios', label: 'Socios', icon: Users, rank: 0 },
-  ...(COBRANZA_ENABLED ? [{ href: '/cobranza', label: 'Cobranza', icon: Banknote, rank: 1 }] : []),
+  ...(CAJA_ENABLED ? [{ href: '/caja', label: 'Caja', icon: Banknote, rank: 1 }] : []),
   { href: '/', label: 'Inicio', icon: Home, rank: 2 },
   { href: '/usuarios', label: 'Usuarios', icon: UserCog, rank: 3, roles: ['admin'] },
   { href: '/ajustes', label: 'Ajustes', icon: Settings, rank: 4, roles: ['admin'] },

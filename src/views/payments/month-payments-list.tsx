@@ -17,7 +17,7 @@ import { getReceiptUrlAction, loadMoreMonthPayments, voidPayment } from '@/contr
 import type { Page, PaymentListItem } from '@/models/types'
 
 /**
- * Lista de `/cobranza/pagos`. "Ver más" acumula en el cliente (mismo patrón
+ * Lista de `/caja/cuotas`. "Ver más" acumula en el cliente (mismo patrón
  * que `MemberList`/`AuditList`); "Ver comprobante" firma la URL recién al
  * tocar (mismo patrón que `MedicalClearanceSection.handleViewClearance`, con
  * el mismo cuidado del bloqueador de popups); "Anular" solo si `canVoid`

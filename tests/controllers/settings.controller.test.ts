@@ -27,6 +27,9 @@ vi.mock('@/models/fee-prices.model', () => ({ getFeePricesOverview: getFeePrices
 const getBillingStatusMock = vi.fn()
 vi.mock('@/models/billing.model', () => ({ getBillingStatus: getBillingStatusMock }))
 
+const listCashConceptsMock = vi.fn()
+vi.mock('@/models/cash-concepts.model', () => ({ listCashConcepts: listCashConceptsMock }))
+
 const { getSettingsPage } = await import('@/controllers/settings.controller')
 
 beforeEach(() => {
@@ -36,6 +39,7 @@ beforeEach(() => {
   listDisciplinesMock.mockReset()
   getFeePricesOverviewMock.mockReset()
   getBillingStatusMock.mockReset()
+  listCashConceptsMock.mockReset()
 })
 
 describe('getSettingsPage', () => {
@@ -56,6 +60,7 @@ describe('getSettingsPage', () => {
       .mockResolvedValueOnce([{ id: 1, name: 'Fútbol masculino', isActive: true, categories: [] }])
     getFeePricesOverviewMock.mockResolvedValue({ current: { default: null, byMemberType: [], byCategory: [] }, history: [] })
     getBillingStatusMock.mockResolvedValue({ active: true, startPeriod: '2026-09-01' })
+    listCashConceptsMock.mockResolvedValue([{ id: 1, name: 'Sponsor', isActive: false }])
 
     const page = await getSettingsPage()
 
@@ -64,5 +69,8 @@ describe('getSettingsPage', () => {
     expect(listDisciplinesMock).toHaveBeenCalledWith({ includeInactive: false })
     expect(page.feePrices.history).toEqual([])
     expect(page.billing.active).toBe(true)
+    // Los conceptos van TODOS, incluidos los desactivados: acá se administra el catálogo.
+    expect(listCashConceptsMock).toHaveBeenCalledWith({ includeInactive: true })
+    expect(page.incomeConcepts).toEqual([{ id: 1, name: 'Sponsor', isActive: false }])
   })
 })

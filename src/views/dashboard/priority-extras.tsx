@@ -18,7 +18,7 @@ export function PriorityExtras({ summary }: { summary: DashboardSummary }) {
       label: 'Deuda de socios dados de baja',
       sublabel: 'Aparte de la deuda de activos',
       value: <Amount cents={summary.inactiveDebtCents} />,
-      href: '/cobranza/deuda?estado=inactive',
+      href: '/caja/deuda?estado=inactive',
     })
   }
 

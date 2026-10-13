@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2 } from 'lucide-react'
@@ -10,19 +10,24 @@ import { Button } from '@/components/ui/button'
 import { DateField, TextareaField } from '@/views/shared/form-fields'
 import { toClubDate } from '@/lib/dates'
 
+// Mismos límites que `statusEventSchema`/`voidPaymentSchema` y el CHECK de la base.
+const reasonField = z
+  .string()
+  .trim()
+  .min(3, 'El motivo tiene que tener al menos 3 caracteres')
+  .max(500, 'El motivo no puede tener más de 500 caracteres')
+
 const reasonSchema = z.object({
   effectiveOn: z
     .string()
     .min(1, 'Elegí la fecha en que ocurrió')
     .pipe(z.iso.date('La fecha no es válida'))
     .refine((d) => d <= toClubDate(), 'La fecha no puede ser futura'),
-  // Mismos límites que `statusEventSchema`/`voidPaymentSchema` y el CHECK de la base.
-  reason: z
-    .string()
-    .trim()
-    .min(3, 'El motivo tiene que tener al menos 3 caracteres')
-    .max(500, 'El motivo no puede tener más de 500 caracteres'),
+  reason: reasonField,
 })
+
+// Sin campo de fecha no hay nada que validar: solo el motivo.
+const reasonOnlySchema = z.object({ effectiveOn: z.string().optional(), reason: reasonField })
 
 export type ReasonDialogValues = z.infer<typeof reasonSchema>
 export type ReasonDialogResult = { ok: true } | { ok: false; error: string; field?: string }
@@ -38,6 +43,13 @@ export type ReasonDialogProps = {
   actionLabel: string
   onConfirm: (values: ReasonDialogValues) => Promise<ReasonDialogResult>
   defaultEffectiveOn?: string
+  /**
+   * `false` oculta la fecha y no la valida (p. ej. anular un ingreso, donde
+   * la fecha de la anulación la pone la base). `onConfirm` sigue recibiendo
+   * `effectiveOn: string` para no romper a los llamadores actuales: vale
+   * `defaultEffectiveOn` u hoy, y quien pasa `false` lo ignora.
+   */
+  showDate?: boolean
 }
 
 /**
@@ -53,9 +65,10 @@ export function ReasonDialog({
   actionLabel,
   onConfirm,
   defaultEffectiveOn,
+  showDate = true,
 }: ReasonDialogProps) {
   const form = useForm<ReasonDialogValues>({
-    resolver: zodResolver(reasonSchema),
+    resolver: zodResolver(showDate ? reasonSchema : reasonOnlySchema) as Resolver<ReasonDialogValues>,
     defaultValues: { effectiveOn: defaultEffectiveOn ?? toClubDate(), reason: '' },
   })
   const [pending, setPending] = useState(false)
@@ -99,7 +112,7 @@ export function ReasonDialog({
           <DialogDescription>{consequence}</DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(handleConfirm)} noValidate method="post" className="flex flex-col gap-4">
-          <DateField control={form.control} name="effectiveOn" label="Fecha" max={toClubDate()} />
+          {showDate ? <DateField control={form.control} name="effectiveOn" label="Fecha" max={toClubDate()} /> : null}
           <TextareaField control={form.control} name="reason" label="Motivo" placeholder="Contá brevemente el motivo" />
           {formError ? (
             <p role="alert" className="text-sm text-destructive">

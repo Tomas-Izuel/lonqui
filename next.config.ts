@@ -28,9 +28,24 @@ async function headers() {
   ]
 }
 
+/**
+ * Cobranza pasó a llamarse Caja (pipeline 2026-10-13-caja-otros-ingresos).
+ * Los links guardados siguen andando: la query viaja sola y gana el primer
+ * match, por eso `/cobranza/pagos` (que cambió de nombre) va antes del
+ * comodín.
+ */
+async function redirects() {
+  return [
+    { source: '/cobranza', destination: '/caja', permanent: true },
+    { source: '/cobranza/pagos', destination: '/caja/cuotas', permanent: true },
+    { source: '/cobranza/:path*', destination: '/caja/:path*', permanent: true },
+  ]
+}
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   headers,
+  redirects,
 }
 
 export default nextConfig

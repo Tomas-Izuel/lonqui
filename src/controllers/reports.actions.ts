@@ -7,7 +7,7 @@ import { listMemberAccounts, loadMoreMemberAccountsSchema } from '@/models/repor
 import type { MemberAccount, Page } from '@/models/types'
 
 /**
- * "Cargar más" de los listados paginados de `/cobranza` (con deuda, al día):
+ * "Cargar más" de los listados paginados de `/caja` (con deuda, al día):
  * mismo patrón que `loadMoreMembers` (`members.actions.ts`) y
  * `loadMoreMonthPayments` (`payments.actions.ts`) — `requirePermission`
  * primero (T12, nunca por rol), después `schema.safeParse` (el input viene de

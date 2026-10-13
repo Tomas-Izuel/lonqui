@@ -23,6 +23,8 @@ const AXIS_TICK_FORMATTER = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
   notation: 'compact',
+  // Sin el mínimo explícito, en Node 22 hereda 1 y sale "$125,0k" en lugar de "$125k".
+  minimumFractionDigits: 0,
   maximumFractionDigits: 1,
 })
 

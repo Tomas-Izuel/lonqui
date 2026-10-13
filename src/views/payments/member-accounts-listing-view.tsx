@@ -1,6 +1,6 @@
 import { PageHeader } from '@/views/shared/page-header'
 import { FilterBar, type FilterDef } from '@/views/shared/filter-bar'
-import { CobranzaTabs } from '@/views/payments/cobranza-tabs'
+import { CajaTabs } from '@/views/payments/caja-tabs'
 import { MemberAccountsList } from '@/views/payments/member-accounts-list'
 import { type ListingVariant } from '@/views/payments/account-format'
 import type { AccountListFilters, DisciplineWithCategories, MemberAccount, Page } from '@/models/types'
@@ -23,7 +23,7 @@ const COPY: Record<ListingVariant, { title: string; description: string; emptyTi
 }
 
 /**
- * `/cobranza/deuda` y `/cobranza/al-dia` (route-cobranza.md): mismo shape,
+ * `/caja/deuda` y `/caja/al-dia` (route-caja.md): mismo shape,
  * distinto filtro de `debt` (lo fija la page llamando a `getDebtListing`/
  * `getUpToDateListing`, y lo vuelve a fijar `MemberAccountsList` en cada
  * "Ver más" vía `loadMoreMemberAccounts`). `page` ya viene ordenado por meses
@@ -65,7 +65,7 @@ export function MemberAccountsListingView({
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={copy.title} description={copy.description} />
-      <CobranzaTabs />
+      <CajaTabs />
       <FilterBar filters={filterDefs} />
       <MemberAccountsList
         key={filtersKey}

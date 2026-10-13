@@ -43,7 +43,7 @@ type OpeningBalanceValues = z.infer<typeof openingBalanceSchema>
  * ficha, antes de cualquier otro dato. Debajo: "Registrar pago" / "Pago del
  * grupo" (pipeline 2026-09-28-ui-expresiva, D1: abren el overlay de cobranza
  * sobre esta misma página con `useOverlayParam('pagar')`, nunca navegan a
- * `/cobranza/nuevo`) + "Cargar saldo anterior" cuando no hay uno vigente y la
+ * `/caja/nuevo`) + "Cargar saldo anterior" cuando no hay uno vigente y la
  * facturación está activa.
  */
 export function MemberAccountSection({
@@ -109,7 +109,7 @@ export function MemberAccountSection({
         {canRegister ? (
           <div className="flex flex-wrap gap-2">
             {/* Overlay sobre la página actual (D1, pipeline 2026-09-28): nunca
-                se navega a /cobranza/nuevo, que ahora es solo un redirect fino
+                se navega a /caja/nuevo, que ahora es solo un redirect fino
                 para links viejos guardados. */}
             <Button type="button" className="h-11" onClick={() => paymentOverlay.set(paymentOverlayValue({ mode: 'socio', memberId }))}>
               Registrar pago

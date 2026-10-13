@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Ajustes — Lonqui' }
  * vuelve a verificar el rol antes de tocar la base (defensa en profundidad).
  */
 export default async function AjustesPage() {
-  const { settings, disciplines, categoriesByDiscipline, feePrices, billing } = await getSettingsPage()
+  const { settings, disciplines, categoriesByDiscipline, feePrices, billing, incomeConcepts } = await getSettingsPage()
 
   return (
     <SettingsPageView
@@ -19,6 +19,7 @@ export default async function AjustesPage() {
       categoriesByDiscipline={categoriesByDiscipline}
       feePrices={feePrices}
       billing={billing}
+      incomeConcepts={incomeConcepts}
     />
   )
 }
