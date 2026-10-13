@@ -684,3 +684,51 @@ describe.skipIf(!dbAvailable)('Slice 2 (cuotas y pagos): sin DELETE en ninguna t
     })
   })
 })
+
+describe.skipIf(!dbAvailable)('keep_alive(): la única puerta de anon', () => {
+  it('anon ejecuta public.keep_alive() y recibe true', async () => {
+    await withRollback(async (client) => {
+      await client.query('set local role anon')
+      const { rows } = await client.query<{ ok: boolean }>('select public.keep_alive() as ok')
+      expect(rows[0].ok).toBe(true)
+    })
+  })
+
+  it('guardia: keep_alive es la ÚNICA función de public que anon puede ejecutar', async () => {
+    await withRollback(async (client) => {
+      // Las funciones de extensiones (deptype 'e') quedan afuera: no son
+      // nuestras y no dependen de nuestras migraciones.
+      const { rows } = await client.query<{ proname: string }>(
+        `select p.proname
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public'
+            and has_function_privilege('anon', p.oid, 'execute')
+            and not exists (
+              select 1 from pg_depend d
+               where d.objid = p.oid and d.deptype = 'e'
+            )
+          order by p.proname`,
+      )
+      expect(
+        rows.map((r) => r.proname),
+        'Una función nueva de public ejecutable por anon es un agujero en el cierre: ' +
+          'la publishable key viaja en el browser. Si es deliberada, sumala acá a conciencia; ' +
+          'si no, `revoke execute ... from public, anon` en su migración.',
+      ).toEqual(['keep_alive'])
+    })
+  })
+
+  it('keep_alive es SECURITY INVOKER: una función definer ejecutable por anon está prohibida', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ prosecdef: boolean }>(
+        `select p.prosecdef
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'keep_alive'`,
+      )
+      expect(rows).toHaveLength(1)
+      expect(rows[0].prosecdef).toBe(false)
+    })
+  })
+})

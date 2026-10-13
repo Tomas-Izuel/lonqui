@@ -288,6 +288,9 @@ isOneToOne: false
               "error_message": string,"fees_created": number,"status": string
             }[]
                            },
+"keep_alive":
+{ Args: Record<PropertyKey, never>; Returns: boolean
+                           },
 "log_export":
 { Args: { "filters": Json,"listing": string,"row_count": number }; Returns: undefined
                            },
