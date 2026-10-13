@@ -97,7 +97,7 @@ type DashboardBillingRow = {
 
 /**
  * Estado de la facturación para el panel, `/ajustes` y la ficha del socio.
- * No exige permiso (la usan `/socios`, `/cobranza` y el panel inicial, para
+ * No exige permiso (la usan `/socios`, `/caja` y el panel inicial, para
  * cualquier rol): `billing_runs` solo lo puede leer quien tiene
  * `billing.configure` (RLS), así que acá se pregunta primero con
  * `my_permissions()` en vez de asumir "no hay filas = no corrió" — eso

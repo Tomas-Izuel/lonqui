@@ -4,6 +4,7 @@ import { DesktopNavList, MobileBottomNav } from '@/views/shell/nav-list'
 import { UserMenu } from '@/views/shell/user-menu'
 import { PanelSessionProvider } from '@/views/shell/panel-session'
 import { PaymentOverlayHost } from '@/views/payments/payment-overlay-host'
+import { IncomeOverlayHost } from '@/views/income/income-overlay-host'
 import { MemberQuickViewSheet } from '@/views/members/member-quick-view-sheet'
 import type { AppRole, Permission } from '@/models/types'
 
@@ -133,6 +134,7 @@ export function AppShell({ session, children }: { session: AppShellSession; chil
       */}
       <Suspense fallback={null}>
         <PaymentOverlayHost />
+        <IncomeOverlayHost />
         <MemberQuickViewSheet />
       </Suspense>
     </PanelSessionProvider>

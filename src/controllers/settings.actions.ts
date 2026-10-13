@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { requireRole } from '@/controllers/session.controller'
+import { requireRole, requirePermission } from '@/controllers/session.controller'
 import { success, failure, invalid, type ActionResult } from '@/lib/action-result'
 import { zodToApiError } from '@/lib/errors'
 import {
@@ -20,8 +20,16 @@ import {
   setCategoryActive as modelSetCategoryActive,
   reorderCategories as modelReorderCategories,
 } from '@/models/catalogs.model'
+import {
+  createCashConceptSchema,
+  updateCashConceptSchema,
+  createCashConcept as modelCreateCashConcept,
+  updateCashConcept as modelUpdateCashConcept,
+  setCashConceptActive as modelSetCashConceptActive,
+  reorderCashConcepts as modelReorderCashConcepts,
+} from '@/models/cash-concepts.model'
 import { updateSettingsSchema, updateSettings as modelUpdateSettings } from '@/models/settings.model'
-import type { Category, Discipline, Settings } from '@/models/types'
+import type { CashConcept, Category, Discipline, Settings } from '@/models/types'
 
 /**
  * Server Actions de /ajustes. `'use server'` en la primera línea (Next lo
@@ -40,6 +48,7 @@ import type { Category, Discipline, Settings } from '@/models/types'
  * propio permiso (`billing.configure`).
  */
 
+const idSchema = z.number().int().positive()
 const activeToggleSchema = z.object({ id: z.number().int().positive(), isActive: z.boolean() }).strict()
 const categoryReorderSchema = z
   .object({ disciplineId: z.number().int().positive(), orderedIds: z.array(z.number().int().positive()).min(1) })
@@ -198,5 +207,89 @@ export async function updateSettings(input: unknown): Promise<ActionResult<Setti
     return success(settings)
   } catch (err) {
     return failure(err, 'settings.updateSettings')
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Conceptos de caja (otros ingresos). Por PERMISO, no por rol (`settings.manage`).
+// Revalidan /ajustes (donde se administran) y /caja entera (el formulario de
+// ingreso y los filtros ofrecen los conceptos activos).
+// -----------------------------------------------------------------------------
+
+function revalidateConcepts() {
+  revalidatePath('/ajustes')
+  revalidatePath('/caja', 'layout')
+}
+
+export async function createCashConcept(input: unknown): Promise<ActionResult<CashConcept>> {
+  try {
+    await requirePermission('settings.manage')
+    const parsed = createCashConceptSchema.safeParse(input)
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    const concept = await modelCreateCashConcept(parsed.data)
+    revalidateConcepts()
+    return success(concept)
+  } catch (err) {
+    return failure(err, 'settings.createCashConcept')
+  }
+}
+
+export async function updateCashConcept(id: number, input: unknown): Promise<ActionResult<CashConcept>> {
+  try {
+    await requirePermission('settings.manage')
+    const parsedId = idSchema.safeParse(id)
+    if (!parsedId.success) {
+      const { body } = zodToApiError(parsedId.error)
+      return invalid(body.error, body.field)
+    }
+    const parsed = updateCashConceptSchema.safeParse(input)
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    const concept = await modelUpdateCashConcept(parsedId.data, parsed.data)
+    revalidateConcepts()
+    return success(concept)
+  } catch (err) {
+    return failure(err, 'settings.updateCashConcept')
+  }
+}
+
+export async function setCashConceptActive(id: number, isActive: boolean): Promise<ActionResult<CashConcept>> {
+  try {
+    await requirePermission('settings.manage')
+    const parsed = activeToggleSchema.safeParse({ id, isActive })
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    const concept = await modelSetCashConceptActive(parsed.data.id, parsed.data.isActive)
+    revalidateConcepts()
+    return success(concept)
+  } catch (err) {
+    return failure(err, 'settings.setCashConceptActive')
+  }
+}
+
+export async function reorderCashConcepts(orderedIds: number[]): Promise<ActionResult<void>> {
+  try {
+    await requirePermission('settings.manage')
+    const parsed = reorderSchema.safeParse({ orderedIds })
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    await modelReorderCashConcepts(parsed.data.orderedIds)
+    revalidateConcepts()
+    return success()
+  } catch (err) {
+    return failure(err, 'settings.reorderCashConcepts')
   }
 }

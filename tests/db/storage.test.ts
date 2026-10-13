@@ -182,6 +182,125 @@ describe.skipIf(!dbAvailable)('storage.objects: RLS del bucket attachments', () 
   })
 })
 
+describe.skipIf(!dbAvailable)('storage.objects: prefijo cash-receipts/ (caja de otros ingresos)', () => {
+  const cashPath = () => `cash-receipts/${crypto.randomUUID()}/${crypto.randomUUID()}.pdf`
+
+  it('editor y admin pueden subir a cash-receipts/ (income.register)', async () => {
+    await withRollback(async (client) => {
+      for (const role of ['editor', 'admin'] as const) {
+        const { userId } = await createUserWithRole(client, role)
+        await actAs(client, userId)
+        const result = await client.query(
+          `insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2) returning id`,
+          [cashPath(), userId],
+        )
+        expect(result.rowCount, role).toBe(1)
+        await actAsSuperuser(client)
+      }
+    })
+  })
+
+  it('consulta NO puede subir a cash-receipts/ (solo tiene income.read)', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, userId)
+      const err = await expectQueryError(
+        client,
+        `insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2)`,
+        [cashPath(), userId],
+      )
+      expect(err.message).toMatch(/row-level security|permission denied/i)
+    })
+  })
+
+  it('anon NO puede subir ni leer cash-receipts/', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'admin')
+      await actAs(client, userId)
+      const path = cashPath()
+      await client.query(`insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2)`, [path, userId])
+
+      await actAsSuperuser(client)
+      await client.query('set local role anon')
+      const read = await client.query(`select name from storage.objects where bucket_id = 'attachments' and name = $1`, [path])
+      expect(read.rowCount).toBe(0)
+      const err = await expectQueryError(
+        client,
+        `insert into storage.objects (bucket_id, name) values ('attachments', $1)`,
+        [cashPath()],
+      )
+      expect(err.message).toMatch(/row-level security|permission denied/i)
+    })
+  })
+
+  it('un usuario sin rol (user_metadata.role = admin) no sube a cash-receipts/', async () => {
+    await withRollback(async (client) => {
+      const ghost = crypto.randomUUID()
+      await actAs(client, ghost, { extraClaims: { user_metadata: { role: 'admin' } } })
+      const err = await expectQueryError(
+        client,
+        `insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2)`,
+        [cashPath(), ghost],
+      )
+      expect(err.message).toMatch(/row-level security|permission denied/i)
+    })
+  })
+
+  it('el prefijo se compara exacto: "cash-receipts-x/" y un cash-receipts anidado no pasan', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'editor')
+      await actAs(client, userId)
+      for (const name of [`cash-receipts-x/1/${crypto.randomUUID()}.pdf`, `otro/cash-receipts/${crypto.randomUUID()}.pdf`]) {
+        const err = await expectQueryError(client, `insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2)`, [name, userId])
+        expect(err.message, name).toMatch(/row-level security|permission denied/i)
+      }
+    })
+  })
+
+  it('consulta SÍ lee lo subido a cash-receipts/ (para firmar la URL), y los prefijos viejos siguen habilitados para editor', async () => {
+    await withRollback(async (client) => {
+      const { userId: editorId } = await createUserWithRole(client, 'editor')
+      await actAs(client, editorId)
+      const path = cashPath()
+      await client.query(`insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2)`, [path, editorId])
+      for (const prefix of ['medical-clearances', 'payment-receipts']) {
+        const ok = await client.query(
+          `insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2) returning id`,
+          [`${prefix}/1/${crypto.randomUUID()}.jpg`, editorId],
+        )
+        expect(ok.rowCount, prefix).toBe(1)
+      }
+
+      await actAsSuperuser(client)
+      const { userId: consultaId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, consultaId)
+      const read = await client.query(`select name from storage.objects where bucket_id = 'attachments' and name = $1`, [path])
+      expect(read.rowCount).toBe(1)
+    })
+  })
+
+  it('consulta sigue sin poder subir a los prefijos viejos (no se aflojó nada)', async () => {
+    await withRollback(async (client) => {
+      const { userId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, userId)
+      for (const prefix of ['medical-clearances', 'payment-receipts']) {
+        const err = await expectQueryError(client, `insert into storage.objects (bucket_id, name, owner) values ('attachments', $1, $2)`, [
+          `${prefix}/1/${crypto.randomUUID()}.jpg`,
+          userId,
+        ])
+        expect(err.message, prefix).toMatch(/row-level security|permission denied/i)
+      }
+    })
+  })
+
+  it('el bucket sigue siendo privado', async () => {
+    await withRollback(async (client) => {
+      const bucket = await client.query(`select public from storage.buckets where id = 'attachments'`)
+      expect(bucket.rows[0].public).toBe(false)
+    })
+  })
+})
+
 /**
  * Estos pegan a la API HTTP real de Storage (no solo a Postgres): la
  * validación de `allowed_mime_types`/`file_size_limit` la hace el servicio de

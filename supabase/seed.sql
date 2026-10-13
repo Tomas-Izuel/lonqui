@@ -169,3 +169,37 @@ insert into public.payments (member_id, amount_cents, method, batch_id, paid_on,
 select id, 1000000, 'cash', 'a0000000-0000-0000-0000-000000000004', private.club_today(),
        now(), '00000000-0000-0000-0000-000000000000', 'Cargado dos veces'
 from public.members where dni = '40999000';
+
+-- Caja: sponsors y otros ingresos (datos inventados). Corre sin sesión:
+-- created_by queda null y la auditoría registra 'system'.
+insert into public.sponsors (name, contact_name, phone, email, notes) values
+  ('Corralón El Sauce', 'Marta Ibáñez', '2923 555-0101', 'compras@elsauce.example', 'Aporta la indumentaria de las inferiores'),
+  ('Panadería La Espiga', null, null, null, null);
+-- Un sponsor desactivado: tríada completa con el uuid de relleno, como el pago anulado.
+insert into public.sponsors (name, is_active, deactivated_at, deactivated_by, deactivation_reason)
+values ('Ferretería Don Tito', false, now(), '00000000-0000-0000-0000-000000000000', 'Cerró el local');
+
+-- Aporte de sponsor por transferencia, este mes.
+insert into public.cash_movements (concept_id, sponsor_id, amount_cents, method, batch_id, occurred_on, description)
+select c.id, s.id, 15000000, 'transfer', 'b0000000-0000-0000-0000-000000000001', private.club_today(), 'Aporte de temporada'
+from public.cash_concepts c, public.sponsors s
+where c.name = 'Sponsor' and s.name = 'Corralón El Sauce';
+-- Venta de indumentaria en efectivo, con detalle.
+insert into public.cash_movements (concept_id, amount_cents, method, batch_id, occurred_on, description)
+select id, 4800000, 'cash', 'b0000000-0000-0000-0000-000000000002', private.club_today(), '12 camisetas 7ma'
+from public.cash_concepts where name = 'Indumentaria';
+-- Un evento, este mes.
+insert into public.cash_movements (concept_id, amount_cents, method, batch_id, occurred_on, description)
+select id, 2250000, 'cash', 'b0000000-0000-0000-0000-000000000003', private.club_today(), 'Peña del día del niño'
+from public.cash_concepts where name = 'Evento';
+-- Aporte del mes pasado (cuenta para el año del sponsor, no para este mes).
+insert into public.cash_movements (concept_id, sponsor_id, amount_cents, method, batch_id, occurred_on)
+select c.id, s.id, 5000000, 'cash', 'b0000000-0000-0000-0000-000000000004',
+       (date_trunc('month', private.club_today()) - interval '1 day')::date
+from public.cash_concepts c, public.sponsors s
+where c.name = 'Sponsor' and s.name = 'Panadería La Espiga';
+-- Un ingreso anulado, con su motivo.
+insert into public.cash_movements (concept_id, amount_cents, method, batch_id, occurred_on, voided_at, voided_by, void_reason)
+select id, 1000000, 'cash', 'b0000000-0000-0000-0000-000000000005', private.club_today(),
+       now(), '00000000-0000-0000-0000-000000000000', 'Cargado dos veces'
+from public.cash_concepts where name = 'Donación';

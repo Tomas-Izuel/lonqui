@@ -30,7 +30,7 @@ import type { Permission } from '@/models/types'
  * (pipeline 2026-09-28-ui-expresiva, C2/C7):
  * `useOverlayParam('pagar').set('buscar')` monta `PaymentOverlayHost` (dueño:
  * F-cobranza) con el buscador de socios encima de la página actual, sin la
- * ida y vuelta de `/cobranza/nuevo`. "Ficha de ingreso" NO cambia — sigue
+ * ida y vuelta de `/caja/nuevo`. "Ficha de ingreso" NO cambia — sigue
  * siendo navegación real a `/socios/nuevo`, fuera del alcance de overlays de
  * este pipeline (00-architecture.md D1).
  */

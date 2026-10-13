@@ -25,6 +25,7 @@ const listDebtByCategoryMock = vi.fn()
 const listMemberAccountsMock = vi.fn()
 const listTopDebtorsMock = vi.fn()
 const getDailyCollectionMock = vi.fn()
+const getCashMonthSummaryMock = vi.fn()
 vi.mock('@/models/reports.model', () => ({
   getDashboardSummary: getDashboardSummaryMock,
   getMonthCollection: getMonthCollectionMock,
@@ -33,9 +34,10 @@ vi.mock('@/models/reports.model', () => ({
   listMemberAccounts: listMemberAccountsMock,
   listTopDebtors: listTopDebtorsMock,
   getDailyCollection: getDailyCollectionMock,
+  getCashMonthSummary: getCashMonthSummaryMock,
 }))
 
-const { getDashboard, getCobranzaHub, getDebtListing, getUpToDateListing, getDebtByCategoryPage } = await import(
+const { getDashboard, getCajaHub, getDebtListing, getUpToDateListing, getDebtByCategoryPage } = await import(
   '@/controllers/reports.controller'
 )
 
@@ -50,6 +52,7 @@ beforeEach(() => {
   listMemberAccountsMock.mockReset()
   listTopDebtorsMock.mockReset()
   getDailyCollectionMock.mockReset()
+  getCashMonthSummaryMock.mockReset()
 })
 
 describe('getDashboard', () => {
@@ -83,55 +86,68 @@ describe('getDashboard', () => {
   })
 })
 
-describe('getCobranzaHub', () => {
-  it('exige payments.read (no reports.read)', async () => {
+describe('getCajaHub', () => {
+  it('exige payments.read + income.read + reports.read (los tres, todos juntos)', async () => {
     requirePanelPermissionMock.mockResolvedValue({ role: 'consulta' })
-    getMonthCollectionMock.mockResolvedValue({ period: '2026-09-01' })
+    getCashMonthSummaryMock.mockResolvedValue({ period: '2026-09-01' })
+    getDashboardSummaryMock.mockResolvedValue({ totalDebtCents: 0 })
     getBillingStatusMock.mockResolvedValue({ active: true })
     getDailyCollectionMock.mockResolvedValue([])
-    await getCobranzaHub()
-    expect(requirePanelPermissionMock).toHaveBeenCalledWith('payments.read')
+    await getCajaHub()
+    expect(requirePanelPermissionMock).toHaveBeenCalledWith('payments.read', 'income.read', 'reports.read')
   })
 
-  it('devuelve collection + billing + daily (ritmo de cobranza del mes, addendum B1)', async () => {
+  it('sin alguno de los permisos redirige y no toca la base', async () => {
+    requirePanelPermissionMock.mockImplementation(() => {
+      throw new Error('REDIRECT:/')
+    })
+    await expect(getCajaHub()).rejects.toThrow('REDIRECT:/')
+    expect(getCashMonthSummaryMock).not.toHaveBeenCalled()
+    expect(getDashboardSummaryMock).not.toHaveBeenCalled()
+    expect(getBillingStatusMock).not.toHaveBeenCalled()
+    expect(getDailyCollectionMock).not.toHaveBeenCalled()
+  })
+
+  it('devuelve { cash, summary, billing, daily }: la deuda sale de dashboard_summary, sin recalcular', async () => {
     requirePanelPermissionMock.mockResolvedValue({ role: 'consulta' })
-    getMonthCollectionMock.mockResolvedValue({ period: '2026-09-01', collectedCents: 500 })
+    getCashMonthSummaryMock.mockResolvedValue({ period: '2026-09-01', totalCents: 700 })
+    getDashboardSummaryMock.mockResolvedValue({ totalDebtCents: 1234, membersInDebt: 3 })
     getBillingStatusMock.mockResolvedValue({ active: true, currentPeriodRun: 'ok' })
     getDailyCollectionMock.mockResolvedValue([{ day: '2026-09-01', collectedCents: 100, cumulativeCents: 100 }])
-    const data = await getCobranzaHub()
+    const data = await getCajaHub()
     expect(data).toEqual({
-      collection: { period: '2026-09-01', collectedCents: 500 },
+      cash: { period: '2026-09-01', totalCents: 700 },
+      summary: { totalDebtCents: 1234, membersInDebt: 3 },
       billing: { active: true, currentPeriodRun: 'ok' },
       daily: [{ day: '2026-09-01', collectedCents: 100, cumulativeCents: 100 }],
     })
   })
 
-  it('pide daily en paralelo con collection/billing (Promise.all), no en cascada', async () => {
+  it('pide las cuatro lecturas en paralelo (Promise.all), no en cascada', async () => {
     requirePanelPermissionMock.mockResolvedValue({ role: 'consulta' })
-    // Ninguna de las tres se resuelve hasta que este test lo decide: si
-    // `getDailyCollection` se llamara recién DESPUÉS de esperar a las otras
-    // dos (cascada en vez de `Promise.all`), `getDailyCollectionMock` todavía
-    // no habría sido invocada en este punto.
-    let resolveCollection: (v: unknown) => void = () => {}
-    let resolveBilling: (v: unknown) => void = () => {}
-    let resolveDaily: (v: unknown) => void = () => {}
-    getMonthCollectionMock.mockReturnValue(new Promise((r) => (resolveCollection = r)))
-    getBillingStatusMock.mockReturnValue(new Promise((r) => (resolveBilling = r)))
-    getDailyCollectionMock.mockReturnValue(new Promise((r) => (resolveDaily = r)))
+    // Ninguna se resuelve hasta que el test lo decide: si alguna se pidiera
+    // recién después de esperar a otra, su mock no habría sido invocado todavía.
+    const resolvers: Array<(v: unknown) => void> = []
+    for (const mock of [getCashMonthSummaryMock, getDashboardSummaryMock, getBillingStatusMock, getDailyCollectionMock]) {
+      mock.mockReturnValue(new Promise((r) => resolvers.push(r)))
+    }
 
-    const pending = getCobranzaHub()
-    await Promise.resolve() // deja correr los microtasks hasta el primer punto de espera real
+    const pending = getCajaHub()
+    await Promise.resolve()
 
-    expect(getMonthCollectionMock).toHaveBeenCalled()
+    expect(getCashMonthSummaryMock).toHaveBeenCalled()
+    expect(getDashboardSummaryMock).toHaveBeenCalled()
     expect(getBillingStatusMock).toHaveBeenCalled()
     expect(getDailyCollectionMock).toHaveBeenCalled()
 
-    resolveCollection({ period: '2026-09-01' })
-    resolveBilling({ active: true })
-    resolveDaily([])
+    resolvers[0]({ period: 'c' })
+    resolvers[1]({ period: 's' })
+    resolvers[2]({ period: 'b' })
+    resolvers[3]([])
     await expect(pending).resolves.toEqual({
-      collection: { period: '2026-09-01' },
-      billing: { active: true },
+      cash: { period: 'c' },
+      summary: { period: 's' },
+      billing: { period: 'b' },
       daily: [],
     })
   })

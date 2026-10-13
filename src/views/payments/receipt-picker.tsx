@@ -7,7 +7,7 @@ import { RECEIPT_ALLOWED_MIME_TYPES, validateReceiptFile } from '@/views/payment
 
 /**
  * Selector de comprobante: aparece al elegir "Transferencia" y sigue
- * disponible con "Efectivo" plegado (route-cobranza.md). La subida real pasa
+ * disponible con "Efectivo" plegado (route-caja.md). La subida real pasa
  * recién en el submit (`receipt-upload.ts`): acá solo se elige y valida el
  * archivo, mismo patrón que `MedicalClearanceSection`.
  */

@@ -44,6 +44,44 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"cash_concepts": {
+                  Row: {
+                    "created_at": string,"direction": string,"id": number,"is_active": boolean,"name": string,"requires_sponsor": boolean,"sort_order": number,"updated_at": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"direction"?: string,"id"?: never,"is_active"?: boolean,"name": string,"requires_sponsor"?: boolean,"sort_order"?: number,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"direction"?: string,"id"?: never,"is_active"?: boolean,"name"?: string,"requires_sponsor"?: boolean,"sort_order"?: number,"updated_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"cash_movements": {
+                  Row: {
+                    "amount_cents": number,"batch_id": string,"concept_id": number,"created_at": string,"created_by": string | null,"description": string | null,"direction": string,"id": number,"method": string,"occurred_on": string,"receipt_filename": string | null,"receipt_storage_path": string | null,"sponsor_id": number | null,"void_reason": string | null,"voided_at": string | null,"voided_by": string | null
+                  }
+                  Insert: {
+                    "amount_cents": number,"batch_id": string,"concept_id": number,"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"direction"?: string,"id"?: never,"method": string,"occurred_on"?: string,"receipt_filename"?: string | null,"receipt_storage_path"?: string | null,"sponsor_id"?: number | null,"void_reason"?: string | null,"voided_at"?: string | null,"voided_by"?: string | null
+                  }
+                  Update: {
+                    "amount_cents"?: number,"batch_id"?: string,"concept_id"?: number,"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"direction"?: string,"id"?: never,"method"?: string,"occurred_on"?: string,"receipt_filename"?: string | null,"receipt_storage_path"?: string | null,"sponsor_id"?: number | null,"void_reason"?: string | null,"voided_at"?: string | null,"voided_by"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "cash_movements_concept_id_fkey"
+      columns: ["concept_id"]
+isOneToOne: false
+      referencedRelation: "cash_concepts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "cash_movements_sponsor_id_fkey"
+      columns: ["sponsor_id"]
+isOneToOne: false
+      referencedRelation: "sponsors"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"categories": {
                   Row: {
                     "created_at": string,"discipline_id": number,"id": number,"is_active": boolean,"name": string,"sort_order": number,"updated_at": string
@@ -259,13 +297,31 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"sponsors": {
+                  Row: {
+                    "contact_name": string | null,"created_at": string,"created_by": string | null,"deactivated_at": string | null,"deactivated_by": string | null,"deactivation_reason": string | null,"email": string | null,"id": number,"is_active": boolean,"name": string,"notes": string | null,"phone": string | null,"updated_at": string
+                  }
+                  Insert: {
+                    "contact_name"?: string | null,"created_at"?: string,"created_by"?: string | null,"deactivated_at"?: string | null,"deactivated_by"?: string | null,"deactivation_reason"?: string | null,"email"?: string | null,"id"?: never,"is_active"?: boolean,"name": string,"notes"?: string | null,"phone"?: string | null,"updated_at"?: string
+                  }
+                  Update: {
+                    "contact_name"?: string | null,"created_at"?: string,"created_by"?: string | null,"deactivated_at"?: string | null,"deactivated_by"?: string | null,"deactivation_reason"?: string | null,"email"?: string | null,"id"?: never,"is_active"?: boolean,"name"?: string,"notes"?: string | null,"phone"?: string | null,"updated_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 }
           }
           Views: {
             [_ in never]: never
           }
           Functions: {
-            "confirm_password_changed":
+            "cash_month_summary":
+{ Args: { "target_period"?: string }; Returns: {
+              "by_concept": Json,"cash_cents": number,"fees_cents": number,"fees_collected_cents": number,"fees_count": number,"other_income_cents": number,"other_income_count": number,"payments_count": number,"period": string,"total_cents": number,"transfer_cents": number
+            }[]
+                           },
+"confirm_password_changed":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
 "daily_collection":
@@ -334,6 +390,11 @@ isOneToOne: false
                            },
 "set_member_categories":
 { Args: { "category_ids": (number)[],"effective_on"?: string,"target_member_id": number }; Returns: undefined
+                           },
+"sponsor_summaries":
+{ Args: { "target_sponsor_id"?: number,"target_year"?: number }; Returns: {
+              "all_time_total_cents": number,"contact_name": string,"contributions_count": number,"deactivated_at": string,"deactivation_reason": string,"email": string,"is_active": boolean,"last_contribution_cents": number,"last_contribution_on": string,"name": string,"notes": string,"phone": string,"sponsor_id": number,"year_total_cents": number
+            }[]
                            }
           }
           Enums: {

@@ -1,8 +1,8 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { LoadingList } from '@/views/shared/states'
 
-/** Fallback de `/cobranza` mientras la page resuelve el hub. */
-export default function CobranzaLoading() {
+/** Fallback de `/caja` mientras la page resuelve el hub. */
+export default function CajaLoading() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">

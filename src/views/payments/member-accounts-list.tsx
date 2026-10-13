@@ -54,7 +54,7 @@ export function MemberAccountsList({
     setState((prev) => ({ items: [...prev.items, ...result.data.items], nextCursor: result.data.nextCursor }))
   }
 
-  // En `/cobranza/al-dia` (variant "up_to_date") conviven socios al día y con
+  // En `/caja/al-dia` (variant "up_to_date") conviven socios al día y con
   // saldo a favor: la fila mobile ya distingue con `DebtStatusPill` (ver
   // `renderRow` abajo). La tabla de escritorio tenía las mismas columnas para
   // los dos listados y perdía esa distinción (review MINOR 6) — acá se agrega

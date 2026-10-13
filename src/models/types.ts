@@ -73,6 +73,11 @@ export type Permission =
   | 'audit.read'
   | 'reports.read'
   | 'reports.export'
+  // Caja: otros ingresos, sponsors (pipeline 2026-10-13-caja-otros-ingresos).
+  | 'income.read'
+  | 'income.register'
+  | 'income.void'
+  | 'sponsors.deactivate'
 
 export type SessionInfo = {
   userId: string
@@ -313,6 +318,9 @@ export type AuditedTable =
   | 'fee_prices'
   | 'fees'
   | 'payments'
+  | 'cash_concepts'
+  | 'sponsors'
+  | 'cash_movements'
 
 export type AuditEntry = {
   id: number
@@ -657,3 +665,107 @@ export type PaymentFormData = {
   familyGroup: FamilyGroupSummary | null
   billing: BillingStatus
 }
+
+// -----------------------------------------------------------------------------
+// Caja: otros ingresos y sponsors (pipeline 2026-10-13-caja-otros-ingresos)
+//
+// Un ingreso que no es cuota NUNCA toca la deuda ni el estado de cuenta: vive
+// en `cash_movements`, no en `payments`. Un sponsor no es un socio.
+// -----------------------------------------------------------------------------
+
+/** Sentido de un movimiento de caja. Hoy solo 'income'; 'expense' llega con egresos (CHECK en la base). */
+export type CashDirection = 'income'
+
+export type CashConcept = {
+  id: number
+  direction: CashDirection
+  name: string
+  /** Un ingreso con este concepto exige sponsor (lo hace cumplir la base). */
+  requiresSponsor: boolean
+  isActive: boolean
+  sortOrder: number
+}
+
+export type Sponsor = {
+  id: number
+  name: string
+  contactName: string | null
+  phone: string | null
+  email: string | null
+  notes: string | null
+  isActive: boolean
+  deactivatedAt: ISODateTime | null
+  deactivationReason: string | null
+  createdAt: ISODateTime
+}
+
+/** Opción del buscador del formulario y de los filtros. */
+export type SponsorOption = { id: number; name: string; isActive: boolean }
+
+/** Fila de `sponsor_summaries`. Año = calendario en curso, por `occurredOn`. */
+export type SponsorSummary = Omit<Sponsor, 'createdAt'> & {
+  yearTotalCents: number
+  allTimeTotalCents: number
+  contributionsCount: number
+  lastContributionOn: ISODate | null
+  lastContributionCents: number | null
+}
+
+export type CashMovement = {
+  id: number
+  direction: CashDirection
+  conceptId: number
+  conceptName: string
+  sponsorId: number | null
+  sponsorName: string | null
+  amountCents: number
+  occurredOn: ISODate
+  method: PaymentMethod
+  hasReceipt: boolean
+  receiptFilename: string | null
+  description: string | null
+  batchId: string
+  /** Null cuando la RLS de `app_users` no deja leer el nombre (limitación heredada). */
+  createdByName: string | null
+  createdAt: ISODateTime
+  voidedAt: ISODateTime | null
+  voidReason: string | null
+  voided: boolean
+}
+
+export type CashConceptTotal = { conceptId: number; conceptName: string; amountCents: number; count: number }
+
+/** Una fila de `cash_month_summary`. `feesCollectedCents` es la MISMA cifra que `MonthCollection.collectedCents`. */
+export type CashMonthSummary = {
+  period: ISODate
+  /** Cuotas cobradas + otros ingresos no anulados del mes. */
+  totalCents: number
+  feesCollectedCents: number
+  otherIncomeCents: number
+  /** Efectivo / transferencia de TODO lo ingresado (cuotas + otros). */
+  cashCents: number
+  transferCents: number
+  feesCents: number
+  feesCount: number
+  paymentsCount: number
+  otherIncomeCount: number
+  /** Orden: monto desc. Vacío sin movimientos. */
+  byConcept: CashConceptTotal[]
+}
+
+export type CashMovementFilters = { period: ISODate; conceptId?: number; sponsorId?: number }
+
+/** Lo que necesita el formulario de otro ingreso: solo lo activo. */
+export type IncomeFormData = { concepts: CashConcept[]; sponsors: SponsorOption[] }
+
+export type SponsorDetail = { sponsor: SponsorSummary; movements: CashMovement[] }
+
+/** Lista cerrada de `log_export` (la base la vuelve a validar). */
+export type ExportListing =
+  | 'members'
+  | 'debt'
+  | 'up_to_date'
+  | 'debt_by_category'
+  | 'month_payments'
+  | 'audit'
+  | 'other_income'

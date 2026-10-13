@@ -1,8 +1,8 @@
 /**
- * Valores puros de los overlays globales (`?pagar=`, `?ver=`): parseo y
+ * Valores puros de los overlays globales (`?pagar=`, `?ver=`, `?ingreso=`): parseo y
  * armado del query param, sin hooks. Vive aparte de `overlay-params.ts`
  * (que es `'use client'`) porque también lo usa un Server Component — la
- * redirección de `/cobranza/nuevo` — y un Server Component no puede llamar a
+ * redirección de `/caja/nuevo` — y un Server Component no puede llamar a
  * una función exportada por un módulo de cliente.
  */
 /** `?pagar=` parseado. `null` si falta o no tiene una forma válida. */
@@ -21,6 +21,23 @@ export function parsePaymentOverlay(value: string | null): PaymentOverlayTarget 
 export function paymentOverlayValue(target: PaymentOverlayTarget): string {
   if (target.mode === 'buscar') return 'buscar'
   return target.mode === 'socio' ? `socio:${target.memberId}` : `grupo:${target.familyGroupId}`
+}
+
+/** `?ingreso=` parseado. `sponsor:<id>` precarga el sponsor del ingreso. */
+export type IncomeOverlayTarget = { mode: 'nuevo'; sponsorId?: number }
+
+export function parseIncomeOverlay(value: string | null): IncomeOverlayTarget | null {
+  if (!value) return null
+  if (value === 'nuevo') return { mode: 'nuevo' }
+  const match = /^sponsor:(\d+)$/.exec(value)
+  if (!match) return null
+  const sponsorId = Number(match[1])
+  if (!Number.isSafeInteger(sponsorId) || sponsorId <= 0) return null
+  return { mode: 'nuevo', sponsorId }
+}
+
+export function incomeOverlayValue(target: IncomeOverlayTarget): string {
+  return target.sponsorId === undefined ? 'nuevo' : `sponsor:${target.sponsorId}`
 }
 
 /** `?ver=` parseado a un id de socio, o `null`. */

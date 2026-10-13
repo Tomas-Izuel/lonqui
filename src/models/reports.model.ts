@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import type {
   AccountListFilters,
+  CashConceptTotal,
+  CashMonthSummary,
   CurrentFeeLine,
   DailyCollectionPoint,
   DashboardSummary,
@@ -19,7 +21,7 @@ import type {
 } from './types'
 
 /**
- * Lecturas agregadas para el panel inicial y la cobranza (`/`, `/cobranza`,
+ * Lecturas agregadas para el panel inicial y la cobranza (`/`, `/caja`,
  * `/reportes`): `member_accounts` paginado, `dashboard_summary`,
  * `debt_by_category` y `monthly_history` (`20260927130200_accounts.sql`).
  *
@@ -280,7 +282,7 @@ function decodeOffsetCursor(cursor: string | null | undefined): number {
 }
 
 /**
- * Filtros del "cargar más" de `/cobranza` (con deuda, al día), validados en
+ * Filtros del "cargar más" de `/caja` (con deuda, al día), validados en
  * el borde de `loadMoreMemberAccounts` (`reports.actions.ts`) — mismo motivo
  * que `loadMoreMembersSchema` en `members.model.ts`: ese Server Action lo
  * llama un Client Component, así que el input es de un cliente que puede
@@ -299,7 +301,7 @@ export type LoadMoreMemberAccountsInput = z.infer<typeof loadMoreMemberAccountsS
 
 /**
  * `member_accounts` paginado (páginas fijas de 200, nunca un pedido sin
- * `range`): alimenta los listados "con deuda" / "al día" de `/cobranza`.
+ * `range`): alimenta los listados "con deuda" / "al día" de `/caja`.
  * `categoryId` filtra por inscripción ABIERTA (§13.5 de `00-architecture.md`);
  * la deuda que se muestra sigue siendo la TOTAL del socio, no solo la de esa
  * categoría — a la persona se le reclama todo, la atribución por cargo es
@@ -422,7 +424,7 @@ export async function getMonthCollection(targetPeriod?: string): Promise<MonthCo
 
 /**
  * Ritmo día a día de `targetPeriod` (el mes actual del club si se omite),
- * para el área acumulada de `/cobranza` (pipeline `2026-09-28-ui-expresiva`,
+ * para el área acumulada de `/caja` (pipeline `2026-09-28-ui-expresiva`,
  * `daily_collection`). Una fila por día hasta hoy (o hasta fin de mes si el
  * período pedido ya cerró); `cumulativeCents` viene acumulado desde la base,
  * nunca sumado acá.
@@ -436,4 +438,68 @@ export async function getDailyCollection(targetPeriod?: string): Promise<DailyCo
 
   if (error) throw error
   return (data ?? []).map(mapDailyCollectionPoint)
+}
+
+// -----------------------------------------------------------------------------
+// Caja: cuotas + otros ingresos (`cash_month_summary`, 20261013120000)
+// -----------------------------------------------------------------------------
+
+type CashConceptTotalJson = {
+  concept_id: number
+  concept_name: string
+  amount_cents: number
+  count: number
+}
+
+type CashMonthSummaryRow = {
+  period: string
+  total_cents: number
+  fees_collected_cents: number
+  other_income_cents: number
+  cash_cents: number
+  transfer_cents: number
+  fees_cents: number
+  fees_count: number
+  payments_count: number
+  other_income_count: number
+  by_concept: CashConceptTotalJson[] | null
+}
+
+function mapCashMonthSummary(row: CashMonthSummaryRow): CashMonthSummary {
+  const byConcept: CashConceptTotal[] = (row.by_concept ?? []).map((c) => ({
+    conceptId: c.concept_id,
+    conceptName: c.concept_name,
+    amountCents: c.amount_cents,
+    count: c.count,
+  }))
+  return {
+    period: row.period,
+    totalCents: row.total_cents,
+    feesCollectedCents: row.fees_collected_cents,
+    otherIncomeCents: row.other_income_cents,
+    cashCents: row.cash_cents,
+    transferCents: row.transfer_cents,
+    feesCents: row.fees_cents,
+    feesCount: row.fees_count,
+    paymentsCount: row.payments_count,
+    otherIncomeCount: row.other_income_count,
+    byConcept,
+  }
+}
+
+/**
+ * Lo ingresado a caja en `targetPeriod` (el mes actual del club si se omite):
+ * cuotas (misma cifra que `getMonthCollection`) más otros ingresos, con el
+ * desglose por concepto. Todo agregado en la base; sin movimientos devuelve
+ * ceros y `byConcept: []`.
+ */
+export async function getCashMonthSummary(targetPeriod?: string): Promise<CashMonthSummary> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .rpc('cash_month_summary', targetPeriod ? { target_period: targetPeriod } : {})
+    .single()
+    .overrideTypes<CashMonthSummaryRow, { merge: false }>()
+
+  if (error) throw error
+  return mapCashMonthSummary(data)
 }

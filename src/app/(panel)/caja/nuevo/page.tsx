@@ -10,11 +10,11 @@ function firstValue(value: string | string[] | undefined): string | undefined {
 }
 
 /**
- * `/cobranza/nuevo` ya NO tiene vista propia (pipeline 2026-09-28-ui-expresiva,
+ * `/caja/nuevo` ya NO tiene vista propia (pipeline 2026-09-28-ui-expresiva,
  * D1): el formulario de pago vive en `PaymentOverlayHost`, montado sobre
  * cualquier página, direccionable con `?pagar=socio:<id>` / `?pagar=grupo:<id>`
  * (`overlay-params.ts`; los valores puros, en `overlay-values.ts`). Esta ruta queda solo para que un link viejo guardado
- * (`/cobranza/nuevo?socio=5&volver=/socios/5`) siga funcionando: redirige, sin
+ * (`/caja/nuevo?socio=5&volver=/socios/5`) siga funcionando: redirige, sin
  * JS, a `volver` con el overlay ya puesto en la URL de destino — nunca renderiza
  * un formulario propio.
  *
@@ -29,7 +29,7 @@ export default async function RegisterPaymentRedirectPage({ searchParams }: { se
   const grupoRaw = firstValue(sp.grupo)
   const memberId = socioRaw && /^\d+$/.test(socioRaw) ? Number(socioRaw) : undefined
   const familyGroupId = grupoRaw && /^\d+$/.test(grupoRaw) ? Number(grupoRaw) : undefined
-  const volverHref = safeRedirectPath(firstValue(sp.volver), '/cobranza')
+  const volverHref = safeRedirectPath(firstValue(sp.volver), '/caja')
 
   if (memberId == null && familyGroupId == null) {
     redirect(volverHref)

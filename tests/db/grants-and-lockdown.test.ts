@@ -732,3 +732,176 @@ describe.skipIf(!dbAvailable)('keep_alive(): la única puerta de anon', () => {
     })
   })
 })
+
+describe.skipIf(!dbAvailable)('Caja de otros ingresos: tablas y RPC nuevas dentro del cierre', () => {
+  const CASH_TABLES = ['cash_movements', 'sponsors', 'cash_concepts']
+
+  it('las tres tablas tienen RLS prendida Y forzada', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `select c.relname, c.relrowsecurity, c.relforcerowsecurity
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relname = any($1)`,
+        [CASH_TABLES],
+      )
+      expect(rows.map((r) => r.relname).sort()).toEqual([...CASH_TABLES].sort())
+      for (const r of rows) {
+        expect(r.relrowsecurity, `${r.relname} sin RLS`).toBe(true)
+        expect(r.relforcerowsecurity, `${r.relname} sin FORCE RLS`).toBe(true)
+      }
+    })
+  })
+
+  it('cada tabla tiene su policy de SELECT, y ninguna policy es FOR ALL ni FOR DELETE', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ tablename: string; cmd: string }>(
+        `select tablename, cmd from pg_policies where schemaname = 'public' and tablename = any($1)`,
+        [CASH_TABLES],
+      )
+      for (const table of CASH_TABLES) {
+        const cmds = rows.filter((r) => r.tablename === table).map((r) => r.cmd)
+        expect(cmds, table).toContain('SELECT')
+        expect(cmds, table).not.toContain('ALL')
+        expect(cmds, table).not.toContain('DELETE')
+      }
+    })
+  })
+
+  it('grants por columna: authenticated NO puede escribir monto, fecha, medio, concepto ni lote de un movimiento existente', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ column_name: string }>(
+        `select column_name from information_schema.column_privileges
+          where grantee = 'authenticated' and table_schema = 'public' and table_name = 'cash_movements' and privilege_type = 'UPDATE'`,
+      )
+      expect(rows.map((r) => r.column_name).sort()).toEqual(
+        ['receipt_filename', 'receipt_storage_path', 'void_reason', 'voided_at', 'voided_by'].sort(),
+      )
+    })
+  })
+
+  it('grants por columna: sponsors no deja escribir created_by/created_at; cash_concepts no deja tocar direction', async () => {
+    await withRollback(async (client) => {
+      const cols = async (table: string, priv: string) =>
+        (
+          await client.query<{ column_name: string }>(
+            `select column_name from information_schema.column_privileges
+              where grantee = 'authenticated' and table_schema = 'public' and table_name = $1 and privilege_type = $2`,
+            [table, priv],
+          )
+        ).rows.map((r) => r.column_name)
+
+      for (const priv of ['INSERT', 'UPDATE']) {
+        expect(await cols('sponsors', priv), `sponsors ${priv}`).not.toEqual(expect.arrayContaining(['created_by']))
+        expect(await cols('sponsors', priv), `sponsors ${priv}`).not.toEqual(expect.arrayContaining(['created_at']))
+      }
+      expect(await cols('cash_concepts', 'UPDATE')).not.toContain('direction')
+      expect(await cols('cash_concepts', 'UPDATE')).not.toContain('id')
+      // deactivated_at/by los fija el guard: nadie los manda.
+      expect(await cols('sponsors', 'UPDATE')).not.toContain('deactivated_at')
+      expect(await cols('sponsors', 'UPDATE')).not.toContain('deactivated_by')
+    })
+  })
+
+  it('anon no ejecuta cash_month_summary ni sponsor_summaries; authenticated sí; y ambas son SECURITY INVOKER', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ proname: string; anon: boolean; authed: boolean; prosecdef: boolean }>(
+        `select p.proname,
+                has_function_privilege('anon', p.oid, 'execute') as anon,
+                has_function_privilege('authenticated', p.oid, 'execute') as authed,
+                p.prosecdef
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname in ('cash_month_summary', 'sponsor_summaries')`,
+      )
+      expect(rows.map((r) => r.proname).sort()).toEqual(['cash_month_summary', 'sponsor_summaries'])
+      for (const r of rows) {
+        expect(r.anon, `${r.proname} ejecutable por anon`).toBe(false)
+        expect(r.authed, `${r.proname} no ejecutable por authenticated`).toBe(true)
+        expect(r.prosecdef, `${r.proname} no debería ser DEFINER: las RLS de quien llama tienen que aplicar`).toBe(false)
+      }
+    })
+  })
+
+  it('sin has_role / is_admin en ningún objeto nuevo de caja (permisos, no roles)', async () => {
+    await withRollback(async (client) => {
+      const defs = await client.query<{ proname: string; src: string }>(
+        `select p.proname, pg_get_functiondef(p.oid) as src
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname in ('private', 'public')
+            and p.proname in ('cash_movements_insert_guard', 'cash_movements_update_guard', 'sponsors_update_guard',
+                              'cash_month_summary', 'sponsor_summaries', 'permissions_for_role')`,
+      )
+      expect(defs.rowCount).toBe(6)
+      for (const row of defs.rows) {
+        expect(row.src, `${row.proname} no debería usar has_role/is_admin`).not.toMatch(/has_role|is_admin/)
+      }
+      const policies = await client.query<{ policyname: string; qual: string | null; with_check: string | null }>(
+        `select policyname, qual, with_check from pg_policies where schemaname = 'public' and tablename = any($1)`,
+        [CASH_TABLES],
+      )
+      for (const p of policies.rows) {
+        expect(`${p.qual ?? ''} ${p.with_check ?? ''}`, `policy ${p.policyname}`).not.toMatch(/has_role|is_admin/)
+      }
+    })
+  })
+
+  it('el guard de insert de movimientos es SECURITY DEFINER (lee conceptos/sponsors sin depender de la RLS de quien escribe); los demás guards, INVOKER', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ proname: string; prosecdef: boolean }>(
+        `select p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'private' and p.proname in ('cash_movements_insert_guard', 'cash_movements_update_guard', 'sponsors_update_guard')`,
+      )
+      const byName = Object.fromEntries(rows.map((r) => [r.proname, r.prosecdef]))
+      expect(byName).toEqual({ cash_movements_insert_guard: true, cash_movements_update_guard: false, sponsors_update_guard: false })
+    })
+  })
+
+  it('ninguna función de private (incluidos los guards nuevos) es ejecutable por PUBLIC ni anon', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ proname: string }>(
+        `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'private'
+            and (has_function_privilege('anon', p.oid, 'execute')
+                 or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE'))`,
+      )
+      expect(rows.map((r) => r.proname)).toEqual([])
+    })
+  })
+
+  it('authenticated no tiene ningún DELETE ni en las tablas nuevas (re-chequeo explícito, no solo el barrido genérico)', async () => {
+    await withRollback(async (client) => {
+      for (const table of CASH_TABLES) {
+        expect(await hasGrant(client, 'authenticated', table, 'DELETE'), table).toBe(false)
+        expect(await hasGrant(client, 'authenticated', table, 'TRUNCATE'), table).toBe(false)
+      }
+    })
+  })
+
+  it('public.keep_alive sigue siendo la única función de public ejecutable por anon con las RPC nuevas en la base', async () => {
+    await withRollback(async (client) => {
+      const { rows } = await client.query<{ proname: string }>(
+        `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
+            and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')`,
+      )
+      expect(rows.map((r) => r.proname)).toEqual(['keep_alive'])
+    })
+  })
+
+  it('my_permissions(): las cuatro claves nuevas por rol (consulta lee, editor registra, solo admin anula y desactiva)', async () => {
+    await withRollback(async (client) => {
+      const expected = {
+        consulta: { has: ['income.read'], hasNot: ['income.register', 'income.void', 'sponsors.deactivate'] },
+        editor: { has: ['income.read', 'income.register'], hasNot: ['income.void', 'sponsors.deactivate'] },
+        admin: { has: ['income.read', 'income.register', 'income.void', 'sponsors.deactivate'], hasNot: [] as string[] },
+      } as const
+      for (const role of ['consulta', 'editor', 'admin'] as const) {
+        const { userId } = await createUserWithRole(client, role)
+        await actAs(client, userId)
+        const r = await client.query<{ p: string[] }>(`select public.my_permissions() as p`)
+        for (const key of expected[role].has) expect(r.rows[0].p, `${role} debería tener ${key}`).toContain(key)
+        for (const key of expected[role].hasNot) expect(r.rows[0].p, `${role} NO debería tener ${key}`).not.toContain(key)
+        await actAsSuperuser(client)
+      }
+    })
+  })
+})

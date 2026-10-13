@@ -184,7 +184,7 @@ Un solo panel, para la Comisión. URLs en español.
 | `/login` | Email + contraseña. Sin registro público |
 | `/` | Panel inicial: indicadores del día |
 | `/socios`, `/socios/nuevo`, `/socios/[id]` | Padrón, ficha de ingreso, ficha del socio con su estado de cuenta |
-| `/cobranza` | Registrar pagos, cobranza del mes, listados de deuda |
+| `/caja` | Ex `/cobranza` (redirige). Registrar pagos y otros ingresos, cuotas del mes, otros ingresos, sponsors, listados de deuda |
 | `/reportes` | Listados operativos y exportación |
 | `/ajustes` | Disciplinas, categorías, valores de cuota (solo Administrador) |
 | `/usuarios` | Usuarios internos y roles (solo Administrador) |
@@ -422,6 +422,25 @@ practicante y estado), disciplinas, categorías, grupos familiares con
 responsable, apto físico con adjunto, valores de cuota (por categoría y por
 tipo), cargos por período, pagos con adjunto y anulación, eventos de
 alta/baja/reactivación, usuarios internos con rol, auditoría.
+
+### Caja: otros ingresos y sponsors (2026-10-13)
+
+Requerimiento fuera de la Fase 1 (contrato 7.3), decidido por Tomás; la
+Comisión lo confirma. Pipeline: `docs/pipelines/2026-10-13-caja-otros-ingresos/`.
+
+- **Un ingreso que no es cuota nunca toca la deuda.** Vive en
+  `cash_movements`, no en `payments`: ni el estado de cuenta, ni el % de
+  cuotas cobradas, ni los listados de deuda lo ven. Hay un test que lo
+  garantiza (`tests/db/cash-isolation.test.ts`).
+- **Un sponsor no es un socio.** Catálogo propio (`sponsors`), se desactiva
+  con motivo, nunca se borra. Nunca al padrón.
+- **Conceptos de caja son datos** (`cash_concepts`, en `/ajustes`), con
+  `requires_sponsor`. La semilla vive en la migración.
+- **Egresos: preparado, no construido.** Movimientos y conceptos llevan
+  `direction`, hoy cerrado a `'income'` por CHECK y por policy. Abrirlo es
+  una migración con su propio pipeline.
+- "Ingresado" sale de `cash_month_summary`, que reusa `month_collection` para
+  la parte de cuotas: hay UNA definición de "cobrado en cuotas".
 
 Disciplinas y categorías son **datos, no enums**: el club las administra desde
 `/ajustes`. Hoy existen fútbol masculino (5ta a 10ma), fútbol femenino y vóley

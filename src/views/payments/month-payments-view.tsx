@@ -1,12 +1,12 @@
 import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
 import { Amount } from '@/views/shared/money'
-import { CobranzaTabs } from '@/views/payments/cobranza-tabs'
+import { CajaTabs } from '@/views/payments/caja-tabs'
 import { MonthSelector } from '@/views/payments/month-selector'
 import { MonthPaymentsList } from '@/views/payments/month-payments-list'
 import type { MonthCollection, Page, PaymentListItem } from '@/models/types'
 
-/** `/cobranza/pagos?mes=`. Cero data fetching: todo llega resuelto de la page. */
+/** `/caja/cuotas?mes=`. Cero data fetching: todo llega resuelto de la page. */
 export function MonthPaymentsView({
   period,
   collection,
@@ -20,9 +20,9 @@ export function MonthPaymentsView({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Pagos del mes" />
-      <CobranzaTabs />
-      <MonthSelector period={period} basePath="/cobranza/pagos" />
+      <PageHeader title="Pagos de cuotas" />
+      <CajaTabs />
+      <MonthSelector period={period} basePath="/caja/cuotas" />
 
       <Panel>
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -8,7 +8,8 @@ import { useCountUpOnce } from './motion'
 
 /**
  * La cifra que lidera una vista: exactamente UNA por pantalla (D4, skill
- * `dataviz`). Nunca una grilla de estas — eso es la plantilla de
+ * `dataviz`), con una excepción explícita: `/caja` (brief 2026-10-13), que
+ * muestra dos cifras de igual peso (cuotas y otros ingresos). Nunca una grilla de estas — eso es la plantilla de
  * métrica-héroe que el piso de calidad rechaza.
  *
  * El `label` va ARRIBA del número y no es un kicker/eyebrow: un kicker es un

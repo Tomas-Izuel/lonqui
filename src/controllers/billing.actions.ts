@@ -22,7 +22,7 @@ import type { FeePrice } from '@/models/types'
  * permiso, no por rol — hoy solo `admin` lo tiene), Zod `.strict()` sobre la
  * entrada, y `revalidatePath('/', 'layout')` en el camino feliz (T11: una
  * cuota generada o un valor nuevo puede cambiar lo que muestran `/`,
- * `/socios`, `/cobranza` y `/ajustes` a la vez, así que se invalida el árbol
+ * `/socios`, `/caja` y `/ajustes` a la vez, así que se invalida el árbol
  * entero en vez de listar cada ruta).
  */
 

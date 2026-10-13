@@ -5,7 +5,7 @@ import { getMonthCollection } from '@/models/reports.model'
 import { toPeriod } from '@/lib/dates'
 import { MonthPaymentsView } from '@/views/payments/month-payments-view'
 
-export const metadata: Metadata = { title: 'Pagos del mes — Lonqui' }
+export const metadata: Metadata = { title: 'Cuotas — Lonqui' }
 
 type SearchParams = Record<string, string | string[] | undefined>
 
@@ -16,7 +16,7 @@ function firstValue(value: string | string[] | undefined): string | undefined {
 const PERIOD_RE = /^\d{4}-\d{2}$/
 
 /**
- * `/cobranza/pagos?mes=YYYY-MM`. `getMonthCollection` es una lectura plana de
+ * `/caja/cuotas?mes=YYYY-MM`. `getMonthCollection` es una lectura plana de
  * `reports.model.ts` (sin nada que orquestar): mismo criterio ya usado en
  * `/socios/page.tsx` con `getBillingStatus()` directo desde el modelo.
  */

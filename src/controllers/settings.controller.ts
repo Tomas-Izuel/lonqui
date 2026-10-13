@@ -5,7 +5,8 @@ import { getSettings } from '@/models/settings.model'
 import { listDisciplines } from '@/models/catalogs.model'
 import { getFeePricesOverview } from '@/models/fee-prices.model'
 import { getBillingStatus } from '@/models/billing.model'
-import type { BillingStatus, DisciplineWithCategories, FeePricesOverview, Settings } from '@/models/types'
+import { listCashConcepts } from '@/models/cash-concepts.model'
+import type { BillingStatus, CashConcept, DisciplineWithCategories, FeePricesOverview, Settings } from '@/models/types'
 
 export type SettingsPageData = {
   settings: Settings
@@ -19,6 +20,8 @@ export type SettingsPageData = {
   categoriesByDiscipline: DisciplineWithCategories[]
   feePrices: FeePricesOverview
   billing: BillingStatus
+  /** Conceptos de caja (ingresos), todos, incluidos los inactivos: acá se administra el catálogo. */
+  incomeConcepts: CashConcept[]
 }
 
 /**
@@ -42,13 +45,14 @@ export type SettingsPageData = {
 export async function getSettingsPage(): Promise<SettingsPageData> {
   await requirePanelPermission('settings.manage')
 
-  const [settings, disciplines, categoriesByDiscipline, feePrices, billing] = await Promise.all([
+  const [settings, disciplines, categoriesByDiscipline, feePrices, billing, incomeConcepts] = await Promise.all([
     getSettings(),
     listDisciplines({ includeInactive: true }),
     listDisciplines({ includeInactive: false }),
     getFeePricesOverview(),
     getBillingStatus(),
+    listCashConcepts({ includeInactive: true }),
   ])
 
-  return { settings, disciplines, categoriesByDiscipline, feePrices, billing }
+  return { settings, disciplines, categoriesByDiscipline, feePrices, billing, incomeConcepts }
 }

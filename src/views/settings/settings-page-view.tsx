@@ -6,7 +6,8 @@ import { NewDisciplineButton } from '@/views/settings/new-discipline-button'
 import { ClubSettingsForm } from '@/views/settings/club-settings-form'
 import { FeePricesSection } from '@/views/settings/fee-prices-section'
 import { BillingSection } from '@/views/settings/billing-section'
-import type { BillingStatus, DisciplineWithCategories, FeePricesOverview, Settings } from '@/models/types'
+import { IncomeConceptsSection } from '@/views/settings/income-concepts-section'
+import type { BillingStatus, CashConcept, DisciplineWithCategories, FeePricesOverview, Settings } from '@/models/types'
 
 /**
  * `/ajustes`. Cero data fetching (CLAUDE.md): recibe todo ya resuelto por
@@ -15,7 +16,8 @@ import type { BillingStatus, DisciplineWithCategories, FeePricesOverview, Settin
  * `ClubSettingsForm`, `FeePricesSection`, `BillingSection`), lo más abajo
  * posible del árbol.
  *
- * Orden de los paneles: catálogo (disciplinas y categorías) → su precio
+ * Orden de los paneles: catálogo (disciplinas y categorías) → conceptos de
+ * ingreso (el otro catálogo del club) → el precio de las cuotas
  * (valores de cuota, que referencian esas categorías) → activación de la
  * facturación (que exige el valor por defecto de arriba) → datos generales
  * del club. Cada panel es su propia sección, ninguna anidada (piso de
@@ -27,12 +29,14 @@ export function SettingsPageView({
   categoriesByDiscipline,
   feePrices,
   billing,
+  incomeConcepts,
 }: {
   settings: Settings
   disciplines: DisciplineWithCategories[]
   categoriesByDiscipline: DisciplineWithCategories[]
   feePrices: FeePricesOverview
   billing: BillingStatus
+  incomeConcepts: CashConcept[]
 }) {
   const disciplineIds = disciplines.map((d) => d.id)
 
@@ -41,7 +45,7 @@ export function SettingsPageView({
     // (`entre secciones`, DESIGN.md) — antes era `gap-4`, un poco más
     // apretado que las otras dos superficies de este mismo grupo `(admin)`.
     <div className="flex flex-col gap-6">
-      <PageHeader title="Ajustes" description="Disciplinas, categorías, cuotas y datos del club." />
+      <PageHeader title="Ajustes" description="Disciplinas, categorías, conceptos de ingreso, cuotas y datos del club." />
 
       <Panel
         title="Disciplinas y categorías"
@@ -62,6 +66,8 @@ export function SettingsPageView({
           </ul>
         )}
       </Panel>
+
+      <IncomeConceptsSection concepts={incomeConcepts} />
 
       <FeePricesSection
         feePrices={feePrices}

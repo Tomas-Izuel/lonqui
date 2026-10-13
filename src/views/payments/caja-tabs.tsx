@@ -8,15 +8,25 @@ import { cn } from '@/lib/utils'
 import { SPRING_INDICATOR, useMotionPreference } from '@/views/shared/motion'
 
 const TABS = [
-  { href: '/cobranza', label: 'Resumen' },
-  { href: '/cobranza/pagos', label: 'Pagos del mes' },
-  { href: '/cobranza/deuda', label: 'Con deuda' },
-  { href: '/cobranza/al-dia', label: 'Al día' },
-  { href: '/cobranza/por-categoria', label: 'Por categoría' },
+  { href: '/caja', label: 'Resumen' },
+  { href: '/caja/cuotas', label: 'Cuotas' },
+  { href: '/caja/ingresos', label: 'Otros ingresos' },
+  { href: '/caja/deuda', label: 'Con deuda' },
+  { href: '/caja/al-dia', label: 'Al día' },
+  { href: '/caja/por-categoria', label: 'Por categoría' },
 ] as const
 
 /**
- * Navegación de sección de TODA `/cobranza` (el hub y sus 4 listados): cinco
+ * "Otros ingresos" agrupa su lista y la subpágina de sponsors (un sponsor es
+ * parte de ese mundo, no una pestaña más): por prefijo. El resto, exacto.
+ */
+function isTabActive(pathname: string, href: string) {
+  if (href === '/caja/ingresos') return pathname.startsWith('/caja/ingresos') || pathname.startsWith('/caja/sponsors')
+  return pathname === href
+}
+
+/**
+ * Navegación de sección de TODA `/caja` (el hub y sus listados): seis
  * rutas propias (bookmarkeables, cada una con su propio filtro y su propia
  * exportación — D3, `00-architecture.md`) que se VEN y se SIENTEN como
  * pestañas de una sola pantalla, montadas justo debajo del encabezado de
@@ -33,7 +43,7 @@ const TABS = [
  * `layoutId` (mismo resorte que la navegación principal, `SPRING_INDICATOR`
  * de `motion.ts`) en vez de aparecer de golpe.
  */
-export function CobranzaTabs() {
+export function CajaTabs() {
   const pathname = usePathname()
   const { reduced } = useMotionPreference()
   const activeRef = useRef<HTMLAnchorElement>(null)
@@ -43,10 +53,10 @@ export function CobranzaTabs() {
   }, [pathname, reduced])
 
   return (
-    <nav aria-label="Secciones de cobranza" className="overflow-x-auto">
+    <nav aria-label="Secciones de caja" className="overflow-x-auto">
       <div className="flex w-max min-w-full gap-1 rounded-xl bg-muted p-1">
         {TABS.map((tab) => {
-          const active = pathname === tab.href
+          const active = isTabActive(pathname, tab.href)
           return (
             <Link
               key={tab.href}
@@ -60,7 +70,7 @@ export function CobranzaTabs() {
             >
               {active ? (
                 <motion.span
-                  layoutId={reduced ? undefined : 'cobranza-tab-indicator'}
+                  layoutId={reduced ? undefined : 'caja-tab-indicator'}
                   className="absolute inset-0 rounded-lg bg-background shadow-raised"
                   transition={SPRING_INDICATOR}
                 />

@@ -39,6 +39,9 @@ export const AUDITED_TABLES = [
   'fee_prices',
   'fees',
   'payments',
+  'cash_concepts',
+  'sponsors',
+  'cash_movements',
 ] as const satisfies readonly AuditedTable[]
 
 /**
@@ -83,6 +86,36 @@ export const AUDIT_FIELD_LABELS: Partial<Record<AuditedTable, Record<string, str
     receipt_storage_path: 'comprobante',
     receipt_filename: 'archivo',
     notes: 'notas',
+    voided_at: 'anulación',
+    void_reason: 'motivo de anulación',
+  },
+  // Caja y otros ingresos (pipeline 2026-10-13). Sin created_by / voided_by /
+  // deactivated_by: el actor ya es la columna "quién" del registro.
+  cash_concepts: {
+    name: 'nombre',
+    requires_sponsor: 'exige sponsor',
+    is_active: 'activo',
+    sort_order: 'orden',
+  },
+  sponsors: {
+    name: 'nombre',
+    contact_name: 'persona de contacto',
+    phone: 'teléfono',
+    email: 'email',
+    notes: 'notas',
+    is_active: 'activo',
+    deactivated_at: 'fecha de baja',
+    deactivation_reason: 'motivo de baja',
+  },
+  cash_movements: {
+    concept_id: 'concepto',
+    sponsor_id: 'sponsor',
+    amount_cents: 'monto',
+    occurred_on: 'fecha',
+    method: 'medio de pago',
+    receipt_storage_path: 'comprobante',
+    receipt_filename: 'archivo',
+    description: 'descripción',
     voided_at: 'anulación',
     void_reason: 'motivo de anulación',
   },
@@ -240,7 +273,10 @@ const LABEL_COLUMNS =
   'new_kind:new_data->>kind, old_kind:old_data->>kind, ' +
   'new_scope:new_data->>scope, old_scope:old_data->>scope, ' +
   'new_member_type:new_data->>member_type, old_member_type:old_data->>member_type, ' +
-  'new_valid_from:new_data->>valid_from, old_valid_from:old_data->>valid_from'
+  'new_valid_from:new_data->>valid_from, old_valid_from:old_data->>valid_from, ' +
+  'new_concept_id:new_data->>concept_id, old_concept_id:old_data->>concept_id, ' +
+  'new_sponsor_id:new_data->>sponsor_id, old_sponsor_id:old_data->>sponsor_id, ' +
+  'new_occurred_on:new_data->>occurred_on, old_occurred_on:old_data->>occurred_on'
 
 type AuditRow = AuditRowBase & {
   new_first_name: string | null
@@ -271,6 +307,12 @@ type AuditRow = AuditRowBase & {
   old_member_type: string | null
   new_valid_from: string | null
   old_valid_from: string | null
+  new_concept_id: string | null
+  old_concept_id: string | null
+  new_sponsor_id: string | null
+  old_sponsor_id: string | null
+  new_occurred_on: string | null
+  old_occurred_on: string | null
 }
 
 function toEntry(row: AuditRowBase, actorName: string | null, recordLabel: string | null): AuditEntry {
@@ -328,6 +370,13 @@ type RawLabelValues = {
   memberTypeOld: unknown
   validFromNew: unknown
   validFromOld: unknown
+  // Caja (2026-10-13): cash_movements.
+  conceptIdNew: unknown
+  conceptIdOld: unknown
+  sponsorIdNew: unknown
+  sponsorIdOld: unknown
+  occurredOnNew: unknown
+  occurredOnOld: unknown
 }
 
 function rawValuesFromColumns(row: AuditRow): RawLabelValues {
@@ -360,6 +409,12 @@ function rawValuesFromColumns(row: AuditRow): RawLabelValues {
     memberTypeOld: row.old_member_type,
     validFromNew: row.new_valid_from,
     validFromOld: row.old_valid_from,
+    conceptIdNew: row.new_concept_id,
+    conceptIdOld: row.old_concept_id,
+    sponsorIdNew: row.new_sponsor_id,
+    sponsorIdOld: row.old_sponsor_id,
+    occurredOnNew: row.new_occurred_on,
+    occurredOnOld: row.old_occurred_on,
   }
 }
 
@@ -396,6 +451,12 @@ function rawValuesFromJsonb(
     memberTypeOld: oldData?.member_type,
     validFromNew: newData?.valid_from,
     validFromOld: oldData?.valid_from,
+    conceptIdNew: newData?.concept_id,
+    conceptIdOld: oldData?.concept_id,
+    sponsorIdNew: newData?.sponsor_id,
+    sponsorIdOld: oldData?.sponsor_id,
+    occurredOnNew: newData?.occurred_on,
+    occurredOnOld: oldData?.occurred_on,
   }
 }
 
@@ -455,6 +516,13 @@ type LabelDraft =
       validFrom: string | null
     }
   | { kind: 'needsMemberCategoryLabel'; memberId: string | null; categoryId: number | null }
+  | {
+      kind: 'needsCashMovementLabel'
+      conceptId: number | null
+      sponsorId: number | null
+      amountCents: number | null
+      occurredOn: string | null
+    }
 
 const FAMILY_GROUP_FALLBACK_LABEL = 'Grupo familiar'
 
@@ -511,6 +579,17 @@ function buildLabelDraft(tableName: string, v: RawLabelValues): LabelDraft {
         memberId: coalesceText(v.memberIdNew, v.memberIdOld),
         categoryId: coalesceId(v.categoryIdNew, v.categoryIdOld),
       }
+    case 'cash_movements':
+      return {
+        kind: 'needsCashMovementLabel',
+        conceptId: coalesceId(v.conceptIdNew, v.conceptIdOld),
+        sponsorId: coalesceId(v.sponsorIdNew, v.sponsorIdOld),
+        amountCents: coalesceId(v.amountCentsNew, v.amountCentsOld),
+        occurredOn: coalesceText(v.occurredOnNew, v.occurredOnOld),
+      }
+    case 'sponsors':
+    case 'cash_concepts':
+      return { kind: 'ready', label: coalesceText(v.nameNew, v.nameOld) }
     case 'settings':
     default:
       // settings no tiene un nombre de registro que mostrar (singleton); una
@@ -525,6 +604,7 @@ function finalizeLabel(
   disciplineNames: Map<number, string>,
   memberLabels: Map<string, string>,
   categoryNames: Map<number, string>,
+  cashNames: CashNames,
 ): string | null {
   switch (draft.kind) {
     case 'ready':
@@ -579,6 +659,49 @@ function finalizeLabel(
       const categoryName = draft.categoryId !== null ? categoryNames.get(draft.categoryId) : undefined
       return categoryName ? `${memberLabel} · ${categoryName}` : memberLabel
     }
+    case 'needsCashMovementLabel': {
+      // "<Concepto>[ · <Sponsor>] · $X · dd/mm/aaaa"; lo que no se pudo
+      // resolver se omite en vez de mostrar un id crudo.
+      const conceptName = draft.conceptId !== null ? cashNames.concepts.get(draft.conceptId) : undefined
+      const sponsorName = draft.sponsorId !== null ? cashNames.sponsors.get(draft.sponsorId) : undefined
+      const amount = draft.amountCents !== null ? formatCentsCompact(draft.amountCents) : null
+      const date = draft.occurredOn !== null ? formatDate(draft.occurredOn) : null
+      const parts = [conceptName, sponsorName, amount, date].filter((part): part is string => Boolean(part))
+      return parts.length > 0 ? parts.join(' · ') : null
+    }
+  }
+}
+
+/** Nombres de concepto y de sponsor de los movimientos de caja de la página. */
+type CashNames = { concepts: Map<number, string>; sponsors: Map<number, string> }
+
+/** Una consulta batch por tabla (conceptos, sponsors): sin N+1. */
+async function resolveCashNames(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  drafts: readonly LabelDraft[],
+): Promise<CashNames> {
+  const conceptIds = new Set<number>()
+  const sponsorIds = new Set<number>()
+  for (const draft of drafts) {
+    if (draft.kind !== 'needsCashMovementLabel') continue
+    if (draft.conceptId !== null) conceptIds.add(draft.conceptId)
+    if (draft.sponsorId !== null) sponsorIds.add(draft.sponsorId)
+  }
+
+  const [concepts, sponsors] = await Promise.all([
+    conceptIds.size === 0
+      ? Promise.resolve({ data: [] as { id: number; name: string }[], error: null })
+      : supabase.from('cash_concepts').select('id, name').in('id', [...conceptIds]),
+    sponsorIds.size === 0
+      ? Promise.resolve({ data: [] as { id: number; name: string }[], error: null })
+      : supabase.from('sponsors').select('id, name').in('id', [...sponsorIds]),
+  ])
+  if (concepts.error) throw concepts.error
+  if (sponsors.error) throw sponsors.error
+
+  return {
+    concepts: new Map((concepts.data ?? []).map((row) => [row.id, row.name])),
+    sponsors: new Map((sponsors.data ?? []).map((row) => [row.id, row.name])),
   }
 }
 
@@ -700,7 +823,7 @@ export async function getAuditPage(filters: AuditFilters): Promise<Page<AuditEnt
 
   const drafts = pageRows.map((row) => buildLabelDraft(row.table_name, rawValuesFromColumns(row)))
 
-  const [actorNames, disciplineNames, memberLabels, categoryNames] = await Promise.all([
+  const [actorNames, disciplineNames, memberLabels, categoryNames, cashNames] = await Promise.all([
     resolveActorNames(
       supabase,
       pageRows.map((row) => row.actor_id),
@@ -711,13 +834,14 @@ export async function getAuditPage(filters: AuditFilters): Promise<Page<AuditEnt
     ),
     resolveMemberLabels(supabase, drafts.map(memberIdOf)),
     resolveCategoryNames(supabase, drafts.map(categoryIdOf)),
+    resolveCashNames(supabase, drafts),
   ])
 
   const items = pageRows.map((row, index) =>
     toEntry(
       row,
       row.actor_id ? (actorNames.get(row.actor_id) ?? null) : null,
-      finalizeLabel(drafts[index], disciplineNames, memberLabels, categoryNames),
+      finalizeLabel(drafts[index], disciplineNames, memberLabels, categoryNames, cashNames),
     ),
   )
   const last = pageRows.at(-1)
@@ -742,17 +866,18 @@ export async function getAuditEntry(id: number): Promise<AuditEntryDetail | null
   const oldData = data.old_data as Record<string, unknown> | null
   const draft = buildLabelDraft(data.table_name, rawValuesFromJsonb(newData, oldData))
 
-  const [actorNames, disciplineNames, memberLabels, categoryNames] = await Promise.all([
+  const [actorNames, disciplineNames, memberLabels, categoryNames, cashNames] = await Promise.all([
     resolveActorNames(supabase, [data.actor_id]),
     resolveDisciplineNames(supabase, [draft.kind === 'needsDiscipline' ? draft.disciplineId : null]),
     resolveMemberLabels(supabase, [memberIdOf(draft)]),
     resolveCategoryNames(supabase, [categoryIdOf(draft)]),
+    resolveCashNames(supabase, [draft]),
   ])
 
   const entry = toEntry(
     data as AuditRowBase,
     data.actor_id ? (actorNames.get(data.actor_id) ?? null) : null,
-    finalizeLabel(draft, disciplineNames, memberLabels, categoryNames),
+    finalizeLabel(draft, disciplineNames, memberLabels, categoryNames, cashNames),
   )
 
   return {

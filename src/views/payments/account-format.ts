@@ -10,7 +10,7 @@ import { formatCentsCompact } from '@/lib/money'
 import { formatPeriod } from '@/lib/dates'
 import type { CurrentFeeLine, DebtByCategoryRow, MemberAccount, MemberCategoryRef } from '@/models/types'
 
-/** `/cobranza/deuda` vs. `/cobranza/al-dia`: mismo `debt_status` que espera `AccountListFilters['debt']`. */
+/** `/caja/deuda` vs. `/caja/al-dia`: mismo `debt_status` que espera `AccountListFilters['debt']`. */
 export type ListingVariant = 'in_debt' | 'up_to_date'
 
 /** "Fútbol masculino · 5ta, Vóley · Sub 18" o "No practicante". */

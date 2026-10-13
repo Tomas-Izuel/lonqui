@@ -12,17 +12,17 @@ import { getMobileNav, getNavItems } from '@/views/shell/nav-items'
 describe('getNavItems: orden fijo (Socios > Cobranza > Inicio), NO reordenado por este pipeline', () => {
   it('admin: Socios, Cobranza e Inicio primero, en ese orden, antes que las secciones solo-admin', () => {
     const hrefs = getNavItems('admin').map((item) => item.href)
-    expect(hrefs.slice(0, 3)).toEqual(['/socios', '/cobranza', '/'])
+    expect(hrefs.slice(0, 3)).toEqual(['/socios', '/caja', '/'])
   })
 
   it('consulta/editor (sin secciones solo-admin): exactamente Socios, Cobranza, Inicio', () => {
-    expect(getNavItems('consulta').map((item) => item.href)).toEqual(['/socios', '/cobranza', '/'])
-    expect(getNavItems('editor').map((item) => item.href)).toEqual(['/socios', '/cobranza', '/'])
+    expect(getNavItems('consulta').map((item) => item.href)).toEqual(['/socios', '/caja', '/'])
+    expect(getNavItems('editor').map((item) => item.href)).toEqual(['/socios', '/caja', '/'])
   })
 
   it('admin ve además Usuarios, Ajustes y Auditoría, en ese orden, al final', () => {
     const hrefs = getNavItems('admin').map((item) => item.href)
-    expect(hrefs).toEqual(['/socios', '/cobranza', '/', '/usuarios', '/ajustes', '/auditoria'])
+    expect(hrefs).toEqual(['/socios', '/caja', '/', '/usuarios', '/ajustes', '/auditoria'])
   })
 })
 
@@ -30,7 +30,7 @@ describe('getMobileNav: overflow y orden creciente hacia la derecha, sin tocar e
   it('consulta (3 destinos, entran todos): visible de menos a más importante, Socios al extremo derecho, sin overflow', () => {
     const nav = getMobileNav('consulta')
     expect(nav.overflow).toEqual([])
-    expect(nav.visible.map((item) => item.href)).toEqual(['/', '/cobranza', '/socios'])
+    expect(nav.visible.map((item) => item.href)).toEqual(['/', '/caja', '/socios'])
   })
 
   it('admin (6 destinos, no entran en 5 espacios): Socios sigue siendo el más importante (extremo derecho) y va en "visible", nunca en overflow', () => {
@@ -39,5 +39,33 @@ describe('getMobileNav: overflow y orden creciente hacia la derecha, sin tocar e
     expect(nav.overflow.some((item) => item.href === '/socios')).toBe(false)
     // Los menos importantes (Ajustes, Auditoría) son los que se van a "Más".
     expect(nav.overflow.map((item) => item.href)).toEqual(['/ajustes', '/auditoria'])
+  })
+})
+
+describe('Caja reemplaza a Cobranza en la navegación (pipeline 2026-10-13)', () => {
+  it('el segundo destino se llama "Caja" y apunta a /caja, para todos los roles', () => {
+    for (const role of ['admin', 'editor', 'consulta'] as const) {
+      const second = getNavItems(role)[1]
+      expect(second.label).toBe('Caja')
+      expect(second.href).toBe('/caja')
+    }
+  })
+
+  it('ya no queda ningún destino "Cobranza" ni apuntando a /cobranza (ni en escritorio ni en el celular)', () => {
+    for (const role of ['admin', 'editor', 'consulta'] as const) {
+      const all = [...getNavItems(role), ...getMobileNav(role).visible, ...getMobileNav(role).overflow]
+      for (const item of all) {
+        expect(item.label).not.toMatch(/cobranza/i)
+        expect(item.href).not.toMatch(/cobranza/)
+      }
+    }
+  })
+
+  it('Caja es visible para los tres roles (la ven hasta quienes solo leen)', () => {
+    for (const role of ['admin', 'editor', 'consulta'] as const) {
+      expect(getNavItems(role).some((item) => item.href === '/caja')).toBe(true)
+      const mobile = getMobileNav(role)
+      expect([...mobile.visible, ...mobile.overflow].some((item) => item.href === '/caja')).toBe(true)
+    }
   })
 })

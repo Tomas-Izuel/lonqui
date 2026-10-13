@@ -21,6 +21,9 @@ export const AUDITED_TABLE_OPTIONS: { value: AuditedTable; label: string }[] = [
   { value: 'fee_prices', label: 'Valores de cuota' },
   { value: 'fees', label: 'Cargos' },
   { value: 'payments', label: 'Pagos' },
+  { value: 'cash_movements', label: 'Otros ingresos' },
+  { value: 'sponsors', label: 'Sponsors' },
+  { value: 'cash_concepts', label: 'Conceptos de ingreso' },
 ]
 
 /** Para componer "Creó/Modificó <entidad>" en el listado y el detalle. */
@@ -37,6 +40,9 @@ const ENTITY_LABELS: Record<AuditedTable, string> = {
   fee_prices: 'un valor de cuota',
   fees: 'un cargo',
   payments: 'un pago',
+  cash_movements: 'un ingreso',
+  sponsors: 'un sponsor',
+  cash_concepts: 'un concepto de ingreso',
 }
 
 export function auditEntityLabel(tableName: string): string {
@@ -59,6 +65,9 @@ const RECORD_PHRASE: Partial<Record<AuditedTable, (label: string) => string>> = 
   disciplines: (label) => `la disciplina ${label}`,
   categories: (label) => `la categoría ${label}`,
   app_users: (label) => `al usuario ${label}`,
+  cash_movements: (label) => `el ingreso ${label}`,
+  sponsors: (label) => `el sponsor ${label}`,
+  cash_concepts: (label) => `el concepto ${label}`,
 }
 
 export function auditRecordPhrase(tableName: string, recordLabel: string | null): string {
@@ -158,6 +167,37 @@ const FIELD_LABELS: Partial<Record<AuditedTable, Record<string, string>>> = {
     receipt_storage_path: 'comprobante',
     receipt_filename: 'archivo',
     notes: 'notas',
+    voided_at: 'anulación',
+    void_reason: 'motivo de anulación',
+  },
+  // Otros ingresos (pipeline 2026-10-13): mismo texto que `AUDIT_FIELD_LABELS`
+  // de `audit.model.ts` (duplicado a propósito, igual que arriba). Sin
+  // created_by / voided_by / deactivated_by: el actor ya es la columna "quién".
+  cash_concepts: {
+    name: 'nombre',
+    requires_sponsor: 'exige sponsor',
+    is_active: 'activo',
+    sort_order: 'orden',
+  },
+  sponsors: {
+    name: 'nombre',
+    contact_name: 'persona de contacto',
+    phone: 'teléfono',
+    email: 'email',
+    notes: 'notas',
+    is_active: 'activo',
+    deactivated_at: 'fecha de baja',
+    deactivation_reason: 'motivo de baja',
+  },
+  cash_movements: {
+    concept_id: 'concepto',
+    sponsor_id: 'sponsor',
+    amount_cents: 'monto',
+    occurred_on: 'fecha',
+    method: 'medio de pago',
+    receipt_storage_path: 'comprobante',
+    receipt_filename: 'archivo',
+    description: 'descripción',
     voided_at: 'anulación',
     void_reason: 'motivo de anulación',
   },

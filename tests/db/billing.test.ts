@@ -43,21 +43,27 @@ describe.skipIf(!dbAvailable)('Permisos: private.can / my_permissions (T12, §6.
           'payments.read', 'payments.register', 'payments.void',
           'billing.configure', 'settings.manage', 'users.manage', 'audit.read',
           'reports.read', 'reports.export',
+          'income.read', 'income.register', 'income.void', 'sponsors.deactivate',
         ]),
       )
 
       await actAs(client, editorId)
       const editor = await client.query<{ my_permissions: string[] }>('select public.my_permissions()')
       expect(new Set(editor.rows[0].my_permissions)).toEqual(
-        new Set(['members.read', 'members.write', 'payments.read', 'payments.register', 'reports.read', 'reports.export']),
+        new Set([
+          'members.read', 'members.write', 'payments.read', 'payments.register', 'reports.read', 'reports.export',
+          'income.read', 'income.register',
+        ]),
       )
       expect(editor.rows[0].my_permissions).not.toContain('payments.void')
+      expect(editor.rows[0].my_permissions).not.toContain('income.void')
+      expect(editor.rows[0].my_permissions).not.toContain('sponsors.deactivate')
       expect(editor.rows[0].my_permissions).not.toContain('billing.configure')
 
       await actAs(client, consultaId)
       const consulta = await client.query<{ my_permissions: string[] }>('select public.my_permissions()')
       expect(new Set(consulta.rows[0].my_permissions)).toEqual(
-        new Set(['members.read', 'payments.read', 'reports.read', 'reports.export']),
+        new Set(['members.read', 'payments.read', 'reports.read', 'reports.export', 'income.read']),
       )
     })
   })

@@ -36,7 +36,7 @@ function isKnownField(field: string | undefined): field is (typeof KNOWN_FIELDS)
   return (KNOWN_FIELDS as readonly string[]).includes(field ?? '')
 }
 
-/** "Pago registrado" + cómo queda la cuenta, para el toast al volver (route-cobranza.md). */
+/** "Pago registrado" + cómo queda la cuenta, para el toast al volver (route-caja.md). */
 function resultingAccountMessage(member: MemberAccount, amountCents: number): string {
   const newBalance = member.balanceCents - amountCents
   if (newBalance < 0) return `Pago registrado. Queda saldo a favor de ${formatCentsCompact(-newBalance)}.`
@@ -111,7 +111,7 @@ export function PaymentForm({
   async function onValid(values: FormValues) {
     const cents = values.amountCents as number
 
-    // Confirmación cuando el pago excede la deuda (route-cobranza.md): solo
+    // Confirmación cuando el pago excede la deuda (route-caja.md): solo
     // tiene sentido si TODAVÍA debe algo — pagar por adelantado con los chips
     // "2/3 meses" es un flujo esperado (D13) y no interrumpe.
     if (member.debtStatus === 'in_debt' && cents > member.balanceCents && !needsOverpayConfirm) {

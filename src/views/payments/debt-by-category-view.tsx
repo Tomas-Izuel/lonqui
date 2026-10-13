@@ -3,13 +3,13 @@ import { Panel } from '@/views/shared/panel'
 import { DataList, type DataListColumn, type DataListRow } from '@/views/shared/data-list'
 import { Amount } from '@/views/shared/money'
 import { EmptyState } from '@/views/shared/states'
-import { CobranzaTabs } from '@/views/payments/cobranza-tabs'
+import { CajaTabs } from '@/views/payments/caja-tabs'
 import { CategoryDebtChart } from '@/views/payments/category-debt-chart'
 import { categoryRowLabel } from '@/views/payments/account-format'
 import type { DebtByCategoryRow } from '@/models/types'
 
 /**
- * `/cobranza/por-categoria` (§13.5 de `00-architecture.md`): la deuda se
+ * `/caja/por-categoria` (§13.5 de `00-architecture.md`): la deuda se
  * atribuye cargo por cargo a la categoría CONGELADA en el cargo (D32), así
  * que el total al pie —que viene de `dashboard_summary`, NUNCA sumado acá—
  * coincide con la deuda total del panel. `CategoryDebtChart` (`variant=
@@ -30,14 +30,14 @@ export function DebtByCategoryView({ rows, totalCents }: { rows: DebtByCategoryR
       title: categoryRowLabel(row),
       subtitle: `${row.members} ${row.members === 1 ? 'socio' : 'socios'} · ${row.membersInDebt} con deuda`,
       meta: <Amount cents={row.debtCents} className="font-medium" />,
-      href: row.kind === 'category' && row.categoryId != null ? `/cobranza/deuda?categoriaId=${row.categoryId}` : undefined,
+      href: row.kind === 'category' && row.categoryId != null ? `/caja/deuda?categoriaId=${row.categoryId}` : undefined,
     }
   }
 
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Deuda por categoría" description="La deuda de cada categoría, atribuida cargo por cargo." />
-      <CobranzaTabs />
+      <CajaTabs />
       <CategoryDebtChart rows={rows} variant="full" />
       <DataList
         items={rows}
