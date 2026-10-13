@@ -16,21 +16,26 @@ const dbAvailable = await isDbAvailable()
 const STORAGE_URL = 'http://127.0.0.1:54321/storage/v1'
 // Clave secreta del stack LOCAL (la del CLI de Supabase). No se escribe en el
 // repo: el push protection de GitHub la trata como un secreto real, y una
-// clave hardcodeada es una mala costumbre aunque esta sea de demo. Se toma de
-// `LONQUI_TEST_SECRET_KEY` / `SUPABASE_SECRET_KEY` y, si no están, de
-// `supabase status` (el stack local ya está corriendo para estos tests).
+// clave hardcodeada es una mala costumbre aunque esta sea de demo.
+// Orden: `LONQUI_TEST_SECRET_KEY` (override explícito) > `supabase status`
+// (la clave del stack que de verdad está corriendo) > `SUPABASE_SECRET_KEY`.
+// Esta última va al final a propósito: en CI el job la define con un
+// placeholder (`ci-placeholder-secret-key`) solo para que compile el build de
+// Next, y el Storage local la rechaza con "Invalid Compact JWS". Si ganara el
+// env, estos tests pegarían con una clave inválida.
 function localSecretKey(): string | undefined {
-  const fromEnv = process.env.LONQUI_TEST_SECRET_KEY ?? process.env.SUPABASE_SECRET_KEY
-  if (fromEnv) return fromEnv
+  if (process.env.LONQUI_TEST_SECRET_KEY) return process.env.LONQUI_TEST_SECRET_KEY
   try {
     const status = execFileSync('npx', ['supabase', 'status', '-o', 'json'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     })
-    return (JSON.parse(status) as { SECRET_KEY?: string }).SECRET_KEY
+    const fromStatus = (JSON.parse(status) as { SECRET_KEY?: string }).SECRET_KEY
+    if (fromStatus) return fromStatus
   } catch {
-    return undefined
+    // sin CLI o sin stack: caemos al env.
   }
+  return process.env.SUPABASE_SECRET_KEY
 }
 const SERVICE_ROLE_KEY = dbAvailable ? localSecretKey() : undefined
 
@@ -321,9 +326,20 @@ describe.skipIf(!dbAvailable || !SERVICE_ROLE_KEY)('Storage API: el bucket recha
       },
       body: new Uint8Array([1, 2, 3, 4]),
     })
-    expect(response.ok).toBe(false)
-    expect(response.status).toBeGreaterThanOrEqual(400)
-    expect(response.status).toBeLessThan(500)
+    const text = await response.text()
+    expect(response.ok, text).toBe(false)
+    // Que sea el rechazo por MIME y no cualquier 4xx (una clave inválida
+    // también devuelve 4xx y dejaría pasar el test en falso).
+    let body: { error?: string; code?: string } = {}
+    try {
+      body = JSON.parse(text)
+    } catch {
+      // body no JSON: las aserciones de abajo fallan con el texto crudo.
+    }
+    expect(
+      body.error === 'invalid_mime_type' || body.code === 'InvalidMimeType',
+      `se esperaba invalid_mime_type, llegó ${response.status}: ${text}`,
+    ).toBe(true)
   })
 
   it('un MIME de la lista (image/png) es aceptado por el bucket', async () => {
@@ -344,12 +360,15 @@ describe.skipIf(!dbAvailable || !SERVICE_ROLE_KEY)('Storage API: el bucket recha
       },
       body: pngBytes,
     })
-    expect(response.ok).toBe(true)
-
-    // Limpieza: el objeto de prueba no debe quedar en el bucket real.
-    await fetch(`${STORAGE_URL}/object/attachments/${path}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY!}`, apikey: SERVICE_ROLE_KEY! },
-    })
+    const text = await response.text()
+    try {
+      expect(response.ok, `upload png: ${response.status} ${text}`).toBe(true)
+    } finally {
+      // Limpieza: el objeto de prueba no debe quedar en el bucket real.
+      await fetch(`${STORAGE_URL}/object/attachments/${path}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY!}`, apikey: SERVICE_ROLE_KEY! },
+      })
+    }
   })
 })
