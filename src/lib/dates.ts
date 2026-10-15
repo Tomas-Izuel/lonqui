@@ -78,6 +78,11 @@ export function addMonths(period: string, months: number): string {
   return `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
 }
 
+/** `2026-09-01` → `2026-09`: el contrato de `?mes=` en la URL es `YYYY-MM`, no un ISODate. */
+export function toMonthParam(period: string): string {
+  return period.slice(0, 7)
+}
+
 export function previousPeriod(period: string): string {
   return addMonths(period, -1)
 }

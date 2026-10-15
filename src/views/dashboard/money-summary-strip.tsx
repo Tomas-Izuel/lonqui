@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { Amount } from '@/views/shared/money'
 import { HeroFigure } from '@/views/shared/hero-figure'
 import { collectionPct } from '@/views/dashboard/dashboard-helpers'
-import { formatPeriod } from '@/lib/dates'
+import { formatPeriod, toMonthParam } from '@/lib/dates'
 import type { DashboardSummary } from '@/models/types'
 
 /**
@@ -54,7 +54,7 @@ function CollectionMeter({ summary }: { summary: DashboardSummary }) {
 
   return (
     <Link
-      href={`/caja/cuotas?mes=${summary.period}`}
+      href={`/caja/cuotas?mes=${toMonthParam(summary.period)}`}
       className="group -m-2 flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg p-2 outline-none hover:bg-foreground/5 focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-72"
     >
       <div className="flex items-baseline justify-between gap-2 text-sm">

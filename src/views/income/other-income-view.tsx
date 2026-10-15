@@ -10,7 +10,7 @@ import { MonthSelector } from '@/views/payments/month-selector'
 import { ExportCsvButton } from '@/views/income/export-csv-button'
 import { OtherIncomeList } from '@/views/income/other-income-list'
 import { RegisterIncomeButton } from '@/views/income/register-income-button'
-import { formatPeriod } from '@/lib/dates'
+import { formatPeriod, toMonthParam } from '@/lib/dates'
 import type { CashConcept, CashMonthSummary, CashMovement, SponsorOption } from '@/models/types'
 
 const countFormatter = new Intl.NumberFormat('es-AR')
@@ -70,7 +70,7 @@ export function OtherIncomeView({
     },
   ]
 
-  const exportParams = new URLSearchParams({ mes: period.slice(0, 7) })
+  const exportParams = new URLSearchParams({ mes: toMonthParam(period) })
   if (conceptId !== undefined) exportParams.set('concepto', String(conceptId))
   if (sponsorId !== undefined) exportParams.set('sponsor', String(sponsorId))
 

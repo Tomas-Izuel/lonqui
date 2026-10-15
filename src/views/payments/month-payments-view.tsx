@@ -45,7 +45,7 @@ export function MonthPaymentsView({
         </div>
       </Panel>
 
-      <MonthPaymentsList period={period} initialPage={page} canVoid={canVoid} />
+      <MonthPaymentsList key={period} period={period} initialPage={page} canVoid={canVoid} />
     </div>
   )
 }
