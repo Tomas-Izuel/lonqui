@@ -8,6 +8,19 @@ import { renderToStaticMarkup } from 'react-dom/server'
  * Ajustes y de Caja son envoltorios, así que se prueban por acá.
  */
 
+// `motion` con `layoutId` registra listeners en `window` al renderizar; si otro
+// archivo dejó un `window` falso (singleFork), explota. Acá no se prueba la
+// animación: `motion.*` pasa a ser el elemento plano.
+vi.mock('motion/react', async () => {
+  const { createElement } = await import('react')
+  const plain = (tag: string) => ({ children }: { children?: unknown }) => createElement(tag, null, children as never)
+  return {
+    motion: new Proxy({}, { get: (_t, tag: string) => plain(tag) }),
+    animate: () => ({ stop: () => {} }),
+    useReducedMotion: () => false,
+  }
+})
+
 let pathname = '/'
 vi.mock('next/navigation', () => ({ usePathname: () => pathname }))
 
