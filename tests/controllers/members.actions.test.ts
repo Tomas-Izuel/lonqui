@@ -21,10 +21,18 @@ vi.mock('@/controllers/session.controller', () => ({
 }))
 
 const insertMemberMock = vi.fn()
+const updateMemberRowMock = vi.fn()
+const correctJoinedOnMock = vi.fn()
 const searchMembersMock = vi.fn()
 vi.mock('@/models/members.model', async () => {
   const actual = await vi.importActual<typeof import('@/models/members.model')>('@/models/members.model')
-  return { ...actual, createMember: insertMemberMock, searchMembers: searchMembersMock }
+  return {
+    ...actual,
+    createMember: insertMemberMock,
+    updateMember: updateMemberRowMock,
+    correctMemberJoinedOn: correctJoinedOnMock,
+    searchMembers: searchMembersMock,
+  }
 })
 
 const setPaymentResponsibleRpcMock = vi.fn()
@@ -65,7 +73,7 @@ const createClientMock = vi.fn(async () => ({
 }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
 
-const { createMember, confirmMedicalClearance, getMedicalClearanceUrl, loadMoreMembers, getMemberQuickView } =
+const { createMember, updateMember, confirmMedicalClearance, getMedicalClearanceUrl, loadMoreMembers, getMemberQuickView } =
   await import('@/controllers/members.actions')
 const { PermissionError } = await import('@/lib/errors')
 
@@ -74,6 +82,8 @@ beforeEach(() => {
   requireRoleMock.mockReset()
   requirePermissionMock.mockReset()
   insertMemberMock.mockReset()
+  updateMemberRowMock.mockReset()
+  correctJoinedOnMock.mockReset()
   searchMembersMock.mockReset()
   setPaymentResponsibleRpcMock.mockReset()
   insertMedicalClearanceMock.mockReset()
@@ -92,6 +102,62 @@ describe('createMember', () => {
     const result = await createMember({ firstName: 'Ana', lastName: 'Test' })
     expect(result.ok).toBe(false)
     expect(insertMemberMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateMember: corrección de la fecha de alta', () => {
+  const BASE = { firstName: 'Ana', lastName: 'Test', dni: '99123456' }
+  let order: string[]
+
+  beforeEach(() => {
+    order = []
+    requireRoleMock.mockResolvedValue({ userId: 'editor-1', role: 'editor' })
+    correctJoinedOnMock.mockImplementation(async () => void order.push('rpc'))
+    updateMemberRowMock.mockImplementation(async () => void order.push('update'))
+  })
+
+  it('sin joinedOn: NO llama a la RPC (solo el UPDATE de los datos)', async () => {
+    const result = await updateMember(5, BASE)
+    expect(result.ok).toBe(true)
+    expect(correctJoinedOnMock).not.toHaveBeenCalled()
+    expect(updateMemberRowMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('con joinedOn: llama a la RPC con id y fecha, y ANTES del UPDATE', async () => {
+    const result = await updateMember(5, { ...BASE, joinedOn: '2026-09-20' })
+    expect(result.ok).toBe(true)
+    expect(correctJoinedOnMock).toHaveBeenCalledWith(5, '2026-09-20')
+    expect(order).toEqual(['rpc', 'update'])
+  })
+
+  it('si la RPC rechaza, no se guarda nada y el mensaje de dominio vuelve con field joinedOn', async () => {
+    const { DomainError } = await import('@/lib/errors')
+    correctJoinedOnMock.mockRejectedValue(new DomainError('Ya hay cuotas generadas desde 09/2026', { field: 'joinedOn' }))
+    const result = await updateMember(5, { ...BASE, joinedOn: '2026-10-03' })
+    expect(result).toMatchObject({ ok: false, error: 'Ya hay cuotas generadas desde 09/2026', field: 'joinedOn' })
+    expect(updateMemberRowMock).not.toHaveBeenCalled()
+    expect(revalidatePathMock).not.toHaveBeenCalled()
+  })
+
+  it('joinedOn futura: se rechaza en el schema, sin llegar a la RPC ni al UPDATE', async () => {
+    const result = await updateMember(5, { ...BASE, joinedOn: '2999-01-01' })
+    expect(result.ok).toBe(false)
+    expect(correctJoinedOnMock).not.toHaveBeenCalled()
+    expect(updateMemberRowMock).not.toHaveBeenCalled()
+  })
+
+  it('revalida el panel (/), el padrón y la ficha: la fecha de alta mueve cuotas y listados', async () => {
+    await updateMember(5, { ...BASE, joinedOn: '2026-09-20' })
+    const paths = revalidatePathMock.mock.calls.map((c) => c[0])
+    expect(paths).toEqual(expect.arrayContaining(['/', '/socios', '/socios/5']))
+  })
+
+  it('consulta no llega ni a la RPC (guard de rol de la action)', async () => {
+    requireRoleMock.mockRejectedValue(new PermissionError())
+    const result = await updateMember(5, { ...BASE, joinedOn: '2026-09-20' })
+    expect(result.ok).toBe(false)
+    expect(correctJoinedOnMock).not.toHaveBeenCalled()
+    expect(updateMemberRowMock).not.toHaveBeenCalled()
   })
 })
 

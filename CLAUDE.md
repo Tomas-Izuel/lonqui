@@ -403,7 +403,15 @@ Si es una **invariante del dominio** (no un permiso), va en la base:
 - Unicidad de DNI entre socios.
 - Un cargo por socio por período.
 - Montos `>= 0` con CHECK.
-- Columnas inmutables (monto de un pago, período de un cargo, fecha de alta).
+- Columnas inmutables (monto de un pago, período de un cargo). **La fecha de
+  alta se corrige, no se edita** (2026-10-15): solo por
+  `correct_member_joined_on`, que exige `members.write`, arrastra la ficha de
+  ingreso y las inscripciones cargadas con esa fecha, y rechaza la fecha nueva
+  si dejara antes del alta una baja/reactivación, una inscripción o una cuota
+  mensual no anulada (un pago anterior no bloquea). Fuera de esa función
+  `joined_on` sigue sin grant y con trigger. Mover la fecha a un mes anterior
+  hace que la próxima corrida genere las cuotas de esos meses, igual que un
+  alta con fecha pasada.
 - Transiciones de estado del socio (activo ↔ baja) con fecha y motivo obligatorios.
 - Append-only del registro de auditoría.
 

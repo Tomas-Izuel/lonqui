@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { requirePanelAccess } from '@/controllers/session.controller'
 import { getMemberPage } from '@/controllers/members.controller'
 import { listDisciplines } from '@/models/catalogs.model'
+import { getBillingStatus } from '@/models/billing.model'
 import { listFamilyGroups } from '@/models/family-groups.model'
 import { isDomainError } from '@/lib/errors'
 import { AccessDenied } from '@/views/shell/access-denied'
@@ -20,13 +21,18 @@ export default async function EditMemberPage({ params }: { params: Promise<{ id:
     return <AccessDenied />
   }
 
-  let data, disciplines, familyGroups
+  let data, disciplines, familyGroups, billing
   try {
-    ;[data, disciplines, familyGroups] = await Promise.all([getMemberPage(Number(id)), listDisciplines(), listFamilyGroups()])
+    ;[data, disciplines, familyGroups, billing] = await Promise.all([
+      getMemberPage(Number(id)),
+      listDisciplines(),
+      listFamilyGroups(),
+      getBillingStatus(),
+    ])
   } catch (err) {
     if (isDomainError(err) && err.status === 404) notFound()
     throw err
   }
 
-  return <MemberForm mode="edit" member={data.member} disciplines={disciplines} familyGroups={familyGroups} />
+  return <MemberForm mode="edit" member={data.member} disciplines={disciplines} familyGroups={familyGroups} billing={billing} />
 }

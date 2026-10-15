@@ -17,6 +17,7 @@ import {
 } from '@/models/member-categories.model'
 import {
   createMember as insertMember,
+  correctMemberJoinedOn,
   createMemberSchema,
   insertStatusEvent,
   loadMoreMembersSchema,
@@ -88,13 +89,34 @@ export async function updateMember(id: number, input: unknown): Promise<ActionRe
       return invalid(body.error, body.field)
     }
 
-    await updateMemberRow(id, parsed.data)
-    revalidatePath('/socios')
-    revalidatePath(`/socios/${id}`)
+    // Primero la fecha de alta: si la base la rechaza no se guarda nada (el
+    // error vuelve con field 'joinedOn'). La regla por permiso vive en la RPC
+    // (`members.write`); el guard de rol de acá es el del slice 1 y migra con
+    // el pipeline de roles configurables.
+    // Dos transacciones: si la RPC pasó y el UPDATE falla, la fecha ya quedó
+    // corregida en la base, así que hay que revalidar igual o la ficha
+    // seguiría mostrando la vieja. El error que ve el usuario no cambia.
+    let joinedOnCorrected = false
+    try {
+      if (parsed.data.joinedOn) {
+        await correctMemberJoinedOn(id, parsed.data.joinedOn)
+        joinedOnCorrected = true
+      }
+      await updateMemberRow(id, parsed.data)
+    } finally {
+      if (joinedOnCorrected) revalidateMemberPaths(id)
+    }
+    if (!joinedOnCorrected) revalidateMemberPaths(id)
     return success()
   } catch (err) {
     return failure(err, 'members.updateMember')
   }
+}
+
+function revalidateMemberPaths(id: number): void {
+  revalidatePath('/')
+  revalidatePath('/socios')
+  revalidatePath(`/socios/${id}`)
 }
 
 /**
