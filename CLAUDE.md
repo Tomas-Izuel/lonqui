@@ -316,6 +316,9 @@ registro de auditoría: **quién, qué registro, qué cambió, cuándo**.
   falta un endpoint de Vercel para esto.
 - **El monto se congela al generar.** Cambiar el valor de la cuota no reescribe
   cargos pasados: aplica desde el próximo período.
+- **Un valor programado se corrige con otra fila** (2026-10-15): `fee_prices`
+  admite varias filas para el mismo alcance, destino y mes, y rige la de `id`
+  más alto (`fee_price_for` desempata por `id desc`). Nunca un UPDATE.
 - **Zona horaria**: los períodos se calculan en `America/Argentina/Buenos_Aires`,
   nunca en UTC. Un cron a las 00:00 UTC corre a las 21:00 del día anterior en
   Argentina: el "1° del mes" en UTC es el último día del mes anterior acá.

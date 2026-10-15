@@ -224,17 +224,205 @@ describe.skipIf(!dbAvailable)('fee_prices: append-only, coherencia y precedencia
     })
   })
 
-  it('duplicado exacto (scope/target/valid_from): unique violation', async () => {
-    await withRollback(async (client) => {
-      const { userId: adminId } = await createUserWithRole(client, 'admin')
-      await actAs(client, adminId)
-      const farFuture = `date_trunc('month', private.club_today())::date + interval '5 years'`
-      await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100, ${farFuture})`)
-      const err = await expectQueryError(
-        client,
-        `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 200, ${farFuture})`,
-      )
-      expect(err.code).toBe('23505')
+  // Corrección de valores (pipeline 2026-10-15-cambiar-valor-cuota): ya no hay
+  // índice único por destino + mes. Una segunda fila es una corrección y rige
+  // la de id más alto. Nada se edita ni se borra.
+  describe('corrección: dos filas para el mismo destino y mes', () => {
+    const farMonth = (years: number) => `(date_trunc('month', private.club_today())::date + interval '${years} years')::date`
+
+    it('la segunda fila para el mismo alcance, destino y mes se acepta (ya no hay unique)', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100, ${farMonth(5)})`)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 200, ${farMonth(5)})`)
+        const n = await client.query(
+          `select count(*)::int as n from public.fee_prices where scope = 'default' and valid_from = ${farMonth(5)}`,
+        )
+        expect(n.rows[0].n).toBe(2)
+      })
+    })
+
+    it('el índice de destino sigue existiendo pero NO es único', async () => {
+      await withRollback(async (client) => {
+        const idx = await client.query<{ indisunique: boolean; relname: string }>(
+          `select i.indisunique, c.relname from pg_index i join pg_class c on c.oid = i.indexrelid
+           where i.indrelid = 'public.fee_prices'::regclass and c.relname in ('fee_prices_target_idx', 'fee_prices_unique_target')`,
+        )
+        expect(idx.rows.map((r) => r.relname)).toEqual(['fee_prices_target_idx'])
+        expect(idx.rows[0].indisunique).toBe(false)
+      })
+    })
+
+    it('fee_price_for devuelve la más nueva (id más alto) entre dos filas del mismo destino y mes, también con el monto más alto primero', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        // Si el desempate fuera por monto o por orden físico en vez de por id, falla.
+        const first = await client.query<{ id: string }>(
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 900000, ${farMonth(6)}) returning id`,
+        )
+        const second = await client.query<{ id: string }>(
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 150000, ${farMonth(6)}) returning id`,
+        )
+        const r = await client.query<{ fee_price_id: string; amount_cents: string }>(
+          `select * from private.fee_price_for(null, 'non_practicing', ${farMonth(6)})`,
+        )
+        expect(r.rows[0].fee_price_id).toBe(second.rows[0].id)
+        expect(r.rows[0].amount_cents).toBe('150000')
+        expect(r.rows[0].fee_price_id).not.toBe(first.rows[0].id)
+      })
+    })
+
+    it('el desempate por id aplica SOLO a igual mes: un valid_from posterior gana aunque su id sea menor', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 777000, (${farMonth(8)} + interval '1 month')::date)`)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 111000, ${farMonth(8)})`)
+        const atNext = await client.query<{ amount_cents: string }>(
+          `select amount_cents from private.fee_price_for(null, 'non_practicing', (${farMonth(8)} + interval '1 month')::date)`,
+        )
+        expect(atNext.rows[0].amount_cents).toBe('777000')
+        const atBase = await client.query<{ amount_cents: string }>(
+          `select amount_cents from private.fee_price_for(null, 'non_practicing', ${farMonth(8)})`,
+        )
+        expect(atBase.rows[0].amount_cents).toBe('111000')
+      })
+    })
+
+    it('la precedencia categoría > default se conserva aunque el default tenga una corrección más nueva', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        const disciplineId = await createDiscipline(client, { name: 'Disc Corr Test' })
+        const categoryId = await createCategory(client, { disciplineId, name: 'Cat Corr Test' })
+        await client.query(`insert into public.fee_prices (scope, category_id, amount_cents, valid_from) values ('category', $1, 555000, ${farMonth(9)})`, [categoryId])
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100, ${farMonth(9)})`)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 200, ${farMonth(9)})`)
+        const r = await client.query<{ amount_cents: string }>(
+          `select amount_cents from private.fee_price_for($1, 'practicing', ${farMonth(9)})`,
+          [categoryId],
+        )
+        expect(r.rows[0].amount_cents).toBe('555000')
+      })
+    })
+
+    it('generar cuotas congela el monto CORREGIDO y apunta al fee_price_id de la fila nueva; la fila equivocada queda', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        const memberId = await createMember(client, { firstName: 'Corr', lastName: 'Fixture', joinedOn: '2020-01-01' })
+        const period = farMonth(11)
+
+        const wrong = await client.query<{ id: string }>(
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 12000000, ${period}) returning id`,
+        )
+        const fixed = await client.query<{ id: string }>(
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 1200000, ${period}) returning id`,
+        )
+
+        await actAsSuperuser(client)
+        await client.query(`select private.generate_monthly_fees(${period})`)
+        const fee = await client.query<{ amount_cents: string; fee_price_id: string }>(
+          `select amount_cents, fee_price_id from public.fees where member_id = $1 and period = ${period} and kind = 'monthly'`,
+          [memberId],
+        )
+        expect(fee.rows).toHaveLength(1)
+        expect(fee.rows[0].amount_cents).toBe('1200000')
+        expect(fee.rows[0].fee_price_id).toBe(fixed.rows[0].id)
+
+        const kept = await client.query(`select 1 from public.fee_prices where id = $1`, [wrong.rows[0].id])
+        expect(kept.rowCount).toBe(1)
+      })
+    })
+
+    it('el guard sigue rechazando: corregir un mes que ya generó cuotas, y un mes pasado', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        await createMember(client, { firstName: 'Guard', lastName: 'Fixture', joinedOn: '2020-01-01' })
+        const period = farMonth(12)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100, ${period})`)
+
+        await actAsSuperuser(client)
+        await client.query(`select private.generate_monthly_fees(${period})`)
+        await actAs(client, adminId)
+
+        const generated = await expectQueryError(
+          client,
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 200, ${period})`,
+        )
+        expect(generated.code).toBe('23514')
+        expect(generated.message).toMatch(/ya se generaron con otro valor/)
+
+        const past = await expectQueryError(
+          client,
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 200, '2020-01-01')`,
+        )
+        expect(past.message).toMatch(/aplica desde este mes o uno futuro/)
+      })
+    })
+
+    it('cambiar el valor para un mes posterior no toca las cuotas ya generadas del mes anterior (monto congelado)', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        const memberId = await createMember(client, { firstName: 'Frozen', lastName: 'Fixture', joinedOn: '2020-01-01' })
+        const p1 = farMonth(14)
+        const p2 = `(${p1} + interval '1 month')::date`
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100000, ${p1})`)
+
+        await actAsSuperuser(client)
+        await client.query(`select private.generate_monthly_fees(${p1})`)
+        await actAs(client, adminId)
+        await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 300000, ${p2})`)
+        await actAsSuperuser(client)
+        await client.query(`select private.generate_monthly_fees(${p2})`)
+
+        const rows = await client.query<{ amount_cents: string }>(
+          `select amount_cents from public.fees where member_id = $1 and kind = 'monthly' and period in (${p1}, ${p2}) order by period`,
+          [memberId],
+        )
+        expect(rows.rows.map((r) => r.amount_cents)).toEqual(['100000', '300000'])
+      })
+    })
+
+    it('auditoría: cada inserción (valor y corrección) deja su fila con el actor = auth.uid() de la sesión', async () => {
+      await withRollback(async (client) => {
+        const { userId: adminId } = await createUserWithRole(client, 'admin')
+        await actAs(client, adminId)
+        const a = await client.query<{ id: string }>(
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 100, ${farMonth(15)}) returning id`,
+        )
+        const b = await client.query<{ id: string }>(
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 200, ${farMonth(15)}) returning id`,
+        )
+        await actAsSuperuser(client)
+        const audit = await client.query<{ record_id: string; actor_id: string; op: string; actor_source: string }>(
+          `select record_id, actor_id, op, actor_source from public.audit_log
+           where table_name = 'fee_prices' and record_id = any($1) order by id`,
+          [[a.rows[0].id, b.rows[0].id]],
+        )
+        expect(audit.rows.map((r) => r.record_id)).toEqual([a.rows[0].id, b.rows[0].id])
+        for (const r of audit.rows) {
+          expect(r.op).toBe('INSERT')
+          expect(r.actor_id).toBe(adminId)
+          expect(r.actor_source).toBe('session')
+        }
+      })
+    })
+
+    it('un editor no puede insertar una corrección (billing.configure sigue siendo solo admin)', async () => {
+      await withRollback(async (client) => {
+        const { userId: editorId } = await createUserWithRole(client, 'editor')
+        await actAs(client, editorId)
+        const err = await expectQueryError(
+          client,
+          `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 1, ${farMonth(16)})`,
+        )
+        expect(err.message).toMatch(/row-level security|permission denied/i)
+      })
     })
   })
 

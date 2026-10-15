@@ -282,21 +282,6 @@ describe.skipIf(!dbAvailable)('fee_prices: CHECK declarativos -> DomainError', (
       expect(thrown.field).toBe('categoryId')
     })
   })
-
-  it('valor duplicado para el mismo alcance y mes (23505) -> field validFrom', async () => {
-    await withRollback(async (client) => {
-      await asAdmin(client)
-      const sql = `insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 1000, '2099-01-01')`
-      await client.query(sql)
-      const err = await provoke(client, sql)
-      expect(err.code).toBe('23505')
-      const { createFeePrice } = await import('@/models/fee-prices.model')
-      const { thrown } = await translated(err, () =>
-        createFeePrice({ scope: 'default', amountCents: 1000, validFrom: '2099-01-01' } as never),
-      )
-      expect(thrown.field).toBe('validFrom')
-    })
-  })
 })
 
 describe.skipIf(!dbAvailable)('payments: CHECK, trigger de fecha y FK -> DomainError', () => {

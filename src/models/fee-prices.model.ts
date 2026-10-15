@@ -6,18 +6,24 @@ import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
 import { isRawPostgresMessage } from '@/models/pg-errors'
 import { toPeriod } from '@/lib/dates'
-import type { FeePrice, FeePriceScope, FeePricesOverview, MemberType } from './types'
+import type { FeePrice, FeePriceHistoryEntry, FeePriceScope, FeePricesOverview, MemberType } from './types'
 
 /**
  * Valores de cuota (`00-architecture.md` del pipeline `2026-09-27-cuotas-pagos-panel`,
  * §6.1). Append-only: no hay `update` ni `delete` — cambiar un valor es
  * insertar una fila nueva con `validFrom` = el mes desde el que aplica.
  *
+ * Corrección (pipeline `2026-10-15-cambiar-valor-cuota`): el mismo destino
+ * puede tener varias filas para el mismo mes (ya no hay índice único). Rige
+ * la de mayor `id` — lo mismo que resuelve `private.fee_price_for` — y la
+ * otra queda en la historia marcada como reemplazada. Nunca se edita ni se
+ * borra una fila: corregir un valor es insertar otra.
+ *
  * La coherencia `scope` ↔ `memberType`/`categoryId` (el CHECK
  * `fee_prices_scope_shape`) se valida acá en Zod para devolver el campo
  * exacto sin ir a Postgres. Lo que SÍ depende de leer `fees`/`fee_prices` —
- * el trigger `fee_prices_insert_guard` (mes pasado, o mes ya generado) y la
- * unique constraint del duplicado exacto — se traduce del error de Postgres:
+ * el trigger `fee_prices_insert_guard` (mes pasado, o mes ya generado) — se
+ * traduce del error de Postgres:
  * el mensaje del trigger ya está pensado para el usuario, se envuelve tal cual.
  */
 
@@ -135,11 +141,22 @@ export async function listFeePrices(): Promise<FeePrice[]> {
 }
 
 /**
+ * Identidad de "a quién aplica y desde cuándo": dos filas con la misma clave
+ * compiten, y gana la de mayor id. Interna: las vistas no importan modelos.
+ */
+function priceKey(price: FeePrice): string {
+  return `${price.scope}|${price.memberType ?? ''}|${price.categoryId ?? ''}|${price.validFrom}`
+}
+
+/**
  * El valor vigente hoy en cada scope (D19: el de mayor `validFrom <= mes
  * actual`, dentro de cada scope/target) y lo programado para meses futuros
- * aparte ("próximos" en la UI). `listFeePrices` ya trae todo ordenado desc,
- * así que alcanza con partir esa lista una vez: el primero de cada grupo es
- * el vigente. Nunca se recalcula el precio de un socio acá — eso lo resuelve
+ * aparte ("próximos" en la UI). `listFeePrices` ya trae todo ordenado
+ * (`valid_from desc, id desc`), así que alcanza con partir esa lista una vez:
+ * el primero de cada grupo es el vigente, y a igual destino y mes el primero
+ * es el de mayor id, que es el que rige (corrección de valores, pipeline
+ * `2026-10-15-cambiar-valor-cuota`). `upcoming` queda deduplicado por esa
+ * clave y `history` marca cada fila reemplazada con el id de la que la pisó. Nunca se recalcula el precio de un socio acá — eso lo resuelve
  * `private.fee_price_for` al generar (D19), esto es solo para mostrar.
  */
 export async function getFeePricesOverview(): Promise<FeePricesOverview> {
@@ -147,7 +164,20 @@ export async function getFeePricesOverview(): Promise<FeePricesOverview> {
   const currentPeriod = toPeriod()
 
   const current = prices.filter((price) => price.validFrom <= currentPeriod)
-  const upcoming = prices.filter((price) => price.validFrom > currentPeriod)
+  const upcoming: FeePrice[] = []
+  const history: FeePriceHistoryEntry[] = []
+  const winnerByKey = new Map<string, number>()
+  for (const price of prices) {
+    const key = priceKey(price)
+    const winnerId = winnerByKey.get(key)
+    if (winnerId === undefined) {
+      winnerByKey.set(key, price.id)
+      if (price.validFrom > currentPeriod) upcoming.push(price)
+      history.push({ ...price, supersededById: null })
+    } else {
+      history.push({ ...price, supersededById: winnerId })
+    }
+  }
 
   const defaultPrice = current.find((price) => price.scope === 'default') ?? null
 
@@ -172,7 +202,7 @@ export async function getFeePricesOverview(): Promise<FeePricesOverview> {
   return {
     current: { default: defaultPrice, byMemberType, byCategory },
     upcoming,
-    history: prices,
+    history,
   }
 }
 
@@ -181,10 +211,6 @@ export async function getFeePricesOverview(): Promise<FeePricesOverview> {
 // -----------------------------------------------------------------------------
 
 function translateFeePriceError(error: PostgrestError): unknown {
-  // Duplicado exacto: mismo scope/target/mes (fee_prices_unique_target).
-  if (error.code === '23505') {
-    return new DomainError('Ya hay un valor para ese alcance desde ese mes', { field: 'validFrom' })
-  }
   // `fee_prices_insert_guard`: mes pasado, o mes que ya generó cuotas con
   // otro valor. El mensaje del trigger ya está pensado para el usuario.
   if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
