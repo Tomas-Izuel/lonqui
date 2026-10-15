@@ -48,6 +48,7 @@ export default async function OtherIncomePage({ searchParams }: { searchParams: 
       sponsorId={sponsorId}
       canVoid={session.permissions.includes('income.void')}
       canExport={session.permissions.includes('reports.export')}
+      canEditConcepts={session.permissions.includes('settings.manage')}
     />
   )
 }

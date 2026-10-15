@@ -121,15 +121,31 @@ describe('createMemberSchema: fechas no futuras', () => {
   })
 })
 
-describe('updateMemberSchema: sin joinedOn, status ni categoryIds', () => {
+describe('updateMemberSchema: joinedOn opcional, sin status ni categoryIds', () => {
   it('acepta el mismo shape sin joinedOn', () => {
     const result = updateMemberSchema.safeParse(VALID_UPDATE_CORE)
     expect(result.success).toBe(true)
   })
 
-  it('rechaza si viene con joinedOn (clave desconocida en este schema, .strict())', () => {
+  it('acepta joinedOn (corrección de la fecha de alta, 2026-10-15)', () => {
     const result = updateMemberSchema.safeParse({ ...VALID_UPDATE_CORE, joinedOn: '2026-01-01' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.joinedOn).toBe('2026-01-01')
+  })
+
+  it('joinedOn con formato inválido: rechaza con issue en joinedOn', () => {
+    const result = updateMemberSchema.safeParse({ ...VALID_UPDATE_CORE, joinedOn: '10/10/2026' })
     expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((i) => i.path[0] === 'joinedOn')).toBe(true)
+  })
+
+  it('joinedOn futura: rechaza con "La fecha de alta no puede ser futura" en joinedOn', () => {
+    const result = updateMemberSchema.safeParse({ ...VALID_UPDATE_CORE, joinedOn: '2999-01-01' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path[0] === 'joinedOn')
+      expect(issue?.message).toBe('La fecha de alta no puede ser futura')
+    }
   })
 
   it('rechaza si viene con status (nunca fue parte del shape, ni acá ni en el alta)', () => {

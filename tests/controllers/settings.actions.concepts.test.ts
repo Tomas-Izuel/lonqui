@@ -99,7 +99,7 @@ describe('revalidación', () => {
     for (const m of [createMock, updateMock, setActiveMock]) m.mockResolvedValue(concept)
     reorderMock.mockResolvedValue(undefined)
     await run()
-    expect(revalidatePathMock).toHaveBeenCalledWith('/ajustes')
+    expect(revalidatePathMock).toHaveBeenCalledWith('/ajustes', 'layout')
     expect(revalidatePathMock).toHaveBeenCalledWith('/caja', 'layout')
   })
 

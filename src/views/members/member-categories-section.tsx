@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Panel } from '@/views/shared/panel'
 import { Button } from '@/components/ui/button'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { DateText } from '@/views/shared/date-text'
 import { LeaveCategoryDialog } from '@/views/members/leave-category-dialog'
 import { ChangeCategoryDialog } from '@/views/members/change-category-dialog'
@@ -22,11 +24,13 @@ export function MemberCategoriesSection({
   categoryHistory,
   disciplines,
   canManage,
+  canEditCatalog = false,
 }: {
   memberId: number
   categoryHistory: MemberCategoryMembership[]
   disciplines: DisciplineWithCategories[]
   canManage: boolean
+  canEditCatalog?: boolean
 }) {
   const router = useRouter()
   const [leavingId, setLeavingId] = useState<number | null>(null)
@@ -114,6 +118,11 @@ export function MemberCategoriesSection({
               ))}
             </ul>
           </details>
+        ) : null}
+        {canEditCatalog ? (
+          <EditInSettingsLink href={SETTINGS_LINKS.sports} className="self-start">
+            Editar categorías
+          </EditInSettingsLink>
         ) : null}
       </div>
 

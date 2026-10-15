@@ -1,76 +1,124 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 /**
- * `settings.controller.ts`: `getSettingsPage` es una lectura combinada para
- * `/ajustes`. `(admin)/layout.tsx` ya bloquea la ruta a quien no es admin,
- * pero el controller vuelve a exigir el PERMISO `settings.manage`
- * (`requirePanelPermission`, que REDIRIGE, nunca tira: no hay try/catch acá).
+ * `settings.controller.ts`: `/ajustes` son cuatro pestañas con su propia page;
+ * cada una tiene su lectura y carga SOLO lo suyo. Todas exigen el PERMISO
+ * `settings.manage` (`requirePanelPermission`, que REDIRIGE, nunca tira) ANTES
+ * de tocar un modelo: el layout `(admin)` no se re-ejecuta al navegar del lado
+ * del cliente, así que este guard es el que cuenta.
  */
 
-const redirectMock = vi.fn((path: string) => {
-  throw new Error(`REDIRECT:${path}`)
-})
-vi.mock('next/navigation', () => ({ redirect: redirectMock }))
+vi.mock('next/navigation', () => ({
+  redirect: (path: string) => {
+    throw new Error(`REDIRECT:${path}`)
+  },
+}))
 
 const requirePanelPermissionMock = vi.fn()
 vi.mock('@/controllers/session.controller', () => ({ requirePanelPermission: requirePanelPermissionMock }))
 
 const getSettingsMock = vi.fn()
 vi.mock('@/models/settings.model', () => ({ getSettings: getSettingsMock }))
-
 const listDisciplinesMock = vi.fn()
 vi.mock('@/models/catalogs.model', () => ({ listDisciplines: listDisciplinesMock }))
-
 const getFeePricesOverviewMock = vi.fn()
 vi.mock('@/models/fee-prices.model', () => ({ getFeePricesOverview: getFeePricesOverviewMock }))
-
 const getBillingStatusMock = vi.fn()
 vi.mock('@/models/billing.model', () => ({ getBillingStatus: getBillingStatusMock }))
-
 const listCashConceptsMock = vi.fn()
 vi.mock('@/models/cash-concepts.model', () => ({ listCashConcepts: listCashConceptsMock }))
 
-const { getSettingsPage } = await import('@/controllers/settings.controller')
+const controller = await import('@/controllers/settings.controller')
+
+const models = [getSettingsMock, listDisciplinesMock, getFeePricesOverviewMock, getBillingStatusMock, listCashConceptsMock]
 
 beforeEach(() => {
-  redirectMock.mockClear()
-  requirePanelPermissionMock.mockReset()
-  getSettingsMock.mockReset()
-  listDisciplinesMock.mockReset()
-  getFeePricesOverviewMock.mockReset()
-  getBillingStatusMock.mockReset()
-  listCashConceptsMock.mockReset()
+  for (const m of [requirePanelPermissionMock, ...models]) m.mockReset()
+  requirePanelPermissionMock.mockResolvedValue({ role: 'admin' })
 })
 
-describe('getSettingsPage', () => {
-  it('exige settings.manage; sin él, redirige (no tira)', async () => {
+const reads = {
+  getAjustesCuotasData: controller.getAjustesCuotasData,
+  getAjustesDeportesData: controller.getAjustesDeportesData,
+  getAjustesCajaData: controller.getAjustesCajaData,
+  getAjustesClubData: controller.getAjustesClubData,
+}
+
+describe('cada pestaña exige settings.manage antes de leer nada', () => {
+  it.each(Object.entries(reads))('%s: sin el permiso redirige y no toca ningún modelo', async (_name, read) => {
     requirePanelPermissionMock.mockImplementation(() => {
       throw new Error('REDIRECT:/')
     })
-    await expect(getSettingsPage()).rejects.toThrow('REDIRECT:/')
+    await expect(read()).rejects.toThrow('REDIRECT:/')
     expect(requirePanelPermissionMock).toHaveBeenCalledWith('settings.manage')
-    expect(getSettingsMock).not.toHaveBeenCalled()
+    for (const m of models) expect(m).not.toHaveBeenCalled()
   })
 
-  it('con el permiso, compone settings + disciplinas (todas y solo activas) + feePrices + billing en paralelo', async () => {
-    requirePanelPermissionMock.mockResolvedValue({ role: 'admin' })
-    getSettingsMock.mockResolvedValue({ clubName: 'Lonqui', billingStartPeriod: '2026-09-01' })
-    listDisciplinesMock
-      .mockResolvedValueOnce([{ id: 1, name: 'Fútbol masculino', isActive: true, categories: [] }])
-      .mockResolvedValueOnce([{ id: 1, name: 'Fútbol masculino', isActive: true, categories: [] }])
+  it.each(Object.entries(reads))('%s: con el permiso lo pide exactamente una vez, por permiso y no por rol', async (_name, read) => {
+    listDisciplinesMock.mockResolvedValue([])
+    await read().catch(() => {})
+    expect(requirePanelPermissionMock).toHaveBeenCalledTimes(1)
+    expect(requirePanelPermissionMock).toHaveBeenCalledWith('settings.manage')
+  })
+})
+
+describe('getAjustesCuotasData', () => {
+  it('compone valores, facturación y disciplinas (todas para etiquetar, solo activas para "Nuevo valor")', async () => {
+    const all = [{ id: 1, name: 'A', isActive: false, categories: [] }]
+    const active = [{ id: 2, name: 'B', isActive: true, categories: [] }]
+    listDisciplinesMock.mockImplementation(async (o: { includeInactive: boolean }) => (o.includeInactive ? all : active))
     getFeePricesOverviewMock.mockResolvedValue({ current: { default: null, byMemberType: [], byCategory: [] }, history: [] })
     getBillingStatusMock.mockResolvedValue({ active: true, startPeriod: '2026-09-01' })
-    listCashConceptsMock.mockResolvedValue([{ id: 1, name: 'Sponsor', isActive: false }])
 
-    const page = await getSettingsPage()
+    const data = await controller.getAjustesCuotasData()
 
-    expect(page.settings.clubName).toBe('Lonqui')
+    expect(data.disciplines).toBe(all)
+    expect(data.categoriesByDiscipline).toBe(active)
+    expect(data.feePrices.history).toEqual([])
+    expect(data.billing.active).toBe(true)
+  })
+
+  it('no carga lo de otras pestañas (conceptos, datos del club)', async () => {
+    listDisciplinesMock.mockResolvedValue([])
+    await controller.getAjustesCuotasData()
+    expect(listCashConceptsMock).not.toHaveBeenCalled()
+    expect(getSettingsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('getAjustesDeportesData', () => {
+  it('trae TODAS las disciplinas, incluidas las inactivas, y nada más', async () => {
+    const all = [{ id: 1, name: 'A', isActive: false, categories: [] }]
+    listDisciplinesMock.mockResolvedValue(all)
+    const data = await controller.getAjustesDeportesData()
+    expect(data).toEqual({ disciplines: all })
+    expect(listDisciplinesMock).toHaveBeenCalledTimes(1)
     expect(listDisciplinesMock).toHaveBeenCalledWith({ includeInactive: true })
-    expect(listDisciplinesMock).toHaveBeenCalledWith({ includeInactive: false })
-    expect(page.feePrices.history).toEqual([])
-    expect(page.billing.active).toBe(true)
-    // Los conceptos van TODOS, incluidos los desactivados: acá se administra el catálogo.
+    for (const m of [getSettingsMock, getFeePricesOverviewMock, getBillingStatusMock, listCashConceptsMock]) expect(m).not.toHaveBeenCalled()
+  })
+})
+
+describe('getAjustesCajaData', () => {
+  it('trae TODOS los conceptos, incluidos los desactivados (acá se administra el catálogo)', async () => {
+    listCashConceptsMock.mockResolvedValue([{ id: 1, name: 'Sponsor', isActive: false }])
+    const data = await controller.getAjustesCajaData()
     expect(listCashConceptsMock).toHaveBeenCalledWith({ includeInactive: true })
-    expect(page.incomeConcepts).toEqual([{ id: 1, name: 'Sponsor', isActive: false }])
+    expect(data).toEqual({ incomeConcepts: [{ id: 1, name: 'Sponsor', isActive: false }] })
+    for (const m of [getSettingsMock, listDisciplinesMock, getFeePricesOverviewMock, getBillingStatusMock]) expect(m).not.toHaveBeenCalled()
+  })
+})
+
+describe('getAjustesClubData', () => {
+  it('trae solo los datos del club', async () => {
+    getSettingsMock.mockResolvedValue({ clubName: 'Club de prueba', billingStartPeriod: null })
+    const data = await controller.getAjustesClubData()
+    expect(data).toEqual({ settings: { clubName: 'Club de prueba', billingStartPeriod: null } })
+    for (const m of [listDisciplinesMock, getFeePricesOverviewMock, getBillingStatusMock, listCashConceptsMock]) expect(m).not.toHaveBeenCalled()
+  })
+})
+
+describe('contrato: la lectura combinada vieja no existe', () => {
+  it('getSettingsPage fue reemplazado por las cuatro lecturas', () => {
+    expect('getSettingsPage' in controller).toBe(false)
   })
 })

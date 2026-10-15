@@ -316,6 +316,9 @@ registro de auditoría: **quién, qué registro, qué cambió, cuándo**.
   falta un endpoint de Vercel para esto.
 - **El monto se congela al generar.** Cambiar el valor de la cuota no reescribe
   cargos pasados: aplica desde el próximo período.
+- **Un valor programado se corrige con otra fila** (2026-10-15): `fee_prices`
+  admite varias filas para el mismo alcance, destino y mes, y rige la de `id`
+  más alto (`fee_price_for` desempata por `id desc`). Nunca un UPDATE.
 - **Zona horaria**: los períodos se calculan en `America/Argentina/Buenos_Aires`,
   nunca en UTC. Un cron a las 00:00 UTC corre a las 21:00 del día anterior en
   Argentina: el "1° del mes" en UTC es el último día del mes anterior acá.
@@ -400,7 +403,15 @@ Si es una **invariante del dominio** (no un permiso), va en la base:
 - Unicidad de DNI entre socios.
 - Un cargo por socio por período.
 - Montos `>= 0` con CHECK.
-- Columnas inmutables (monto de un pago, período de un cargo, fecha de alta).
+- Columnas inmutables (monto de un pago, período de un cargo). **La fecha de
+  alta se corrige, no se edita** (2026-10-15): solo por
+  `correct_member_joined_on`, que exige `members.write`, arrastra la ficha de
+  ingreso y las inscripciones cargadas con esa fecha, y rechaza la fecha nueva
+  si dejara antes del alta una baja/reactivación, una inscripción o una cuota
+  mensual no anulada (un pago anterior no bloquea). Fuera de esa función
+  `joined_on` sigue sin grant y con trigger. Mover la fecha a un mes anterior
+  hace que la próxima corrida genere las cuotas de esos meses, igual que un
+  alta con fecha pasada.
 - Transiciones de estado del socio (activo ↔ baja) con fecha y motivo obligatorios.
 - Append-only del registro de auditoría.
 

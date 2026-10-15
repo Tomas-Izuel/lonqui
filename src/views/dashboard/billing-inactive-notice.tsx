@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { CircleDollarSign } from 'lucide-react'
 import { EmptyState } from '@/views/shared/states'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 
 /**
  * Estado "las cuotas todavía no están activadas" (route.md). Reemplaza el
@@ -20,11 +21,11 @@ export function BillingInactiveNotice({ canConfigure }: { canConfigure: boolean 
       action={
         canConfigure ? (
           <Link
-            href="/ajustes"
+            href={SETTINGS_LINKS.fees}
             className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/80"
           >
             <CircleDollarSign aria-hidden className="size-4" />
-            Ir a Ajustes
+            Activar cuotas
           </Link>
         ) : undefined
       }

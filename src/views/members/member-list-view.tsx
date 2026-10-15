@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
 import { SearchInput } from '@/views/shared/search-input'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { FilterBar, type FilterDef } from '@/views/shared/filter-bar'
 import { MemberList } from '@/views/members/member-list'
 import type { BillingStatus, DisciplineWithCategories, MemberFilters, MemberSummary, Page, Permission } from '@/models/types'
@@ -32,6 +34,7 @@ export function MemberListView({
 }) {
   const canCreate = permissions.includes('members.write')
   const canSeeDebt = permissions.includes('payments.read')
+  const canEditCatalog = permissions.includes('settings.manage')
   const hasActiveFilter = Boolean(
     filters.q ||
       filters.categoryId != null ||
@@ -118,6 +121,11 @@ export function MemberListView({
         <div className="flex flex-col gap-3">
           <SearchInput placeholder="Buscar por nombre o DNI…" />
           <FilterBar filters={filterDefs} />
+          {canEditCatalog ? (
+            <EditInSettingsLink href={SETTINGS_LINKS.sports} className="self-start">
+              Editar categorías
+            </EditInSettingsLink>
+          ) : null}
         </div>
       </Panel>
 

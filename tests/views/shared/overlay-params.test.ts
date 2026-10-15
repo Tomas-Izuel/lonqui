@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -62,6 +62,9 @@ const { parsePaymentOverlay, paymentOverlayValue, parseQuickViewParam, isPlainLe
 
 /** Estado de `window.history` simulado: lo que `markedBy`/`writeMark` leen y escriben. */
 let historyState: Record<string, unknown> | null = null
+
+// El `window` falso no puede filtrarse a los archivos que corren después (singleFork).
+afterEach(() => vi.unstubAllGlobals())
 
 beforeEach(() => {
   mockSearchParams = new URLSearchParams()

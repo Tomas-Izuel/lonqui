@@ -12,11 +12,11 @@ import { Panel } from '@/views/shared/panel'
 import { CheckboxField, DateField, DniField, PhoneField, TextField, TextareaField } from '@/views/shared/form-fields'
 import { DateText } from '@/views/shared/date-text'
 import { memberStatusLabels } from '@/views/shared/labels'
-import { BIRTH_DATE_TOO_OLD_MESSAGE, MIN_BIRTH_DATE, toClubDate } from '@/lib/dates'
+import { BIRTH_DATE_TOO_OLD_MESSAGE, MIN_BIRTH_DATE, formatPeriod, toClubDate } from '@/lib/dates'
 import { CategorySelector } from '@/views/members/category-selector'
 import { FamilyGroupCombobox, NO_GROUP, NEW_GROUP } from '@/views/members/family-group-combobox'
 import { createFamilyGroup, createMember, setMemberCategories, updateMember } from '@/controllers/members.actions'
-import type { DisciplineWithCategories, FamilyGroupSummary, MemberDetail } from '@/models/types'
+import type { BillingStatus, DisciplineWithCategories, FamilyGroupSummary, MemberDetail } from '@/models/types'
 
 /** Mismo `categoryId` elegido, sin importar el orden: alta y baja de deportes son un cambio de conjunto, no de secuencia. */
 function sameCategorySet(a: number[], b: number[]): boolean {
@@ -110,15 +110,15 @@ function buildSchema(mode: 'create' | 'edit', initialCategoryIds: number[]) {
     .object({ ...baseShape, joinedOn: z.string() })
     .superRefine((data, ctx) => {
       sharedRefine(data, ctx)
-      if (mode === 'create') {
-        if (!data.joinedOn) {
-          ctx.addIssue({ code: 'custom', message: 'Elegí una fecha', path: ['joinedOn'] })
-        } else if (!z.iso.date().safeParse(data.joinedOn).success) {
-          ctx.addIssue({ code: 'custom', message: 'La fecha de alta no es válida', path: ['joinedOn'] })
-        } else if (data.joinedOn > toClubDate()) {
-          ctx.addIssue({ code: 'custom', message: 'La fecha de alta no puede ser futura', path: ['joinedOn'] })
-        }
-      } else if (!sameCategorySet(data.categoryIds, initialCategoryIds)) {
+      // La fecha de alta se valida igual en alta y en edición (en edición es una corrección).
+      if (!data.joinedOn) {
+        ctx.addIssue({ code: 'custom', message: 'Elegí una fecha', path: ['joinedOn'] })
+      } else if (!z.iso.date().safeParse(data.joinedOn).success) {
+        ctx.addIssue({ code: 'custom', message: 'La fecha de alta no es válida', path: ['joinedOn'] })
+      } else if (data.joinedOn > toClubDate()) {
+        ctx.addIssue({ code: 'custom', message: 'La fecha de alta no puede ser futura', path: ['joinedOn'] })
+      }
+      if (mode === 'edit' && !sameCategorySet(data.categoryIds, initialCategoryIds)) {
         if (!data.effectiveOn) {
           ctx.addIssue({ code: 'custom', message: 'Elegí a partir de cuándo', path: ['effectiveOn'] })
         } else if (!z.iso.date().safeParse(data.effectiveOn).success) {
@@ -202,8 +202,15 @@ function describeCategoryChanges(
 }
 
 export type MemberFormProps =
-  | { mode: 'create'; member?: undefined; disciplines: DisciplineWithCategories[]; familyGroups: FamilyGroupSummary[] }
-  | { mode: 'edit'; member: MemberDetail; disciplines: DisciplineWithCategories[]; familyGroups: FamilyGroupSummary[] }
+  | { mode: 'create'; member?: undefined; billing?: undefined; disciplines: DisciplineWithCategories[]; familyGroups: FamilyGroupSummary[] }
+  | {
+      mode: 'edit'
+      member: MemberDetail
+      disciplines: DisciplineWithCategories[]
+      familyGroups: FamilyGroupSummary[]
+      /** Solo edición: decide si la nota de cuotas por mover el alta es cierta. */
+      billing?: Pick<BillingStatus, 'active' | 'startPeriod'>
+    }
 
 /**
  * Ficha de ingreso y edición (route-socios-nuevo.md + Revisión 3 §13.6): el
@@ -218,7 +225,7 @@ export type MemberFormProps =
  * queda guardado igual — se avisa y se vuelve a la ficha, mismo criterio que
  * el residual aceptado y documentado del alta (B3, dev log).
  */
-export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFormProps) {
+export function MemberForm({ mode, member, disciplines, familyGroups, billing }: MemberFormProps) {
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(null)
 
@@ -245,13 +252,28 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
       newGroupPayerContactName: '',
       newGroupPayerContactPhone: '',
       notes: member?.notes ?? '',
-      joinedOn: mode === 'create' ? toClubDate() : '',
+      joinedOn: member?.joinedOn ?? toClubDate(),
     },
   })
 
   const categoryIds = useWatch({ control: form.control, name: 'categoryIds' })
   const familyGroupChoice = useWatch({ control: form.control, name: 'familyGroupChoice' })
   const dniPending = useWatch({ control: form.control, name: 'dniPending' })
+  const joinedOn = useWatch({ control: form.control, name: 'joinedOn' })
+
+  // Mover el alta a un mes anterior agrega cuotas, pero el generador solo crea
+  // desde el inicio de la facturación y nada si no está activa: la nota solo
+  // se muestra cuando es cierta, con el mes realmente afectado (§9, review m1).
+  const billingStart = billing?.active ? billing.startPeriod?.slice(0, 7) : undefined
+  const joinedOnValid = z.iso.date().safeParse(joinedOn).success
+  const newFeesFromMonth =
+    mode === 'edit' && joinedOnValid && billingStart
+      ? (() => {
+          const chosen = joinedOn.slice(0, 7) > billingStart ? joinedOn.slice(0, 7) : billingStart
+          const saved = member!.joinedOn.slice(0, 7) > billingStart ? member!.joinedOn.slice(0, 7) : billingStart
+          return chosen < saved ? chosen : null
+        })()
+      : null
 
   const categoriesChanged = mode === 'edit' && !sameCategorySet(categoryIds, initialCategoryIds)
   const categoryConsequences = categoriesChanged ? describeCategoryChanges(initialCategoryIds, categoryIds, disciplines) : []
@@ -341,7 +363,7 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
       familyGroupId = Number(values.familyGroupChoice)
     }
 
-    const result = await updateMember(member!.id, { ...shared, familyGroupId })
+    const result = await updateMember(member!.id, { ...shared, familyGroupId, joinedOn: values.joinedOn })
     if (!result.ok) {
       const target = toFormField(result.field)
       if (target) {
@@ -468,11 +490,27 @@ export function MemberForm({ mode, member, disciplines, familyGroups }: MemberFo
           </div>
         </Panel>
 
-        {mode === 'create' ? (
-          <Panel title="Fecha de alta">
-            <DateField control={form.control} name="joinedOn" label="Fecha de alta" max={toClubDate()} disabled={pending} />
-          </Panel>
-        ) : null}
+        <Panel title="Fecha de alta">
+          <div className="flex flex-col gap-3">
+            <DateField
+              control={form.control}
+              name="joinedOn"
+              label="Fecha de alta"
+              description={
+                mode === 'edit'
+                  ? 'Corregí la fecha si se cargó mal. Se actualiza también en la ficha de ingreso y en las inscripciones cargadas ese día.'
+                  : undefined
+              }
+              max={toClubDate()}
+              disabled={pending}
+            />
+            {newFeesFromMonth ? (
+              <p className="text-sm text-muted-foreground">
+                Se van a generar las cuotas desde {formatPeriod(`${newFeesFromMonth}-01`)}.
+              </p>
+            ) : null}
+          </div>
+        </Panel>
 
         <Panel title="Notas">
           <TextareaField control={form.control} name="notes" label="Notas internas (opcional)" disabled={pending} />

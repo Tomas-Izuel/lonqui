@@ -9,6 +9,7 @@ import {
   periodRange,
   previousPeriod,
   toClubDate,
+  toMonthParam,
   toPeriod,
 } from '@/lib/dates'
 
@@ -170,5 +171,21 @@ describe('periodRange', () => {
 
   it('from > to: vacío (nunca un rango descendente ni un loop infinito)', () => {
     expect(periodRange('2026-09-01', '2026-07-01')).toEqual([])
+  })
+})
+
+describe('toMonthParam', () => {
+  it('2026-09-01 -> 2026-09: el contrato de ?mes= es YYYY-MM, nunca un ISODate', () => {
+    expect(toMonthParam('2026-09-01')).toBe('2026-09')
+    expect(toMonthParam('2026-12-01')).toBe('2026-12')
+  })
+
+  it('cruza el año en los dos sentidos usando addMonths', () => {
+    expect(toMonthParam(addMonths('2026-01-01', -1))).toBe('2025-12')
+    expect(toMonthParam(addMonths('2025-12-01', 1))).toBe('2026-01')
+  })
+
+  it('el resultado matchea la regex que validan las pages de /caja', () => {
+    expect(toMonthParam('2026-10-01')).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/)
   })
 })

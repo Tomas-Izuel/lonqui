@@ -170,15 +170,14 @@ describe('createFeePriceSchema: amountCents y validFrom', () => {
 })
 
 describe('createFeePrice: traducción de errores del trigger/unique', () => {
-  it('23505 (duplicado exacto de scope/target/validFrom) -> DomainError field validFrom', async () => {
-    createClientMock.mockResolvedValue(
-      makeInsertClient({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "fee_prices_unique_target"' } }),
-    )
+  it('23505 ya no se traduce: sin índice único un 23505 es una falla inesperada y se relanza tal cual', async () => {
+    const rawError = { code: '23505', message: 'duplicate key value violates unique constraint "otra_cosa"' }
+    createClientMock.mockResolvedValue(makeInsertClient({ data: null, error: rawError }))
     const { createFeePrice } = await importModel()
-    await expect(createFeePrice(BASE)).rejects.toMatchObject({
-      message: 'Ya hay un valor para ese alcance desde ese mes',
-      field: 'validFrom',
-    })
+    const { DomainError } = await import('@/lib/errors')
+    const thrown = await createFeePrice(BASE).catch((e: unknown) => e)
+    expect(thrown).toEqual(rawError)
+    expect(thrown).not.toBeInstanceOf(DomainError)
   })
 
   it('23514 (fee_prices_insert_guard: mes pasado o ya generado) -> DomainError con el mensaje del trigger, field validFrom', async () => {
@@ -280,5 +279,85 @@ describe('getFeePricesOverview: vigente por scope vs. próximos', () => {
     expect(overview.current.default?.id).toBe(1)
     expect(overview.upcoming.map((p) => p.id)).toEqual([2])
     expect(overview.history.map((p) => p.id)).toEqual([2, 1])
+  })
+})
+
+describe('getFeePricesOverview: corrección de valores (mismo destino y mes, rige el id más alto)', () => {
+  const row = (over: Record<string, unknown>) => ({
+    scope: 'default',
+    member_type: null,
+    category_id: null,
+    amount_cents: 1_000_000,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    categories: null,
+    ...over,
+  })
+
+  // Misma forma que `listFeePrices`: `valid_from desc, id desc`.
+  function mockRows(rows: unknown[]) {
+    createClientMock.mockResolvedValue({
+      from: () => ({
+        select: () => ({ order: () => ({ order: () => ({ overrideTypes: () => Promise.resolve({ data: rows, error: null }) }) }) }),
+      }),
+    })
+  }
+
+  const FUTURE = `${new Date().getUTCFullYear() + 2}-03-01`
+  const FUTURE_NEXT = `${new Date().getUTCFullYear() + 2}-04-01`
+  const PAST = `${new Date().getUTCFullYear() - 1}-01-01`
+
+  it('upcoming muestra UNA fila por destino y mes: la de mayor id, no la reemplazada', async () => {
+    mockRows([
+      row({ id: 9, amount_cents: 1_200_000, valid_from: FUTURE }), // corrección
+      row({ id: 7, amount_cents: 12_000_000, valid_from: FUTURE }), // equivocada
+      row({ id: 1, valid_from: PAST }),
+    ])
+    const { getFeePricesOverview } = await importModel()
+    const overview = await getFeePricesOverview()
+    expect(overview.upcoming.map((p) => p.id)).toEqual([9])
+    expect(overview.upcoming[0].amountCents).toBe(1_200_000)
+  })
+
+  it('dos destinos distintos con el mismo mes NO se deduplican entre sí; el mismo destino en meses distintos tampoco', async () => {
+    mockRows([
+      row({ id: 5, scope: 'member_type', member_type: 'practicing', valid_from: FUTURE_NEXT }),
+      row({ id: 4, valid_from: FUTURE_NEXT }),
+      row({ id: 3, valid_from: FUTURE }),
+      row({ id: 2, scope: 'category', category_id: 8, valid_from: FUTURE, categories: { name: 'Mayores' } }),
+      row({ id: 1, valid_from: PAST }),
+    ])
+    const { getFeePricesOverview } = await importModel()
+    const overview = await getFeePricesOverview()
+    expect(overview.upcoming.map((p) => p.id).sort()).toEqual([2, 3, 4, 5])
+  })
+
+  it('history conserva todas las filas y marca supersededById solo en las reemplazadas', async () => {
+    mockRows([
+      row({ id: 9, valid_from: FUTURE }),
+      row({ id: 7, valid_from: FUTURE }),
+      row({ id: 6, valid_from: FUTURE }),
+      row({ id: 1, valid_from: PAST }),
+    ])
+    const { getFeePricesOverview } = await importModel()
+    const overview = await getFeePricesOverview()
+    expect(overview.history.map((h) => [h.id, h.supersededById])).toEqual([
+      [9, null],
+      [7, 9],
+      [6, 9],
+      [1, null],
+    ])
+  })
+
+  it('el vigente de un destino es el de mayor id si hay dos filas del mismo mes <= mes actual', async () => {
+    mockRows([
+      row({ id: 12, amount_cents: 1_100_000, valid_from: PAST }),
+      row({ id: 11, amount_cents: 9_900_000, valid_from: PAST }),
+    ])
+    const { getFeePricesOverview } = await importModel()
+    const overview = await getFeePricesOverview()
+    expect(overview.current.default?.id).toBe(12)
+    expect(overview.history.find((h) => h.id === 11)?.supersededById).toBe(12)
+    expect(overview.upcoming).toEqual([])
   })
 })

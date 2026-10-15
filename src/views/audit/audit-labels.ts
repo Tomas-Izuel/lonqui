@@ -100,6 +100,7 @@ const FIELD_LABELS: Partial<Record<AuditedTable, Record<string, string>>> = {
     last_name: 'apellido',
     dni: 'DNI',
     birth_date: 'fecha de nacimiento',
+    joined_on: 'fecha de alta',
     address: 'domicilio',
     phone: 'teléfono',
     email: 'email',

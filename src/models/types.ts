@@ -391,6 +391,15 @@ export type FeePriceInput = {
   notes?: string | null
 }
 
+/**
+ * Una fila de la historia. Dos valores con el mismo alcance, destino y mes son
+ * una corrección: rige el de id más alto, y el otro queda con `supersededById`.
+ */
+export type FeePriceHistoryEntry = FeePrice & {
+  /** `null` si esta fila es la que rige para su destino y mes; si no, el id de la que la reemplazó. */
+  supersededById: number | null
+}
+
 /** El valor vigente hoy en cada nivel, y la historia completa. */
 export type FeePricesOverview = {
   current: {
@@ -398,9 +407,9 @@ export type FeePricesOverview = {
     byMemberType: FeePrice[]
     byCategory: FeePrice[]
   }
-  /** Programados para meses futuros (todavía no vigentes). */
+  /** Programados para meses futuros (todavía no vigentes): uno por destino y mes, el que rige. */
   upcoming: FeePrice[]
-  history: FeePrice[]
+  history: FeePriceHistoryEntry[]
 }
 
 export type FeeKind = 'monthly' | 'opening_balance' | 'adjustment'

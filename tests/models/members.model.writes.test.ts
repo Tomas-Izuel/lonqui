@@ -83,7 +83,7 @@ vi.mock('@/models/member-categories.model', () => ({
   openMemberships: vi.fn(),
 }))
 
-const { createMember, updateMember } = await import('@/models/members.model')
+const { createMember, updateMember, correctMemberJoinedOn } = await import('@/models/members.model')
 const { DomainError } = await import('@/lib/errors')
 
 const BASE_INPUT = {
@@ -280,5 +280,51 @@ describe('updateMember: 404 sobre un id que no existe (Minor 11)', () => {
       makeFakeMembersClient({ updateResult: { data: { id: 5 }, error: null } }),
     )
     await expect(updateMember(5, BASE_INPUT)).resolves.toBeUndefined()
+  })
+})
+
+describe('correctMemberJoinedOn: la RPC correct_member_joined_on y la traducción de sus errores', () => {
+  function makeRpcClient(result: { data?: unknown; error: { code?: string; message: string } | null }) {
+    const rpc = vi.fn(async () => ({ data: null, ...result }))
+    createClientMock.mockResolvedValue({ rpc })
+    return rpc
+  }
+
+  it('llama a la RPC con target_member_id y new_joined_on (la única puerta, no un UPDATE de members)', async () => {
+    const rpc = makeRpcClient({ error: null })
+    await expect(correctMemberJoinedOn(7, '2026-09-20')).resolves.toBeUndefined()
+    expect(rpc).toHaveBeenCalledWith('correct_member_joined_on', { target_member_id: 7, new_joined_on: '2026-09-20' })
+  })
+
+  it('42501 (consulta): DomainError con el mensaje en criollo, sin el detalle de Postgres', async () => {
+    makeRpcClient({ error: { code: '42501', message: 'No tenés permiso para modificar socios' } })
+    const err = await correctMemberJoinedOn(7, '2026-09-20').catch((e) => e)
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.message).toBe('No tenés permiso para modificar socios')
+  })
+
+  it('socio inexistente: DomainError 404', async () => {
+    makeRpcClient({ error: { code: 'P0002', message: 'El socio no existe' } })
+    const err = await correctMemberJoinedOn(7, '2026-09-20').catch((e) => e)
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.message).toBe('El socio no existe')
+    expect(err.status).toBe(404)
+  })
+
+  it('check_violation con mensaje de la RPC: se muestra tal cual, con field joinedOn', async () => {
+    const message = 'La fecha de alta no puede ser posterior a la baja o reactivación del 05/10/2026'
+    makeRpcClient({ error: { code: '23514', message } })
+    const err = await correctMemberJoinedOn(7, '2026-10-08').catch((e) => e)
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.message).toBe(message)
+    expect(err.field).toBe('joinedOn')
+  })
+
+  it('check_violation CRUDO de un CHECK declarativo: NO se muestra (sigue siendo error interno)', async () => {
+    const raw = { code: '23514', message: 'new row for relation "member_categories" violates check constraint "member_categories_left_after_joined"' }
+    makeRpcClient({ error: raw })
+    const err = await correctMemberJoinedOn(7, '2026-10-08').catch((e) => e)
+    expect(err).not.toBeInstanceOf(DomainError)
+    expect(err).toBe(raw)
   })
 })

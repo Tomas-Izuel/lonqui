@@ -324,6 +324,9 @@ isOneToOne: false
 "confirm_password_changed":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
+"correct_member_joined_on":
+{ Args: { "new_joined_on": string,"target_member_id": number }; Returns: undefined
+                           },
 "daily_collection":
 { Args: { "target_period"?: string }; Returns: {
               "collected_cents": number,"cumulative_cents": number,"day": string

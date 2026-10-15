@@ -5,12 +5,14 @@ import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
 import { Amount } from '@/views/shared/money'
 import { FilterBar, type FilterDef } from '@/views/shared/filter-bar'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { CajaTabs } from '@/views/payments/caja-tabs'
 import { MonthSelector } from '@/views/payments/month-selector'
 import { ExportCsvButton } from '@/views/income/export-csv-button'
 import { OtherIncomeList } from '@/views/income/other-income-list'
 import { RegisterIncomeButton } from '@/views/income/register-income-button'
-import { formatPeriod } from '@/lib/dates'
+import { formatPeriod, toMonthParam } from '@/lib/dates'
 import type { CashConcept, CashMonthSummary, CashMovement, SponsorOption } from '@/models/types'
 
 const countFormatter = new Intl.NumberFormat('es-AR')
@@ -40,6 +42,7 @@ export function OtherIncomeView({
   sponsorId,
   canVoid,
   canExport,
+  canEditConcepts = false,
 }: {
   period: string
   movements: CashMovement[]
@@ -51,6 +54,7 @@ export function OtherIncomeView({
   sponsorId?: number
   canVoid: boolean
   canExport: boolean
+  canEditConcepts?: boolean
 }) {
   const filtersActive = conceptId !== undefined || sponsorId !== undefined
   const monthLabel = formatPeriod(period)
@@ -70,7 +74,7 @@ export function OtherIncomeView({
     },
   ]
 
-  const exportParams = new URLSearchParams({ mes: period.slice(0, 7) })
+  const exportParams = new URLSearchParams({ mes: toMonthParam(period) })
   if (conceptId !== undefined) exportParams.set('concepto', String(conceptId))
   if (sponsorId !== undefined) exportParams.set('sponsor', String(sponsorId))
 
@@ -116,6 +120,7 @@ export function OtherIncomeView({
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <FilterBar filters={filters} />
+        {canEditConcepts ? <EditInSettingsLink href={SETTINGS_LINKS.cash}>Editar conceptos</EditInSettingsLink> : null}
         {canExport ? (
           <ExportCsvButton href={`/api/caja/ingresos/exportar?${exportParams.toString()}`} />
         ) : null}

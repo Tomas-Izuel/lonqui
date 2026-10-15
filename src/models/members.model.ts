@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
 import { BIRTH_DATE_TOO_OLD_MESSAGE, MIN_BIRTH_DATE, toClubDate } from '@/lib/dates'
 import { createFamilyGroup, getFamilyGroup } from '@/models/family-groups.model'
+import { isRawPostgresMessage } from '@/models/pg-errors'
 import { listMedicalClearances } from '@/models/medical-clearances.model'
 import {
   assertCategorySelection,
@@ -179,14 +180,26 @@ export const createMemberSchema = z
   })
 
 /**
- * Modificación: mismo formulario que el alta, pero sin `joinedOn` ni `status`
- * (son inmutables desde la app: `joinedOn` por trigger, `status` sin grant de
- * UPDATE) y sin `categoryIds`: los deportes se cambian con la Server Action
+ * Modificación: mismo formulario que el alta, con `joinedOn` opcional (la
+ * corrección de la fecha de alta, 2026-10-15) y sin `status` (sin grant de
+ * UPDATE) ni `categoryIds`: los deportes se cambian con la Server Action
  * `setMemberCategories` (`members.actions.ts`), no con esta. `.strict()`
- * rechaza cualquiera de las tres con un error de formato genérico, sin nombrar
- * la clave (CLAUDE.md, zodToApiError).
+ * rechaza cualquiera de esas dos con un error de formato genérico, sin nombrar
+ * la clave (CLAUDE.md, zodToApiError). `joinedOn` NO se escribe con el UPDATE
+ * del socio: va por `correctMemberJoinedOn` (la RPC es la única puerta).
  */
-export const updateMemberSchema = z.object(MEMBER_CORE_SHAPE).strict().superRefine(checkMemberCoherence)
+export const updateMemberSchema = z
+  .object({
+    ...MEMBER_CORE_SHAPE,
+    joinedOn: z.iso.date('La fecha de alta no es válida').optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    checkMemberCoherence(data, ctx)
+    if (data.joinedOn && data.joinedOn > toClubDate()) {
+      ctx.addIssue({ code: 'custom', message: 'La fecha de alta no puede ser futura', path: ['joinedOn'] })
+    }
+  })
 
 export type CreateMemberInput = z.infer<typeof createMemberSchema>
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>
@@ -306,6 +319,21 @@ function translateStatusEventError(error: PostgrestError): unknown {
   if (error.code === '23514') {
     if (STATUS_MESSAGES_WITHOUT_FIELD.has(error.message)) return new DomainError(error.message)
     if (STATUS_MESSAGES_ON_DATE.has(error.message)) return new DomainError(error.message, { field: 'effectiveOn' })
+  }
+  return error
+}
+
+function translateJoinedOnError(error: PostgrestError): unknown {
+  if (error.code === '42501') {
+    return new DomainError('No tenés permiso para modificar socios')
+  }
+  if (error.code === 'P0002' || error.message === 'El socio no existe') {
+    return new DomainError('El socio no existe', { status: 404 })
+  }
+  // Los mensajes de la RPC (futura, anterior al nacimiento, posterior a baja,
+  // inscripción o cuotas) son texto de interfaz; un CHECK crudo no.
+  if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
+    return new DomainError(error.message, { field: 'joinedOn' })
   }
   return error
 }
@@ -867,6 +895,8 @@ export async function updateMember(id: number, input: UpdateMemberInput): Promis
 
   const { data, error } = await supabase
     .from('members')
+    // `input.joinedOn` se ignora a propósito: `joined_on` no tiene grant de UPDATE
+    // (daría permission denied) y se corrige antes, por `correctMemberJoinedOn`.
     .update({
       first_name: input.firstName,
       last_name: input.lastName,
@@ -884,6 +914,21 @@ export async function updateMember(id: number, input: UpdateMemberInput): Promis
 
   if (error) throw translateMemberError(error)
   if (!data) throw new DomainError('El socio no existe', { status: 404 })
+}
+
+/**
+ * Corrige la fecha de alta por la única puerta: la RPC `correct_member_joined_on`
+ * (SECURITY DEFINER, exige `members.write`, arrastra ficha de ingreso e
+ * inscripciones iniciales). Cliente de sesión: la auditoría toma el actor de
+ * `auth.uid()`. Si la fecha es igual a la guardada, la RPC no hace nada.
+ */
+export async function correctMemberJoinedOn(id: number, joinedOn: string): Promise<void> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('correct_member_joined_on', {
+    target_member_id: id,
+    new_joined_on: joinedOn,
+  })
+  if (error) throw translateJoinedOnError(error)
 }
 
 /**
