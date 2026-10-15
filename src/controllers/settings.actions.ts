@@ -37,7 +37,7 @@ import type { CashConcept, Category, Discipline, Settings } from '@/models/types
  *
  * Todas: `requireRole('admin')` primero, Zod `.strict()` sobre la entrada (los
  * datos que manda el browser no se asumen bien formados aunque el formulario
- * ya haya validado), y `revalidatePath('/ajustes')` en el camino feliz. El
+ * ya haya validado), y `revalidatePath('/ajustes', 'layout')` en el camino feliz. El
  * catch de cada una traduce con `failure()`: una `DomainError` (por ejemplo,
  * el nombre duplicado que lanza el modelo por la unique violation) llega con
  * su mensaje y su `field`; cualquier otra cosa, genérico.
@@ -64,7 +64,7 @@ export async function createDiscipline(input: unknown): Promise<ActionResult<Dis
     }
 
     const discipline = await modelCreateDiscipline(parsed.data)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(discipline)
   } catch (err) {
     return failure(err, 'settings.createDiscipline')
@@ -81,7 +81,7 @@ export async function updateDiscipline(id: number, input: unknown): Promise<Acti
     }
 
     const discipline = await modelUpdateDiscipline(id, parsed.data)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(discipline)
   } catch (err) {
     return failure(err, 'settings.updateDiscipline')
@@ -98,7 +98,7 @@ export async function setDisciplineActive(id: number, isActive: boolean): Promis
     }
 
     const discipline = await modelSetDisciplineActive(parsed.data.id, parsed.data.isActive)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(discipline)
   } catch (err) {
     return failure(err, 'settings.setDisciplineActive')
@@ -115,7 +115,7 @@ export async function reorderDisciplines(orderedIds: number[]): Promise<ActionRe
     }
 
     await modelReorderDisciplines(parsed.data.orderedIds)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success()
   } catch (err) {
     return failure(err, 'settings.reorderDisciplines')
@@ -132,7 +132,7 @@ export async function createCategory(input: unknown): Promise<ActionResult<Categ
     }
 
     const category = await modelCreateCategory(parsed.data)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(category)
   } catch (err) {
     return failure(err, 'settings.createCategory')
@@ -149,7 +149,7 @@ export async function updateCategory(id: number, input: unknown): Promise<Action
     }
 
     const category = await modelUpdateCategory(id, parsed.data)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(category)
   } catch (err) {
     return failure(err, 'settings.updateCategory')
@@ -169,7 +169,7 @@ export async function setCategoryActive(
     }
 
     const result = await modelSetCategoryActive(parsed.data.id, parsed.data.isActive)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(result)
   } catch (err) {
     return failure(err, 'settings.setCategoryActive')
@@ -186,7 +186,7 @@ export async function reorderCategories(disciplineId: number, orderedIds: number
     }
 
     await modelReorderCategories(parsed.data.disciplineId, parsed.data.orderedIds)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success()
   } catch (err) {
     return failure(err, 'settings.reorderCategories')
@@ -203,7 +203,7 @@ export async function updateSettings(input: unknown): Promise<ActionResult<Setti
     }
 
     const settings = await modelUpdateSettings(parsed.data)
-    revalidatePath('/ajustes')
+    revalidatePath('/ajustes', 'layout')
     return success(settings)
   } catch (err) {
     return failure(err, 'settings.updateSettings')
@@ -217,7 +217,7 @@ export async function updateSettings(input: unknown): Promise<ActionResult<Setti
 // -----------------------------------------------------------------------------
 
 function revalidateConcepts() {
-  revalidatePath('/ajustes')
+  revalidatePath('/ajustes', 'layout')
   revalidatePath('/caja', 'layout')
 }
 

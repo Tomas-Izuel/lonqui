@@ -1,6 +1,5 @@
-import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
-import { EmptyState } from '@/views/shared/states'
+import { EmptyState, LoadingList } from '@/views/shared/states'
 import { DisciplineGroup } from '@/views/settings/discipline-group'
 import { NewDisciplineButton } from '@/views/settings/new-discipline-button'
 import { ClubSettingsForm } from '@/views/settings/club-settings-form'
@@ -9,44 +8,40 @@ import { BillingSection } from '@/views/settings/billing-section'
 import { IncomeConceptsSection } from '@/views/settings/income-concepts-section'
 import type { BillingStatus, CashConcept, DisciplineWithCategories, FeePricesOverview, Settings } from '@/models/types'
 
-/**
- * `/ajustes`. Cero data fetching (CLAUDE.md): recibe todo ya resuelto por
- * `getSettingsPage()` (Server Component, `page.tsx`). Server Component en sí
- * mismo — el estado interactivo vive en los islands hijos (`DisciplineGroup`,
- * `ClubSettingsForm`, `FeePricesSection`, `BillingSection`), lo más abajo
- * posible del árbol.
- *
- * Orden de los paneles: catálogo (disciplinas y categorías) → conceptos de
- * ingreso (el otro catálogo del club) → el precio de las cuotas
- * (valores de cuota, que referencian esas categorías) → activación de la
- * facturación (que exige el valor por defecto de arriba) → datos generales
- * del club. Cada panel es su propia sección, ninguna anidada (piso de
- * calidad).
+/*
+ * Una vista por pestaña de `/ajustes`. Cero data fetching: reciben todo de la
+ * page (Server Component). `gap-6` entre paneles, el mismo ritmo que
+ * `/usuarios` y `/auditoria`.
  */
-export function SettingsPageView({
-  settings,
-  disciplines,
-  categoriesByDiscipline,
+
+export function CuotasTabView({
   feePrices,
   billing,
-  incomeConcepts,
+  disciplines,
+  categoriesByDiscipline,
 }: {
-  settings: Settings
-  disciplines: DisciplineWithCategories[]
-  categoriesByDiscipline: DisciplineWithCategories[]
   feePrices: FeePricesOverview
   billing: BillingStatus
-  incomeConcepts: CashConcept[]
+  disciplines: DisciplineWithCategories[]
+  categoriesByDiscipline: DisciplineWithCategories[]
 }) {
-  const disciplineIds = disciplines.map((d) => d.id)
-
   return (
-    // `gap-6` entre paneles: mismo ritmo que `/usuarios` y `/auditoria`
-    // (`entre secciones`, DESIGN.md) — antes era `gap-4`, un poco más
-    // apretado que las otras dos superficies de este mismo grupo `(admin)`.
     <div className="flex flex-col gap-6">
-      <PageHeader title="Ajustes" description="Disciplinas, categorías, conceptos de ingreso, cuotas y datos del club." />
+      <FeePricesSection
+        feePrices={feePrices}
+        billing={billing}
+        disciplines={disciplines}
+        categoriesByDiscipline={categoriesByDiscipline}
+      />
+      <BillingSection billing={billing} hasDefaultFeePrice={feePrices.current.default !== null} />
+    </div>
+  )
+}
 
+export function DeportesTabView({ disciplines }: { disciplines: DisciplineWithCategories[] }) {
+  const disciplineIds = disciplines.map((d) => d.id)
+  return (
+    <div className="flex flex-col gap-6">
       <Panel
         title="Disciplinas y categorías"
         description="Ordená, agregá categorías y desactivá lo que ya no se usa."
@@ -66,21 +61,37 @@ export function SettingsPageView({
           </ul>
         )}
       </Panel>
+    </div>
+  )
+}
 
+export function CajaTabView({ incomeConcepts }: { incomeConcepts: CashConcept[] }) {
+  return (
+    <div className="flex flex-col gap-6">
       <IncomeConceptsSection concepts={incomeConcepts} />
+    </div>
+  )
+}
 
-      <FeePricesSection
-        feePrices={feePrices}
-        billing={billing}
-        disciplines={disciplines}
-        categoriesByDiscipline={categoriesByDiscipline}
-      />
-
-      <BillingSection billing={billing} hasDefaultFeePrice={feePrices.current.default !== null} />
-
+export function ClubTabView({ settings }: { settings: Settings }) {
+  return (
+    <div className="flex flex-col gap-6">
       <Panel title="Datos del club" description="El nombre que ve el club en todo el sistema.">
         <ClubSettingsForm settings={settings} />
       </Panel>
+    </div>
+  )
+}
+
+/** Esqueleto por pestaña: mismos títulos de panel que la vista real, para que no salte el layout. */
+export function SettingsTabLoading({ panels }: { panels: { title: string; rows: number }[] }) {
+  return (
+    <div className="flex flex-col gap-6">
+      {panels.map((panel) => (
+        <Panel key={panel.title} title={panel.title}>
+          <LoadingList rows={panel.rows} />
+        </Panel>
+      ))}
     </div>
   )
 }

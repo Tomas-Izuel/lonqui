@@ -95,6 +95,7 @@ export function MemberDetailView({
           openingBalance={account.openingBalance}
           billing={billing}
           canRegister={canRegisterPayments}
+          canActivateBilling={permissions.includes('billing.configure') && permissions.includes('settings.manage')}
         />
       ) : null}
 
@@ -146,6 +147,7 @@ export function MemberDetailView({
             categoryHistory={member.categoryHistory}
             disciplines={disciplines}
             canManage={canEdit}
+            canEditCatalog={permissions.includes('settings.manage')}
           />
         </TabsContent>
 

@@ -6,8 +6,8 @@ import { DebtByCategoryView } from '@/views/payments/debt-by-category-view'
 export const metadata: Metadata = { title: 'Deuda por categoría — Lonqui' }
 
 export default async function DebtByCategoryPage() {
-  await requirePanelPermission('payments.read')
+  const session = await requirePanelPermission('payments.read')
   const { rows, totalCents } = await getDebtByCategoryPage()
 
-  return <DebtByCategoryView rows={rows} totalCents={totalCents} />
+  return <DebtByCategoryView rows={rows} totalCents={totalCents} canEditCategories={session.permissions.includes('settings.manage')} />
 }

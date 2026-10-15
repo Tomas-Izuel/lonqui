@@ -3,6 +3,8 @@ import { Panel } from '@/views/shared/panel'
 import { DataList, type DataListColumn, type DataListRow } from '@/views/shared/data-list'
 import { Amount } from '@/views/shared/money'
 import { EmptyState } from '@/views/shared/states'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { CajaTabs } from '@/views/payments/caja-tabs'
 import { CategoryDebtChart } from '@/views/payments/category-debt-chart'
 import { categoryRowLabel } from '@/views/payments/account-format'
@@ -17,7 +19,15 @@ import type { DebtByCategoryRow } from '@/models/types'
  * "quién debe más"; la `DataList` de siempre queda como la tabla accesible
  * equivalente, con TODAS las filas (incluidas las de deuda cero).
  */
-export function DebtByCategoryView({ rows, totalCents }: { rows: DebtByCategoryRow[]; totalCents: number }) {
+export function DebtByCategoryView({
+  rows,
+  totalCents,
+  canEditCategories = false,
+}: {
+  rows: DebtByCategoryRow[]
+  totalCents: number
+  canEditCategories?: boolean
+}) {
   const columns: DataListColumn<DebtByCategoryRow>[] = [
     { key: 'label', header: 'Categoría', render: (r) => categoryRowLabel(r) },
     { key: 'members', header: 'Socios', numeric: true, render: (r) => r.members },
@@ -38,6 +48,11 @@ export function DebtByCategoryView({ rows, totalCents }: { rows: DebtByCategoryR
     <div className="flex flex-col gap-4">
       <PageHeader title="Deuda por categoría" description="La deuda de cada categoría, atribuida cargo por cargo." />
       <CajaTabs />
+      {canEditCategories ? (
+        <EditInSettingsLink href={SETTINGS_LINKS.sports} className="self-start">
+          Editar categorías
+        </EditInSettingsLink>
+      ) : null}
       <CategoryDebtChart rows={rows} variant="full" />
       <DataList
         items={rows}

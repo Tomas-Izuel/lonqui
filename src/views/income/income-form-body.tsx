@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { EmptyState, ErrorState, LoadingList } from '@/views/shared/states'
 import { SuccessMoment } from '@/views/shared/success-moment'
 import { useHasPermission } from '@/views/shell/panel-session'
@@ -93,7 +94,7 @@ export function IncomeFormBody({ sponsorId, onDone }: { sponsorId?: number; onDo
         action={
           canManageSettings ? (
             <Button asChild variant="outline" className="h-11">
-              <Link href="/ajustes">Ir a Ajustes</Link>
+              <Link href={SETTINGS_LINKS.cash}>Cargar conceptos</Link>
             </Button>
           ) : undefined
         }

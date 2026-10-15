@@ -1,6 +1,8 @@
 import { PageHeader } from '@/views/shared/page-header'
 import { Panel } from '@/views/shared/panel'
 import { Amount } from '@/views/shared/money'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { CajaTabs } from '@/views/payments/caja-tabs'
 import { MonthSelector } from '@/views/payments/month-selector'
 import { MonthPaymentsList } from '@/views/payments/month-payments-list'
@@ -12,17 +14,24 @@ export function MonthPaymentsView({
   collection,
   page,
   canVoid,
+  canEditFee = false,
 }: {
   period: string
   collection: MonthCollection
   page: Page<PaymentListItem>
   canVoid: boolean
+  canEditFee?: boolean
 }) {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Pagos de cuotas" />
       <CajaTabs />
       <MonthSelector period={period} basePath="/caja/cuotas" />
+      {canEditFee ? (
+        <EditInSettingsLink href={SETTINGS_LINKS.fees} className="self-start">
+          Cambiar valor de cuota
+        </EditInSettingsLink>
+      ) : null}
 
       <Panel>
         <div className="flex flex-wrap items-center justify-between gap-3">

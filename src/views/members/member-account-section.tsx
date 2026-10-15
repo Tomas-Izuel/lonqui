@@ -12,6 +12,8 @@ import { Panel } from '@/views/shared/panel'
 import { Amount } from '@/views/shared/money'
 import { AmountField, TextareaField } from '@/views/shared/form-fields'
 import { useOverlayParam, paymentOverlayValue } from '@/views/shared/overlay-params'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { MemberAccountAnswer } from '@/views/members/member-account-answer'
 import { createOpeningBalance } from '@/controllers/payments.actions'
 import type { BillingStatus, Fee, MemberAccount } from '@/models/types'
@@ -53,6 +55,7 @@ export function MemberAccountSection({
   openingBalance,
   billing,
   canRegister,
+  canActivateBilling = false,
 }: {
   memberId: number
   familyGroupId: number | null
@@ -60,6 +63,7 @@ export function MemberAccountSection({
   openingBalance: Fee | null
   billing: BillingStatus
   canRegister: boolean
+  canActivateBilling?: boolean
 }) {
   const router = useRouter()
   const paymentOverlay = useOverlayParam('pagar')
@@ -104,7 +108,16 @@ export function MemberAccountSection({
             se leía como una tarjeta anidada dentro de otra. */}
         <MemberAccountAnswer account={account} variant="plain" />
 
-        {!billing.active ? <p className="text-sm text-muted-foreground">La facturación de cuotas todavía no está activada.</p> : null}
+        {!billing.active ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm text-muted-foreground">La facturación de cuotas todavía no está activada.</p>
+            {canActivateBilling ? (
+              <EditInSettingsLink href={SETTINGS_LINKS.fees} className="self-start">
+                Activar cuotas
+              </EditInSettingsLink>
+            ) : null}
+          </div>
+        ) : null}
 
         {canRegister ? (
           <div className="flex flex-wrap gap-2">

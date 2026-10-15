@@ -35,6 +35,7 @@ export default async function MonthPaymentsPage({ searchParams }: { searchParams
       collection={collection}
       page={page}
       canVoid={session.permissions.includes('payments.void')}
+      canEditFee={session.permissions.includes('settings.manage')}
     />
   )
 }

@@ -47,7 +47,8 @@ import type { DashboardData, SessionInfo } from '@/models/types'
  */
 export function DashboardContent({ data, session, greeting }: { data: DashboardData; session: SessionInfo; greeting: string }) {
   const { summary, topDebtors, byCategory, history, billing } = data
-  const canConfigureBilling = session.permissions.includes('billing.configure')
+  const canConfigureBilling =
+    session.permissions.includes('billing.configure') && session.permissions.includes('settings.manage')
   const runNoticeVisible = shouldShowRunNotice(billing, session.permissions)
   const extras = summary.billingActive ? <PriorityExtras summary={summary} /> : null
 

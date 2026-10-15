@@ -10,6 +10,8 @@ import { Amount } from '@/views/shared/money'
 import { CajaTabs } from '@/views/payments/caja-tabs'
 import { DailyCollectionChart, DailyCollectionTableHidden } from '@/views/payments/daily-collection-chart'
 import { useOverlayParam } from '@/views/shared/overlay-params'
+import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
+import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { formatPeriod } from '@/lib/dates'
 import { formatCentsCompact } from '@/lib/money'
 import type { BillingStatus, CashMonthSummary, DailyCollectionPoint, DashboardSummary, Permission } from '@/models/types'
@@ -180,9 +182,16 @@ export function CajaHubView({
         <Panel>
           <div className="flex flex-col gap-4">
             {!billing.active ? (
-              <p className="text-sm text-muted-foreground">
-                Las cuotas todavía no están activadas: no hay cuotas del mes para comparar, pero se puede registrar un pago igual.
-              </p>
+              <div className="flex flex-col gap-1">
+                <p className="text-sm text-muted-foreground">
+                  Las cuotas todavía no están activadas: no hay cuotas del mes para comparar, pero se puede registrar un pago igual.
+                </p>
+                {permissions.includes('billing.configure') && permissions.includes('settings.manage') ? (
+                  <EditInSettingsLink href={SETTINGS_LINKS.fees} className="self-start">
+                    Activar cuotas
+                  </EditInSettingsLink>
+                ) : null}
+              </div>
             ) : null}
             <HeroFigure
               label="Cobrado en cuotas"

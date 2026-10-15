@@ -8,51 +8,63 @@ import { getBillingStatus } from '@/models/billing.model'
 import { listCashConcepts } from '@/models/cash-concepts.model'
 import type { BillingStatus, CashConcept, DisciplineWithCategories, FeePricesOverview, Settings } from '@/models/types'
 
-export type SettingsPageData = {
-  settings: Settings
-  /** Todas, incluidas las inactivas: acá se administra el catálogo completo. */
-  disciplines: DisciplineWithCategories[]
-  /**
-   * Solo las categorías ACTIVAS, agrupadas por disciplina: es lo que puede
-   * elegir el selector de "valor de cuota por categoría" — no tiene sentido
-   * fijar un precio nuevo para una categoría que el club ya dio de baja.
-   */
-  categoriesByDiscipline: DisciplineWithCategories[]
+/**
+ * Lecturas de `/ajustes`, una por pestaña (`/ajustes/cuotas|deportes|caja|club`).
+ * Cada pestaña es una page propia: carga solo lo suyo, no el combo entero.
+ *
+ * Todas re-verifican `settings.manage` (por PERMISO, no por rol; D20): el
+ * layout `(admin)` ya bloquea la ruta, pero los layouts no se re-ejecutan al
+ * navegar del lado del cliente, y la defensa real sigue siendo RLS.
+ */
+
+export type AjustesCuotasData = {
   feePrices: FeePricesOverview
   billing: BillingStatus
-  /** Conceptos de caja (ingresos), todos, incluidos los inactivos: acá se administra el catálogo. */
+  /** Todas, incluidas las inactivas: para etiquetar valores históricos. */
+  disciplines: DisciplineWithCategories[]
+  /**
+   * Solo categorías ACTIVAS: es lo que ofrece "Nuevo valor"; no tiene sentido
+   * fijar un precio para una categoría que el club dio de baja.
+   */
+  categoriesByDiscipline: DisciplineWithCategories[]
+}
+
+export type AjustesDeportesData = {
+  /** Todas, incluidas las inactivas: acá se administra el catálogo completo. */
+  disciplines: DisciplineWithCategories[]
+}
+
+export type AjustesCajaData = {
+  /** Todos, incluidos los inactivos: acá se administra el catálogo. */
   incomeConcepts: CashConcept[]
 }
 
-/**
- * Lectura combinada para `/ajustes`: settings del club + disciplinas con
- * categorías + valores de cuota + estado de la facturación.
- *
- * `(admin)/layout.tsx` ya bloquea la ruta a quien no es admin (D10), pero la
- * re-verificación acá es la que corresponde al controller: la defensa real
- * sigue siendo RLS, esto es responder claro en vez de dejar que una llamada
- * fuera de lugar devuelva datos que la UI no esperaba filtrar. Desde el
- * pipeline `2026-09-27-cuotas-pagos-panel` (T12/D20) el chequeo es por
- * PERMISO (`settings.manage`), no por rol: con el mapeo de hoy es lo mismo
- * (solo `admin` lo tiene), pero cuando exista el pipeline de roles
- * configurables esta firma no cambia.
- *
- * Los selects de disciplina/categoría del padrón (solo activas) no pasan por
- * acá: `listDisciplines({ includeInactive: false })` de `catalogs.model.ts` es
- * una lectura plana que cualquier page puede llamar directo (CLAUDE.md,
- * "cuándo hace falta un controller").
- */
-export async function getSettingsPage(): Promise<SettingsPageData> {
+export type AjustesClubData = { settings: Settings }
+
+export async function getAjustesCuotasData(): Promise<AjustesCuotasData> {
   await requirePanelPermission('settings.manage')
 
-  const [settings, disciplines, categoriesByDiscipline, feePrices, billing, incomeConcepts] = await Promise.all([
-    getSettings(),
-    listDisciplines({ includeInactive: true }),
-    listDisciplines({ includeInactive: false }),
+  const [feePrices, billing, disciplines, categoriesByDiscipline] = await Promise.all([
     getFeePricesOverview(),
     getBillingStatus(),
-    listCashConcepts({ includeInactive: true }),
+    listDisciplines({ includeInactive: true }),
+    listDisciplines({ includeInactive: false }),
   ])
 
-  return { settings, disciplines, categoriesByDiscipline, feePrices, billing, incomeConcepts }
+  return { feePrices, billing, disciplines, categoriesByDiscipline }
+}
+
+export async function getAjustesDeportesData(): Promise<AjustesDeportesData> {
+  await requirePanelPermission('settings.manage')
+  return { disciplines: await listDisciplines({ includeInactive: true }) }
+}
+
+export async function getAjustesCajaData(): Promise<AjustesCajaData> {
+  await requirePanelPermission('settings.manage')
+  return { incomeConcepts: await listCashConcepts({ includeInactive: true }) }
+}
+
+export async function getAjustesClubData(): Promise<AjustesClubData> {
+  await requirePanelPermission('settings.manage')
+  return { settings: await getSettings() }
 }
