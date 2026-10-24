@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 /**
- * `payments.model.ts`: `registerPayment` (una sola sentencia con N filas,
- * detección de `(batch_id, member_id)` como éxito idempotente),
+ * `payments.model.ts`: `registerPayment` (vía `register_payment_batch`, con el
+ * saldo anterior por meses dentro del lote; idempotencia por `batch_id` en la RPC),
  * `voidPayment`/`attachReceipt` (traducción de `payments_update_guard`),
  * `buildReceiptPath`, y el keyset de `getMonthPaymentsPage`. Cliente mockeado
  * en el borde externo.
@@ -109,76 +109,200 @@ describe('registerPaymentSchema', () => {
   })
 })
 
-describe('registerPayment: una sola sentencia, N filas', () => {
-  it('éxito: paymentIds y totalCents (suma de centavos, nunca floats) desde la fila insertada', async () => {
-    const insertSpy = vi.fn((_rows: unknown[]) => ({
-      select: async () => ({ data: [{ id: 1, amount_cents: 1_000_000 }, { id: 2, amount_cents: 500_000 }], error: null }),
+const BATCH = '11111111-1111-4111-8111-111111111111'
+const VALID_BASE = { batchId: BATCH, paidOn: '2026-01-01', method: 'cash' as const }
+
+describe('registerPaymentSchema: saldo anterior por meses y lote', () => {
+  const ob = { fromPeriod: '2026-07-01', toPeriod: '2026-09-01', amountCents: 3_000_000 }
+
+  it('acepta un ítem con saldo anterior y uno sin él', async () => {
+    const { registerPaymentSchema } = await importModel()
+    const result = registerPaymentSchema.safeParse({
+      ...VALID_BASE,
+      items: [
+        { memberId: 1, amountCents: 4_000_000, openingBalance: ob },
+        { memberId: 2, amountCents: 1_000_000 },
+        { memberId: 3, amountCents: 1_000_000, openingBalance: null },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it.each([
+    ['fromPeriod posterior a toPeriod', { ...ob, fromPeriod: '2026-09-01', toPeriod: '2026-07-01' }],
+    ['período que no es día 1', { ...ob, fromPeriod: '2026-07-15' }],
+    ['toPeriod que no es día 1', { ...ob, toPeriod: '2026-09-30' }],
+    ['amountCents 0', { ...ob, amountCents: 0 }],
+    ['amountCents negativo', { ...ob, amountCents: -1 }],
+    ['amountCents con decimales (nunca floats)', { ...ob, amountCents: 1000.5 }],
+    ['clave de más (strict)', { ...ob, description: 'colada desde el cliente' }],
+  ])('rechaza openingBalance con %s', async (_label, openingBalance) => {
+    const { registerPaymentSchema } = await importModel()
+    const result = registerPaymentSchema.safeParse({ ...VALID_BASE, items: [{ memberId: 1, amountCents: 100, openingBalance }] })
+    expect(result.success).toBe(false)
+  })
+
+  it('fromPeriod igual a toPeriod (un solo mes previo): acepta', async () => {
+    const { registerPaymentSchema } = await importModel()
+    const result = registerPaymentSchema.safeParse({
+      ...VALID_BASE,
+      items: [{ memberId: 1, amountCents: 100, openingBalance: { ...ob, fromPeriod: '2026-09-01', toPeriod: '2026-09-01' } }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('dos ítems con el mismo memberId: rechaza con el mensaje en path items', async () => {
+    const { registerPaymentSchema } = await importModel()
+    const result = registerPaymentSchema.safeParse({
+      ...VALID_BASE,
+      items: [
+        { memberId: 1, amountCents: 100 },
+        { memberId: 1, amountCents: 200 },
+      ],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.message === 'El mismo socio aparece dos veces en el lote')
+      expect(issue?.path).toEqual(['items'])
+    }
+  })
+})
+
+describe('registerPayment: register_payment_batch (un solo camino de escritura)', () => {
+  function rpcRows(rows: Array<{ member_id: number; payment_id: number; amount_cents: number; opening_balance_fee_id?: number | null; already_registered?: boolean }>) {
+    return rows.map((r) => ({ opening_balance_fee_id: null, already_registered: false, ...r }))
+  }
+
+  it('llama a la RPC con el lote en snake_case y la descripción armada; sin saldo anterior manda opening_balance: null', async () => {
+    const rpc = vi.fn(async (_fn: string, _args: Record<string, unknown>) => ({
+      data: rpcRows([
+        { member_id: 1, payment_id: 11, amount_cents: 4_000_000, opening_balance_fee_id: 77 },
+        { member_id: 2, payment_id: 12, amount_cents: 500_000 },
+      ]),
+      error: null,
     }))
-    createClientMock.mockResolvedValue({ from: () => ({ insert: insertSpy }) })
+    createClientMock.mockResolvedValue({ rpc })
 
     const { registerPayment } = await importModel()
-    const result = await registerPayment({
-      batchId: '11111111-1111-4111-8111-111111111111',
+    await registerPayment({
+      batchId: BATCH,
       paidOn: '2026-09-01',
-      method: 'cash',
+      method: 'transfer',
+      receiptPath: 'payment-receipts/1/x.png',
+      notes: 'nota',
       items: [
-        { memberId: 1, amountCents: 1_000_000 },
+        { memberId: 1, amountCents: 4_000_000, openingBalance: { fromPeriod: '2026-07-01', toPeriod: '2026-09-01', amountCents: 3_000_000 } },
         { memberId: 2, amountCents: 500_000 },
       ],
     })
 
-    expect(result).toEqual({ paymentIds: [1, 2], totalCents: 1_500_000, alreadyRegistered: false })
-    // Una sola llamada a insert con las N filas juntas (no N inserts sueltos).
-    expect(insertSpy).toHaveBeenCalledTimes(1)
-    expect(insertSpy.mock.calls[0][0]).toHaveLength(2)
+    expect(rpc).toHaveBeenCalledTimes(1)
+    const [fn, args] = rpc.mock.calls[0]
+    expect(fn).toBe('register_payment_batch')
+    expect(args).toEqual({
+      batch_id: BATCH,
+      paid_on: '2026-09-01',
+      method: 'transfer',
+      receipt_storage_path: 'payment-receipts/1/x.png',
+      notes: 'nota',
+      items: [
+        {
+          member_id: 1,
+          amount_cents: 4_000_000,
+          opening_balance: {
+            from_period: '2026-07-01',
+            to_period: '2026-09-01',
+            amount_cents: 3_000_000,
+            description: 'Saldo anterior · julio a septiembre 2026',
+          },
+        },
+        { member_id: 2, amount_cents: 500_000, opening_balance: null },
+      ],
+    })
   })
 
-  it('reintento con el mismo (batch_id, member_id): unique violation se traduce a alreadyRegistered=true, recuperando lo ya cargado', async () => {
-    const existingRows = [{ id: 10, amount_cents: 1_000_000 }]
-    // El modelo llama from('payments') una SEGUNDA vez para recuperar lo
-    // existente (select().eq()) tras el 23505 del insert.
-    const from = vi.fn((table: string) => {
-      if (table !== 'payments') throw new Error('tabla inesperada')
-      return {
-        insert: () => ({
-          select: async () => ({
-            data: null,
-            error: { code: '23505', message: 'duplicate key value violates unique constraint "payments_batch_member_key"' },
-          }),
-        }),
-        select: () => ({ eq: async () => ({ data: existingRows, error: null }) }),
-      }
+  it('mapea el retorno: ids, total en centavos enteros, ids de saldos anteriores sin nulos, alreadyRegistered=false', async () => {
+    createClientMock.mockResolvedValue({
+      rpc: async () => ({
+        data: rpcRows([
+          { member_id: 1, payment_id: 1, amount_cents: 1_000_000, opening_balance_fee_id: 5 },
+          { member_id: 2, payment_id: 2, amount_cents: 500_000 },
+        ]),
+        error: null,
+      }),
     })
-    createClientMock.mockResolvedValue({ from })
-
     const { registerPayment } = await importModel()
-    const result = await registerPayment({
-      batchId: '22222222-2222-4222-8222-222222222222',
-      paidOn: '2026-09-01',
-      method: 'cash',
-      items: [{ memberId: 1, amountCents: 1_000_000 }],
-    })
-
-    expect(result).toEqual({ paymentIds: [10], totalCents: 1_000_000, alreadyRegistered: true })
+    const result = await registerPayment({ ...VALID_BASE, items: [{ memberId: 1, amountCents: 1_000_000 }, { memberId: 2, amountCents: 500_000 }] })
+    expect(result).toEqual({ paymentIds: [1, 2], totalCents: 1_500_000, alreadyRegistered: false, openingBalanceFeeIds: [5] })
   })
+
+  it('reintento: la RPC devuelve already_registered y el modelo lo refleja (no es un error)', async () => {
+    createClientMock.mockResolvedValue({
+      rpc: async () => ({ data: rpcRows([{ member_id: 1, payment_id: 10, amount_cents: 1_000_000, already_registered: true }]), error: null }),
+    })
+    const { registerPayment } = await importModel()
+    const result = await registerPayment({ ...VALID_BASE, items: [{ memberId: 1, amountCents: 1_000_000 }] })
+    expect(result).toEqual({ paymentIds: [10], totalCents: 1_000_000, alreadyRegistered: true, openingBalanceFeeIds: [] })
+  })
+
+  it('data null sin error: resultado vacío, no un crash', async () => {
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: null, error: null }) })
+    const { registerPayment } = await importModel()
+    const result = await registerPayment({ ...VALID_BASE, items: [{ memberId: 1, amountCents: 100 }] })
+    expect(result).toEqual({ paymentIds: [], totalCents: 0, alreadyRegistered: false, openingBalanceFeeIds: [] })
+  })
+
+  async function failWith(error: { code: string; message: string }) {
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: null, error }) })
+    const { registerPayment } = await importModel()
+    return registerPayment({ ...VALID_BASE, items: [{ memberId: 1, amountCents: 100 }] }).catch((e) => e)
+  }
 
   it('FK de socio inexistente (23503): DomainError claro con field memberId', async () => {
-    const rawError = { code: '23503', message: 'insert or update on table "payments" violates foreign key constraint "payments_member_id_fkey"' }
-    createClientMock.mockResolvedValue({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: rawError }) }) }) })
-    const { registerPayment } = await importModel()
     const { DomainError } = await import('@/lib/errors')
-    const err = await registerPayment({ batchId: '33333333-3333-4333-8333-333333333333', paidOn: '2026-09-01', method: 'cash', items: [{ memberId: 999, amountCents: 100 }] }).catch((e) => e)
+    const err = await failWith({ code: '23503', message: 'insert or update on table "payments" violates foreign key constraint "payments_member_id_fkey"' })
     expect(err).toBeInstanceOf(DomainError)
     expect(err.field).toBe('memberId')
     expect(err.message).not.toMatch(/constraint|payments_member_id_fkey/)
   })
 
-  it('un error desconocido (no de dominio) se relanza tal cual, sin mostrarse al usuario', async () => {
-    const rawError = { code: '57014', message: 'canceling statement due to statement timeout' }
-    createClientMock.mockResolvedValue({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: rawError }) }) }) })
-    const { registerPayment } = await importModel()
+  it('23505 fees_one_opening_balance: DomainError que habla de "saldo anterior vigente", sin el nombre del índice', async () => {
     const { DomainError } = await import('@/lib/errors')
-    const err = await registerPayment({ batchId: '44444444-4444-4444-8444-444444444444', paidOn: '2026-09-01', method: 'cash', items: [{ memberId: 1, amountCents: 100 }] }).catch((e) => e)
+    const err = await failWith({ code: '23505', message: 'duplicate key value violates unique constraint "fees_one_opening_balance"' })
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.message).toMatch(/saldo anterior vigente/)
+    expect(err.message).not.toMatch(/fees_one_opening_balance|constraint/)
+  })
+
+  it('23514 con texto redactado por la base: DomainError con ese texto', async () => {
+    const { DomainError } = await import('@/lib/errors')
+    const err = await failWith({ code: '23514', message: 'El saldo anterior solo cubre meses anteriores a 10/2026' })
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.message).toBe('El saldo anterior solo cubre meses anteriores a 10/2026')
+  })
+
+  it('23514 con el mensaje crudo de un CHECK de Postgres: NO se muestra al usuario (no es DomainError)', async () => {
+    const { DomainError } = await import('@/lib/errors')
+    const err = await failWith({ code: '23514', message: 'new row for relation "fees" violates check constraint "fees_amount_cents_check"' })
+    expect(err).not.toBeInstanceOf(DomainError)
+  })
+
+  it('42501: PermissionError', async () => {
+    const { PermissionError } = await import('@/lib/errors')
+    const err = await failWith({ code: '42501', message: 'No tenés permiso para registrar pagos' })
+    expect(err).toBeInstanceOf(PermissionError)
+  })
+
+  it('fecha futura: el texto del guard se traduce al mensaje de interfaz con field paidOn', async () => {
+    const { DomainError } = await import('@/lib/errors')
+    const err = await failWith({ code: '23514', message: 'La fecha del pago no puede ser futura' })
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.field).toBe('paidOn')
+  })
+
+  it('un error desconocido (no de dominio) se relanza tal cual, sin mostrarse al usuario', async () => {
+    const { DomainError } = await import('@/lib/errors')
+    const err = await failWith({ code: '57014', message: 'canceling statement due to statement timeout' })
     expect(err).not.toBeInstanceOf(DomainError)
   })
 })

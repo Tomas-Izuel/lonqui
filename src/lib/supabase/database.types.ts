@@ -388,6 +388,16 @@ isOneToOne: false
 "my_permissions":
 { Args: Record<PropertyKey, never>; Returns: (string)[]
                            },
+"payment_month_options":
+{ Args: { "member_ids": (number)[] }; Returns: {
+              "amount_cents": number,"covered_cents": number,"is_current": boolean,"kind": string,"member_id": number,"pending_cents": number,"period": string,"priced_at_today": boolean
+            }[]
+                           },
+"register_payment_batch":
+{ Args: { "batch_id": string,"items": Json,"method": string,"notes": string,"paid_on": string,"receipt_storage_path": string }; Returns: {
+              "already_registered": boolean,"amount_cents": number,"member_id": number,"opening_balance_fee_id": number,"payment_id": number
+            }[]
+                           },
 "set_family_payment_responsible":
 { Args: { "group_id": number,"member_id": number }; Returns: undefined
                            },

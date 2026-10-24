@@ -7,6 +7,7 @@ import {
   formatPeriod,
   lastDayOfPeriod,
   periodRange,
+  periodRangeLabel,
   previousPeriod,
   toClubDate,
   toMonthParam,
@@ -187,5 +188,23 @@ describe('toMonthParam', () => {
 
   it('el resultado matchea la regex que validan las pages de /caja', () => {
     expect(toMonthParam('2026-10-01')).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/)
+  })
+})
+
+describe('periodRangeLabel', () => {
+  it('un solo mes: sin rango', () => {
+    expect(periodRangeLabel('2026-07-01', '2026-07-01')).toBe('julio 2026')
+  })
+
+  it('mismo año: el año se escribe una sola vez', () => {
+    expect(periodRangeLabel('2026-07-01', '2026-09-01')).toBe('julio a septiembre 2026')
+  })
+
+  it('cruza el año: los dos extremos llevan el suyo', () => {
+    expect(periodRangeLabel('2025-11-01', '2026-02-01')).toBe('noviembre 2025 a febrero 2026')
+  })
+
+  it('diciembre a enero es cruce de año aunque sean meses contiguos', () => {
+    expect(periodRangeLabel('2025-12-01', '2026-01-01')).toBe('diciembre 2025 a enero 2026')
   })
 })

@@ -19,12 +19,20 @@ import {
   voidPayment as voidPaymentRow,
   voidPaymentSchema,
 } from '@/models/payments.model'
-import { createOpeningBalanceSchema, createOpeningBalance as insertOpeningBalance, voidFeeSchema, voidFee as voidFeeRow } from '@/models/fees.model'
-import { getMemberAccounts } from '@/models/accounts.model'
+import {
+  createOpeningBalanceFromMonthsSchema,
+  createOpeningBalanceSchema,
+  createOpeningBalance as insertOpeningBalance,
+  createOpeningBalanceFromMonths as insertOpeningBalanceFromMonths,
+  voidFeeSchema,
+  voidFee as voidFeeRow,
+} from '@/models/fees.model'
+import { getMemberAccounts, getPaymentMonthOptions as getPaymentMonthOptionRows } from '@/models/accounts.model'
 import { getFamilyGroup } from '@/models/family-groups.model'
 import { getBillingStatus } from '@/models/billing.model'
 import { createSignedUploadUrl, getSignedUrl, objectExists } from '@/services/storage.service'
-import type { Page, PaymentFormData, PaymentListItem } from '@/models/types'
+import { z } from 'zod'
+import type { Page, PaymentFormData, PaymentListItem, PaymentMonthOption, RegisterPaymentResult } from '@/models/types'
 
 /**
  * Server Actions de pagos y cargos. Misma convención que `members.actions.ts`
@@ -39,9 +47,14 @@ import type { Page, PaymentFormData, PaymentListItem } from '@/models/types'
 // Registrar pagos
 // -----------------------------------------------------------------------------
 
+/**
+ * Registra un pago (o el cobro de un grupo) vía `register_payment_batch`: una
+ * transacción en la base, con el saldo anterior por meses dentro si el ítem lo
+ * trae. Un reintento con el mismo `batchId` devuelve `alreadyRegistered: true`.
+ */
 export async function registerPayment(
   input: unknown,
-): Promise<ActionResult<{ paymentIds: number[]; totalCents: number; alreadyRegistered: boolean }>> {
+): Promise<ActionResult<RegisterPaymentResult>> {
   try {
     await requirePermission('payments.register')
     const parsed = registerPaymentSchema.safeParse(input)
@@ -183,6 +196,35 @@ export async function createOpeningBalance(input: unknown): Promise<ActionResult
   }
 }
 
+/** Saldo anterior por meses, solo (la ficha: "Indicar desde cuándo debía"). La descripción la arma el modelo. */
+export async function createOpeningBalanceFromMonths(input: unknown): Promise<ActionResult<{ id: number }>> {
+  try {
+    await requirePermission('payments.register')
+    const parsed = createOpeningBalanceFromMonthsSchema.safeParse(input)
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    // Misma regla que `register_payment_batch`: el saldo anterior solo cubre
+    // meses previos al inicio de la facturación (y requiere facturación activa).
+    const billing = await getBillingStatus()
+    if (!billing.active || !billing.startPeriod) {
+      throw new DomainError('Primero activá las cuotas en Ajustes')
+    }
+    if (parsed.data.toPeriod >= billing.startPeriod) {
+      const [year, month] = billing.startPeriod.split('-')
+      throw new DomainError(`El saldo anterior solo cubre meses anteriores a ${month}/${year}`, { field: 'toPeriod' })
+    }
+
+    const fee = await insertOpeningBalanceFromMonths(parsed.data)
+    revalidatePath('/', 'layout')
+    return success({ id: fee.id })
+  } catch (err) {
+    return failure(err, 'payments.createOpeningBalanceFromMonths')
+  }
+}
+
 /**
  * Anula un cargo. Solo `admin` (`payments.void`): la policy de UPDATE de
  * `fees` es estricta (D33, review B2) y `voidFee` (modelo) ya traduce un
@@ -209,9 +251,36 @@ export async function voidFee(input: unknown): Promise<ActionResult<void>> {
 // Datos para abrir el formulario de pago
 // -----------------------------------------------------------------------------
 
+const memberIdSchema = z.object({ memberId: z.number().int().positive() }).strict()
+
+/** Celdas de la tira de meses de un socio (la ficha las pide al abrir "Indicar desde cuándo debía"). */
+export async function getPaymentMonthOptions(input: unknown): Promise<ActionResult<PaymentMonthOption[]>> {
+  try {
+    await requirePermission('payments.register')
+    const parsed = memberIdSchema.safeParse(input)
+    if (!parsed.success) {
+      const { body } = zodToApiError(parsed.error)
+      return invalid(body.error, body.field)
+    }
+
+    return success(await getPaymentMonthOptionRows([parsed.data.memberId]))
+  } catch (err) {
+    return failure(err, 'payments.getPaymentMonthOptions')
+  }
+}
+
+/** Agrupa las filas de la RPC por socio; todo socio pedido tiene clave (`[]` si no vino ninguna). */
+function groupMonthOptions(memberIds: number[], options: PaymentMonthOption[]): Record<number, PaymentMonthOption[]> {
+  const byMember: Record<number, PaymentMonthOption[]> = {}
+  for (const id of memberIds) byMember[id] = []
+  for (const option of options) (byMember[option.memberId] ??= []).push(option)
+  return byMember
+}
+
 /**
  * Lo que necesita el formulario de pago: la cuenta de un socio o de todo un
- * grupo familiar (siempre en una sola RPC vía `accounts.model`, nunca N), más
+ * grupo familiar (siempre en una sola RPC vía `accounts.model`, nunca N), las
+ * celdas de la tira de meses (una sola RPC con todos los ids), más
  * el estado de la facturación (para precargar el mes y avisar si no está
  * activa). Con los dos campos, `familyGroupId` decide quiénes aparecen y
  * `memberId` solo el orden (el socio desde el que se abrió el formulario va
@@ -232,7 +301,8 @@ export async function getPaymentFormData(input: unknown): Promise<ActionResult<P
       const group = await getFamilyGroup(parsed.data.familyGroupId)
       if (!group) throw new DomainError('El grupo familiar no existe', { field: 'familyGroupId' })
 
-      const accounts = await getMemberAccounts(group.members.map((member) => member.id))
+      const memberIds = group.members.map((member) => member.id)
+      const [accounts, options] = await Promise.all([getMemberAccounts(memberIds), getPaymentMonthOptionRows(memberIds)])
       const sourceMemberId = parsed.data.memberId
       const ordered =
         sourceMemberId != null
@@ -241,15 +311,26 @@ export async function getPaymentFormData(input: unknown): Promise<ActionResult<P
             )
           : accounts
 
-      return success({ members: ordered, familyGroup: group, billing })
+      return success({
+        members: ordered,
+        monthOptions: groupMonthOptions(memberIds, options),
+        familyGroup: group,
+        billing,
+      })
     }
 
-    const accounts = await getMemberAccounts([parsed.data.memberId as number])
+    const memberId = parsed.data.memberId as number
+    const [accounts, options] = await Promise.all([getMemberAccounts([memberId]), getPaymentMonthOptionRows([memberId])])
     if (accounts.length === 0) {
       throw new DomainError('El socio no existe', { field: 'memberId' })
     }
 
-    return success({ members: accounts, familyGroup: null, billing })
+    return success({
+      members: accounts,
+      monthOptions: groupMonthOptions([memberId], options),
+      familyGroup: null,
+      billing,
+    })
   } catch (err) {
     return failure(err, 'payments.getPaymentFormData')
   }
