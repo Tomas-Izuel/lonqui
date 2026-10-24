@@ -8,6 +8,7 @@ import { formatCentsCompact } from '@/lib/money'
 import { MonthStrip } from '@/views/payments/month-strip'
 import {
   closePreSystem,
+  isBeforeStart,
   coverageForAmount,
   optionsForSelection,
   defaultSelection,
@@ -19,7 +20,7 @@ import {
   tapCell,
   type Selection,
 } from '@/views/payments/month-selection'
-import type { MemberStatus, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
+import type { ISODate, MemberStatus, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
 
 /**
  * Estado de la entrada por meses de UN socio. Lo guarda el formulario (uno en
@@ -38,7 +39,8 @@ export type EntryState = {
 
 export function initialEntry(options: PaymentMonthOption[], status: MemberStatus): EntryState {
   const selection = defaultSelection(options, status)
-  return { selection, preOpen: false, overrideCents: null, overrideInvalid: false, custom: selection === null }
+  // Antes del inicio los meses previos no se pliegan: son lo que hay que cobrar.
+  return { selection, preOpen: isBeforeStart(options), overrideCents: null, overrideInvalid: false, custom: selection === null }
 }
 
 export function creditOf(balanceCents: number): number {
@@ -74,6 +76,10 @@ type Props<T extends FieldValues> = {
   amountLabel?: string
   /** false = el monto y el resumen viven en el pie fijo del formulario (pago individual). */
   showTotal?: boolean
+  /** Primer mes de la facturación (`billing.startPeriod`). Sin él se deriva de la última celda previa (solo vale si el inicio es el mes siguiente). */
+  startPeriod?: ISODate | null
+  /** El formulario ya muestra la línea "Las cuotas arrancan en…" una vez (pago de grupo). */
+  hideBeforeStartNote?: boolean
 }
 
 /**
@@ -93,11 +99,14 @@ export function MonthEntry<T extends FieldValues>({
   disabled,
   amountLabel = 'Otro monto',
   showTotal = true,
+  startPeriod,
+  hideBeforeStartNote = false,
 }: Props<T>) {
   const compact = variant === 'compact'
   const typed = useWatch({ control, name: amountName }) as number | null | undefined
   const ctx = { openingBalanceOverrideCents: entry.overrideCents, creditCents }
   const derived = derivedAmountCents(options, entry.selection, ctx)
+  const beforeStart = isBeforeStart(options)
   const hasPreSystem = options.some((o) => o.kind === 'pre_system')
   // El mes de inicio de la facturación es el siguiente al último "antes del sistema".
   const lastPre = [...options].reverse().find((o) => o.kind === 'pre_system')
@@ -123,18 +132,22 @@ export function MonthEntry<T extends FieldValues>({
           const isPre = options[index]?.kind === 'pre_system'
           let selection = tapCell(effective, entry.selection, index, { preSystemOpen: entry.preOpen })
           if (isPre) selection = extendToDueMonths(options, selection, { creditCents })
-          update({ ...entry, selection, custom: false, overrideCents: isPre ? null : entry.overrideCents, overrideInvalid: isPre ? false : entry.overrideInvalid })
+          // El total corregido es del saldo anterior: si la selección ya no lo incluye, se descarta.
+          const keepsPre = !isPre && selection !== null && options[selection.startIndex]?.kind === 'pre_system'
+          update({ ...entry, selection, custom: false, overrideCents: keepsPre ? entry.overrideCents : null, overrideInvalid: keepsPre ? entry.overrideInvalid : false })
         }}
         preSystem={
           hasPreSystem && lastPre
             ? {
                 open: entry.preOpen,
-                startPeriod: addMonths(lastPre.period, 1),
+                startPeriod: startPeriod ?? addMonths(lastPre.period, 1),
+                hideBeforeStartNote,
                 overrideCents: entry.overrideCents,
                 // Siempre por `onChange`: total y validez en un solo cambio de estado.
                 onOverrideChange: () => {},
                 onChange: (cents, valid) => update({ ...entry, overrideCents: cents, overrideInvalid: !valid }),
-                onToggle: () => {
+                beforeStart,
+                onToggle: beforeStart ? undefined : () => {
                   if (entry.preOpen) update({ ...entry, preOpen: false, overrideCents: null, overrideInvalid: false, selection: closePreSystem(options, entry.selection) })
                   else update({ ...entry, preOpen: true })
                 },

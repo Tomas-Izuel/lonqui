@@ -55,7 +55,26 @@ function lastPreSystemIndex(options: PaymentMonthOption[]): number {
   return -1
 }
 
+/**
+ * Antes de que arranque la facturación el mes actual también es "antes del
+ * sistema": la RPC lo marca con `isCurrent` en una celda `pre_system`. Después
+ * del inicio ninguna celda previa es el mes actual.
+ */
+export function isBeforeStart(options: PaymentMonthOption[]): boolean {
+  return options.some((o) => o.kind === 'pre_system' && o.isCurrent)
+}
+
+/** Índice de la celda previa que es el mes actual (`-1` si no hay: ya empezó la facturación). */
+function currentPreSystemIndex(options: PaymentMonthOption[]): number {
+  return options.findIndex((o) => o.kind === 'pre_system' && o.isCurrent)
+}
+
 export function defaultSelection(options: PaymentMonthOption[], memberStatus: MemberStatus): Selection {
+  if (isBeforeStart(options)) {
+    // Lo que se cobra hoy es el mes actual, como saldo anterior de un mes (activo o de baja: sin adelantos).
+    const current = currentPreSystemIndex(options)
+    if (isSelectable(options[current])) return { startIndex: current, endIndex: current }
+  }
   const first = firstSystemIndex(options)
   if (first === -1) return null
   if (memberStatus === 'active') return { startIndex: first, endIndex: first }
@@ -79,7 +98,16 @@ export function tapCell(
   if (cell.kind === 'pre_system') {
     // Con el pliegue cerrado esas celdas no se ven: tocarlas no puede ocurrir.
     if (!opts.preSystemOpen) return selection
-    const lastPre = lastPreSystemIndex(options)
+    // Antes del inicio el tope de lo previo es el mes actual, no el último previo
+    // devuelto: no se cobran como deuda meses que todavía no vencieron.
+    const currentPre = currentPreSystemIndex(options)
+    const lastPre = currentPre !== -1 ? currentPre : lastPreSystemIndex(options)
+    // Antes del inicio no hay pliegue que cierre la parte previa: volver a tocar
+    // el primer mes marcado la desmarca y deja solo lo del sistema (o nada).
+    if (isBeforeStart(options) && selection && selection.startIndex === index) {
+      const first = firstSystemIndex(options)
+      return first !== -1 && selection.endIndex > lastPre ? { startIndex: first, endIndex: selection.endIndex } : null
+    }
     const currentEnd = selection?.endIndex
     const keepEnd = currentEnd !== undefined && currentEnd >= index && !isAdvance(options[currentEnd])
     return { startIndex: index, endIndex: keepEnd ? currentEnd : lastPre }

@@ -44,12 +44,11 @@ export function MemberAccountSection({
   const paymentOverlay = useOverlayParam('pagar')
   const [showOpeningForm, setShowOpeningForm] = useState(false)
 
-  // Mismo criterio que el servidor: sin meses previos al inicio no hay nada que indicar.
+  // También antes del inicio: ahí todo lo que debe, mes actual incluido, es anterior al sistema.
   const canIndicateSince =
     canRegister &&
     billing.active &&
     billing.startPeriod != null &&
-    billing.startPeriod <= billing.currentPeriod &&
     joinedOn.slice(0, 7) <= billing.startPeriod.slice(0, 7)
 
   return (

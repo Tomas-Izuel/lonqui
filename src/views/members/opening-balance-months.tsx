@@ -7,7 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LoadingList, EmptyState, ErrorState } from '@/views/shared/states'
 import { MonthStrip } from '@/views/payments/month-strip'
-import { tapCell, openingBalanceFromSelection, type Selection } from '@/views/payments/month-selection'
+import { tapCell, isBeforeStart, openingBalanceFromSelection, type Selection } from '@/views/payments/month-selection'
 import { createOpeningBalanceFromMonths, getPaymentMonthOptions } from '@/controllers/payments.actions'
 import { formatCentsCompact } from '@/lib/money'
 import { formatPeriod, periodRangeLabel } from '@/lib/dates'
@@ -60,6 +60,7 @@ export function OpeningBalanceMonths({
   }, [memberId, attempt])
 
   const options = load.status === 'ready' ? load.options : []
+  const beforeStart = isBeforeStart(options)
   const opening = openingBalanceFromSelection(options, selection, overrideCents ?? undefined)
 
   function retry() {
@@ -133,7 +134,9 @@ export function OpeningBalanceMonths({
   return (
     <form onSubmit={onSubmit} noValidate method="post" className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Meses de antes de {formatPeriod(startPeriod)}. Tocá el primer mes que debe: se marcan todos hasta el inicio del sistema.
+        {beforeStart
+          ? `Las cuotas arrancan en ${formatPeriod(startPeriod)}. Tocá el primer mes que debe: se marcan todos hasta este mes.`
+          : `Meses de antes de ${formatPeriod(startPeriod)}. Tocá el primer mes que debe: se marcan todos hasta el inicio del sistema.`}
       </p>
       <MonthStrip
         options={options}

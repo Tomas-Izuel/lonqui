@@ -10,6 +10,7 @@ import {
   defaultSelection,
   derivedAmountCents,
   firstSystemIndex,
+  isBeforeStart,
   isSelectable,
   openingBalanceFromSelection,
   selectedOptions,
@@ -566,5 +567,208 @@ describe('extendToDueMonths (tocar un mes previo marca también lo que el saldo 
     // Con crédito, oct pasa a deberse (monthly) pero nov/dic (projected) no se marcan solos.
     const extended = extendToDueMonths(withCredit(), sel(0, 2), { creditCents: CREDIT })
     expect(extended?.endIndex).toBe(3)
+  })
+})
+
+/**
+ * Pipeline 2026-10-24-pago-por-meses-antes-del-inicio: facturacion que arranca en noviembre y hoy
+ * es octubre. Lo que devuelve la RPC: los previos incluyen el mes actual (pre_system + isCurrent)
+ * y los proyectados arrancan en el inicio.
+ *   0 jul pre · 1 ago pre · 2 sep pre · 3 oct pre (actual) · 4 nov proj · 5 dic proj · 6 ene proj
+ */
+function beforeStart(): PaymentMonthOption[] {
+  return [
+    opt({ period: '2026-07-01', kind: 'pre_system' }),
+    opt({ period: '2026-08-01', kind: 'pre_system' }),
+    opt({ period: '2026-09-01', kind: 'pre_system' }),
+    opt({ period: '2026-10-01', kind: 'pre_system', isCurrent: true }),
+    opt({ period: '2026-11-01', kind: 'projected' }),
+    opt({ period: '2026-12-01', kind: 'projected' }),
+    opt({ period: '2027-01-01', kind: 'projected' }),
+  ]
+}
+const OPEN = { preSystemOpen: true }
+const ctx0 = { creditCents: 0 }
+
+describe('isBeforeStart', () => {
+  it('true solo si hay un pre_system que es el mes actual', () => {
+    expect(isBeforeStart(beforeStart())).toBe(true)
+  })
+
+  it('despues del inicio (los pre_system son meses pasados, ninguno es el actual): false', () => {
+    expect(isBeforeStart(withPreSystem())).toBe(false)
+    expect(isBeforeStart(plain())).toBe(false)
+    expect(isBeforeStart([])).toBe(false)
+  })
+
+  it('un mes actual que no es pre_system no cuenta', () => {
+    expect(isBeforeStart([opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true })])).toBe(false)
+  })
+})
+
+describe('antes del inicio: defaultSelection', () => {
+  it('socio activo: el mes actual solo (no el primer proyectado)', () => {
+    expect(defaultSelection(beforeStart(), 'active')).toEqual(sel(3, 3))
+  })
+
+  it('socio de baja: igual, el mes actual solo y sin adelantos', () => {
+    expect(defaultSelection(beforeStart(), 'inactive')).toEqual(sel(3, 3))
+  })
+
+  it('la seleccion por defecto es saldo anterior de un mes: openingBalanceFromSelection da from = to = el mes actual', () => {
+    expect(openingBalanceFromSelection(beforeStart(), defaultSelection(beforeStart(), 'active'))).toEqual({
+      fromPeriod: '2026-10-01',
+      toPeriod: '2026-10-01',
+      amountCents: P,
+    })
+  })
+
+  it('monto derivado de la seleccion por defecto: exactamente una cuota', () => {
+    expect(derivedAmountCents(beforeStart(), sel(3, 3), ctx0)).toBe(P)
+  })
+
+  it('despues del inicio el default no cambia (primer mes sin pagar del sistema)', () => {
+    expect(defaultSelection(withPreSystem(), 'active')).toEqual(sel(3, 3))
+    expect(defaultSelection(plain(), 'active')).toEqual(sel(0, 0))
+  })
+})
+
+describe('antes del inicio: tapCell', () => {
+  it('tocar un mes previo anterior marca desde ahi hasta el mes actual (el ultimo previo)', () => {
+    expect(tapCell(beforeStart(), sel(3, 3), 1, OPEN)).toEqual(sel(1, 3))
+    expect(tapCell(beforeStart(), sel(3, 3), 0, OPEN)).toEqual(sel(0, 3))
+  })
+
+  it('tocar un mes proyectado extiende hasta ahi manteniendo el previo marcado', () => {
+    expect(tapCell(beforeStart(), sel(3, 3), 5, OPEN)).toEqual(sel(3, 5))
+    expect(tapCell(beforeStart(), sel(1, 3), 4, OPEN)).toEqual(sel(1, 4))
+  })
+
+  it('volver a tocar el primer mes previo marcado desmarca la parte previa: no queda nada si no hay sistema marcado', () => {
+    expect(tapCell(beforeStart(), sel(3, 3), 3, OPEN)).toBeNull()
+    expect(tapCell(beforeStart(), sel(1, 3), 1, OPEN)).toBeNull()
+  })
+
+  it('volver a tocar el primer mes previo con proyectados marcados: queda solo lo del sistema, hasta el mismo final', () => {
+    expect(tapCell(beforeStart(), sel(3, 5), 3, OPEN)).toEqual(sel(4, 5))
+    expect(tapCell(beforeStart(), sel(1, 5), 1, OPEN)).toEqual(sel(4, 5))
+  })
+
+  it('tocar un previo que NO es el primero marcado acorta/corre el inicio, no desmarca', () => {
+    expect(tapCell(beforeStart(), sel(1, 3), 2, OPEN)).toEqual(sel(2, 3))
+  })
+
+  it('sin seleccion, tocar un proyectado arranca en el primer mes del sistema (nov), no en el actual', () => {
+    expect(tapCell(beforeStart(), null, 5, OPEN)).toEqual(sel(4, 5))
+  })
+
+  it('con la parte previa desmarcada, volver a tocar un previo la remarca hasta el mes actual', () => {
+    expect(tapCell(beforeStart(), null, 2, OPEN)).toEqual(sel(2, 3))
+  })
+
+  it('despues del inicio tocar el primer pre_system marcado NO lo desmarca (sigue el comportamiento previo)', () => {
+    expect(tapCell(withPreSystem(), sel(1, 3), 1, OPEN)).toEqual(sel(1, 3))
+  })
+})
+
+describe('antes del inicio: monto y resumen', () => {
+  it('monto derivado: suma los previos marcados, mas los proyectados marcados', () => {
+    expect(derivedAmountCents(beforeStart(), sel(1, 3), ctx0)).toBe(3 * P)
+    expect(derivedAmountCents(beforeStart(), sel(3, 5), ctx0)).toBe(3 * P)
+  })
+
+  it('resumen del default: "1 mes · octubre 2026"', () => {
+    expect(summaryText(selectionSummary(beforeStart(), sel(3, 3)))).toBe('1 mes · octubre 2026')
+  })
+
+  it('resumen con previos y proyectados: cuenta todos como meses', () => {
+    const s = selectionSummary(beforeStart(), sel(3, 5))
+    expect(s.monthsCount).toBe(3)
+    expect(summaryText(s)).toBe('3 meses · octubre a diciembre 2026')
+  })
+
+  it('coverLabel del default: "oct"', () => {
+    expect(coverLabel(beforeStart(), sel(3, 3))).toBe('oct')
+  })
+})
+
+/** Ronda 2: inicio a varios meses. Hoy oct 2026, inicio ene 2027: la RPC corta los previos en el mes actual (sin nov/dic). */
+function farStart(): PaymentMonthOption[] {
+  return [
+    opt({ period: '2026-08-01', kind: 'pre_system' }),
+    opt({ period: '2026-09-01', kind: 'pre_system' }),
+    opt({ period: '2026-10-01', kind: 'pre_system', isCurrent: true }),
+    opt({ period: '2027-01-01', kind: 'projected' }),
+    opt({ period: '2027-02-01', kind: 'projected' }),
+  ]
+}
+
+describe('antes del inicio, inicio a 2 o mas meses: la seleccion usa la celda is_current', () => {
+  it('isBeforeStart y defaultSelection eligen el mes actual aunque no sea el ultimo previo del arreglo', () => {
+    // Un arreglo donde despues del actual hay otro previo (no lo devuelve la RPC hoy, pero el codigo no lo asume).
+    const options = [
+      opt({ period: '2026-09-01', kind: 'pre_system' }),
+      opt({ period: '2026-10-01', kind: 'pre_system', isCurrent: true }),
+      opt({ period: '2026-11-01', kind: 'pre_system' }),
+      opt({ period: '2027-01-01', kind: 'projected' }),
+    ]
+    expect(isBeforeStart(options)).toBe(true)
+    expect(defaultSelection(options, 'active')).toEqual(sel(1, 1))
+    expect(defaultSelection(options, 'inactive')).toEqual(sel(1, 1))
+  })
+
+  it('tocar un previo anterior marca hasta el mes actual, nunca hasta un previo posterior', () => {
+    const options = [
+      opt({ period: '2026-09-01', kind: 'pre_system' }),
+      opt({ period: '2026-10-01', kind: 'pre_system', isCurrent: true }),
+      opt({ period: '2026-11-01', kind: 'pre_system' }),
+      opt({ period: '2027-01-01', kind: 'projected' }),
+    ]
+    expect(tapCell(options, sel(1, 1), 0, OPEN)).toEqual(sel(0, 1))
+  })
+
+  it('con el arreglo real de la RPC (previos hasta el actual, proyectados desde el inicio): default, tocar previo, tocar proyectado, desmarcar', () => {
+    const o = farStart()
+    expect(defaultSelection(o, 'active')).toEqual(sel(2, 2))
+    expect(tapCell(o, sel(2, 2), 0, OPEN)).toEqual(sel(0, 2))
+    expect(tapCell(o, sel(2, 2), 4, OPEN)).toEqual(sel(2, 4))
+    expect(tapCell(o, sel(2, 2), 2, OPEN)).toBeNull()
+    expect(tapCell(o, sel(2, 4), 2, OPEN)).toEqual(sel(3, 4))
+  })
+
+  it('el resumen del default dice octubre 2026 (el mes actual), no un mes futuro', () => {
+    expect(summaryText(selectionSummary(farStart(), sel(2, 2)))).toBe('1 mes · octubre 2026')
+  })
+
+  it('inicio a 13+ meses (previos 12 terminando en el actual): sigue siendo antes del inicio', () => {
+    const o = Array.from({ length: 12 }, (_, i) =>
+      opt({ period: `${i < 2 ? 2025 : 2026}-${String(((i + 10 - 1) % 12) + 1).padStart(2, '0')}-01`, kind: 'pre_system', isCurrent: i === 11 }),
+    )
+    expect(isBeforeStart(o)).toBe(true)
+    expect(defaultSelection(o, 'active')).toEqual(sel(11, 11))
+  })
+})
+
+describe('antes del inicio con saldo a favor C y {actual, actual}', () => {
+  const sel33 = sel(3, 3)
+  it('derived = max(0, X - C): C menor que la cuota, igual, y mayor', () => {
+    expect(derivedAmountCents(beforeStart(), sel33, { creditCents: P / 2 })).toBe(P / 2)
+    expect(derivedAmountCents(beforeStart(), sel33, { creditCents: P })).toBe(0)
+    expect(derivedAmountCents(beforeStart(), sel33, { creditCents: 3 * P })).toBe(0)
+  })
+
+  it('el credito que sobra del saldo anterior cubre los proyectados en orden, y lo cubierto por C antes se reparte de nuevo', () => {
+    // La RPC ya habia cubierto nov y dic con C = 2P (no hay cargos).
+    const raw = [
+      ...beforeStart().slice(0, 4),
+      opt({ period: '2026-11-01', kind: 'projected', coveredCents: P }),
+      opt({ period: '2026-12-01', kind: 'projected', coveredCents: P }),
+      opt({ period: '2027-01-01', kind: 'projected' }),
+    ]
+    const eff = optionsForSelection(raw, sel33, { creditCents: 2 * P })
+    // El saldo anterior (P) se come primero P del credito: queda P para nov; dic y ene pasan a pendientes.
+    expect(eff[4]).toMatchObject({ coveredCents: P, pendingCents: 0 })
+    expect(eff[5]).toMatchObject({ coveredCents: 0, pendingCents: P })
+    expect(eff[6]).toMatchObject({ coveredCents: 0, pendingCents: P })
   })
 })

@@ -15,6 +15,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const { MonthStrip } = await import('@/views/payments/month-strip')
 const { PaymentForm } = await import('@/views/payments/payment-form')
+const { GroupPaymentForm } = await import('@/views/payments/group-payment-form')
 import type { MemberAccount, PaymentMonthOption } from '@/models/types'
 
 const P = 1_000_000
@@ -130,6 +131,143 @@ describe('MonthStrip', () => {
     expect(open).toContain('antes del sistema')
     const noFold = renderToStaticMarkup(createElement(MonthStrip, { options, selection: null, onTap: () => {}, preSystem: null, coverage: null }))
     expect(noFold).not.toContain('¿Debe meses')
+  })
+})
+
+/**
+ * Pipeline 2026-10-24-pago-por-meses-antes-del-inicio: la facturacion arranca en noviembre y hoy es octubre.
+ * jul, ago, sep: previos · oct: previo Y actual · nov, dic: proyectados.
+ */
+const BEFORE_START: PaymentMonthOption[] = [
+  opt({ period: '2026-07-01', kind: 'pre_system' }),
+  opt({ period: '2026-08-01', kind: 'pre_system' }),
+  opt({ period: '2026-09-01', kind: 'pre_system' }),
+  opt({ period: '2026-10-01', kind: 'pre_system', isCurrent: true }),
+  opt({ period: '2026-11-01', kind: 'projected' }),
+  opt({ period: '2026-12-01', kind: 'projected' }),
+]
+
+describe('MonthStrip antes del inicio de la facturacion', () => {
+  const pre = { open: true, startPeriod: '2026-11-01', overrideCents: null, onOverrideChange: () => {}, beforeStart: true }
+  const render = (selection: { startIndex: number; endIndex: number } | null = { startIndex: 3, endIndex: 3 }) =>
+    renderToStaticMarkup(createElement(MonthStrip, { options: BEFORE_START, selection, onTap: () => {}, preSystem: pre, coverage: null }))
+
+  it('explica que las cuotas arrancan en el mes de inicio y que lo anterior es saldo anterior', () => {
+    const html = render()
+    expect(html).toContain('Las cuotas arrancan en noviembre 2026.')
+    expect(html).toContain('saldo anterior')
+  })
+
+  it('no hay pliegue: ni el boton "¿Debe meses de antes de...?" ni aria-expanded', () => {
+    const html = render()
+    expect(html).not.toContain('¿Debe meses')
+    expect(html).not.toContain('aria-expanded')
+  })
+
+  it('las 6 celdas se ven siempre (los previos no estan escondidos)', () => {
+    expect(cells(render(null))).toHaveLength(6)
+  })
+
+  it('el mes actual (previo) dice "este mes" con ícono y para lectores de pantalla "este mes, antes del sistema"; los otros previos no', () => {
+    const c = cells(render())
+    expect(c[3].html).toContain('este mes')
+    expect(c[3].html).toContain('<svg')
+    expect(c[3].html).toContain('este mes, antes del sistema')
+    expect(c[3].attrs).toContain('aria-pressed="true"')
+    for (const i of [0, 1, 2]) {
+      expect(c[i].html).not.toContain('este mes')
+      expect(c[i].attrs).toContain('aria-pressed="false"')
+    }
+    // Sigue siendo celda previa: trazo punteado.
+    expect(c[3].attrs).toContain('border-dashed')
+  })
+
+  it('sin beforeStart (despues del inicio) no aparece la linea explicativa', () => {
+    const html = renderToStaticMarkup(
+      createElement(MonthStrip, { options: BEFORE_START, selection: null, onTap: () => {}, preSystem: { ...pre, beforeStart: false, onToggle: () => {} }, coverage: null }),
+    )
+    expect(html).not.toContain('Las cuotas arrancan en')
+  })
+})
+
+describe('PaymentForm antes del inicio de la facturacion', () => {
+  const render = (member = MEMBER) =>
+    renderToStaticMarkup(createElement(PaymentForm, { member, options: BEFORE_START, onDone: () => {} }))
+
+  it('muestra la tira con los meses previos desde el primer render (sin tocar nada) y la linea explicativa', () => {
+    const html = render()
+    expect(cells(html)).toHaveLength(6)
+    expect(html).toContain('Las cuotas arrancan en noviembre 2026.')
+    expect(html).not.toContain('¿Debe meses')
+    expect(html).not.toMatch(/<label[^>]*>Monto<\/label>/)
+  })
+
+  it('selecciona solo el mes actual: resumen "1 mes · octubre 2026" y boton con una cuota', () => {
+    const html = render()
+    const c = cells(html)
+    expect(c.map((x) => x.attrs.includes('aria-pressed="true"'))).toEqual([false, false, false, true, false, false])
+    expect(html).toMatch(/1 mes · octubre 2026/)
+    expect(html).toMatch(/Registrar pago de \$\s?10\.000/)
+  })
+
+  it('socio de baja: misma seleccion inicial (el mes actual solo)', () => {
+    const html = render({ ...MEMBER, status: 'inactive' as const })
+    expect(html).toMatch(/1 mes · octubre 2026/)
+    expect(html).toMatch(/Registrar pago de \$\s?10\.000/)
+  })
+})
+
+/** Ronda 2: hoy octubre, inicio enero 2027. Los previos terminan en el mes actual. */
+const FAR_START: PaymentMonthOption[] = [
+  opt({ period: '2026-08-01', kind: 'pre_system' }),
+  opt({ period: '2026-09-01', kind: 'pre_system' }),
+  opt({ period: '2026-10-01', kind: 'pre_system', isCurrent: true }),
+  opt({ period: '2027-01-01', kind: 'projected' }),
+  opt({ period: '2027-02-01', kind: 'projected' }),
+]
+
+describe('antes del inicio, inicio a varios meses: el mes de inicio real viaja explicito', () => {
+  it('PaymentForm con startPeriod = enero 2027: la linea dice enero (no noviembre, que seria ultimo previo + 1)', () => {
+    const html = renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options: FAR_START, startPeriod: '2027-01-01', onDone: () => {} }))
+    expect(html).toContain('Las cuotas arrancan en enero 2027.')
+    expect(html).not.toContain('Las cuotas arrancan en noviembre')
+    expect(html).toMatch(/1 mes · octubre 2026/)
+    expect(cells(html).map((x) => x.attrs.includes('aria-pressed="true"'))).toEqual([false, false, true, false, false])
+  })
+
+  it('sin startPeriod cae a la derivacion vieja (ultimo previo + 1): documentado, solo correcto con inicio al mes siguiente', () => {
+    const html = renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options: FAR_START, onDone: () => {} }))
+    expect(html).toContain('Las cuotas arrancan en noviembre 2026.')
+  })
+
+  it('MonthStrip: hideBeforeStartNote oculta la linea pero deja las celdas', () => {
+    const pre = { open: true, startPeriod: '2027-01-01', overrideCents: null, onOverrideChange: () => {}, beforeStart: true, hideBeforeStartNote: true }
+    const html = renderToStaticMarkup(createElement(MonthStrip, { options: FAR_START, selection: null, onTap: () => {}, preSystem: pre, coverage: null }))
+    expect(html).not.toContain('Las cuotas arrancan en')
+    expect(cells(html)).toHaveLength(5)
+  })
+})
+
+describe('GroupPaymentForm antes del inicio: la linea explicativa va UNA sola vez', () => {
+  const group = { id: 1, name: null, payerContactName: null, payerContactPhone: null, notes: null, label: 'Grupo Inventado', members: [], missingResponsible: false }
+  const members = [1, 2, 3].map((id) => ({ ...MEMBER, memberId: id, fullName: `Integrante ${id} Inventado`, isPaymentResponsible: id === 1 }))
+  const monthOptions = Object.fromEntries(members.map((m) => [m.memberId, FAR_START.map((o) => ({ ...o, memberId: m.memberId }))]))
+  const count = (html: string, text: string) => html.split(text).length - 1
+
+  it('3 integrantes con startPeriod: la linea aparece una vez, con el inicio real, y cada integrante tiene su tira', () => {
+    const html = renderToStaticMarkup(
+      createElement(GroupPaymentForm, { members, monthOptions, familyGroup: group, startPeriod: '2027-01-01', onDone: () => {} }),
+    )
+    expect(count(html, 'Las cuotas arrancan en enero 2027.')).toBe(1)
+    expect(cells(html)).toHaveLength(15)
+  })
+
+  it('despues del inicio (sin celda previa actual) no hay linea', () => {
+    const after = Object.fromEntries(members.map((m) => [m.memberId, OPTIONS.map((o) => ({ ...o, memberId: m.memberId }))]))
+    const html = renderToStaticMarkup(
+      createElement(GroupPaymentForm, { members, monthOptions: after, familyGroup: group, startPeriod: '2026-08-01', onDone: () => {} }),
+    )
+    expect(html).not.toContain('Las cuotas arrancan en')
   })
 })
 
