@@ -18,7 +18,9 @@ import { accountLineText, categoriesLabel, currentFeeLabel } from '@/views/payme
 import { METHOD_ERROR_ID, PAYMENT_MIN_DATE, amountCentsSchema, methodSchema, notesSchema, paidOnSchema } from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import type { MemberAccount } from '@/models/types'
+import { MonthEntry, creditOf, entryDerivedCents, entryEffectiveOptions, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
+import { coverLabel, coverageForAmount, selectionSummary, summaryText } from '@/views/payments/month-selection'
+import type { MemberAccount, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
 
 const schema = z.object({
   amountCents: amountCentsSchema,
@@ -37,8 +39,9 @@ function isKnownField(field: string | undefined): field is (typeof KNOWN_FIELDS)
 }
 
 /** "Pago registrado" + cómo queda la cuenta, para el toast al volver (route-caja.md). */
-function resultingAccountMessage(member: MemberAccount, amountCents: number): string {
-  const newBalance = member.balanceCents - amountCents
+function resultingAccountMessage(member: MemberAccount, amountCents: number, openingBalance: OpeningBalanceMonths | null): string {
+  // El saldo anterior que se crea en el mismo envío suma deuda antes de que el pago la cubra.
+  const newBalance = member.balanceCents + (openingBalance?.amountCents ?? 0) - amountCents
   if (newBalance < 0) return `Pago registrado. Queda saldo a favor de ${formatCentsCompact(-newBalance)}.`
   if (newBalance === 0) return 'Pago registrado. La cuenta quedó al día.'
   return `Pago registrado. Todavía debe ${formatCentsCompact(newBalance)}.`
@@ -62,24 +65,36 @@ function resultingAccountMessage(member: MemberAccount, amountCents: number): st
  */
 export function PaymentForm({
   member,
+  options,
   onDone,
   onSuccess,
 }: {
   member: MemberAccount
+  /** Celdas de la tira. Vacío (cuotas sin activar, baja al día) = el formulario de monto de siempre. */
+  options: PaymentMonthOption[]
   onDone: () => void
-  onSuccess?: (amountCents: number) => void
+  /** Avisa monto y, si hubo meses, "Cubre ago–oct" (o "Pago a cuenta") justo antes de `onDone`. */
+  onSuccess?: (amountCents: number, label?: string) => void
 }) {
   const [batchId] = useState(() => crypto.randomUUID())
   const [file, setFile] = useState<File | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [receiptError, setReceiptError] = useState<string | null>(null)
-  const [needsOverpayConfirm, setNeedsOverpayConfirm] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [uploadStage, setUploadStage] = useState<'idle' | 'uploading'>('idle')
 
   const precargaLabel = currentFeeLabel(member)
   const isInactiveWithDebt = member.status === 'inactive' && member.debtStatus === 'in_debt'
-  const defaultAmount = isInactiveWithDebt ? member.balanceCents : (member.currentFeeCents ?? null)
+  const hasStrip = options.length > 0
+  const creditCents = creditOf(member.balanceCents)
+  const [entry, setEntry] = useState<EntryState>(() => initialEntry(options, member.status))
+  const defaultAmount = hasStrip
+    ? entry.custom
+      ? null
+      : entryDerivedCents(options, entry, creditCents)
+    : isInactiveWithDebt
+      ? member.balanceCents
+      : (member.currentFeeCents ?? null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -89,36 +104,24 @@ export function PaymentForm({
   const amountCents = useWatch({ control: form.control, name: 'amountCents' })
   const method = useWatch({ control: form.control, name: 'method' })
   const pending = form.formState.isSubmitting
-
-  function setAmount(cents: number) {
-    form.setValue('amountCents', cents, { shouldValidate: true })
-    setNeedsOverpayConfirm(false)
+  // En modo meses un derivado de $0 (el saldo a favor ya cubre lo marcado) no es un pago.
+  let footerLine: string | null = null
+  if (hasStrip) {
+    if (entry.custom) {
+      const left = coverageForAmount(options, entry.selection, amountCents ?? 0, { openingBalanceOverrideCents: entry.overrideCents, creditCents }).leftoverCents
+      footerLine = left > 0 ? `Pago a cuenta · queda saldo a favor de ${formatCentsCompact(left)}` : 'Pago a cuenta'
+    } else {
+      const text = summaryText(selectionSummary(entryEffectiveOptions(options, entry, creditCents), entry.selection))
+      footerLine = text ? text.charAt(0).toUpperCase() + text.slice(1) : null
+    }
   }
-
-  const chips: { label: string; cents: number }[] = []
-  if (member.currentFeeCents != null && member.currentFeeCents > 0) {
-    chips.push({ label: '1 mes', cents: member.currentFeeCents })
-    chips.push({ label: '2 meses', cents: member.currentFeeCents * 2 })
-    chips.push({ label: '3 meses', cents: member.currentFeeCents * 3 })
-  }
-  // Solo si la deuda total es MAYOR a un mes (D12-C): con exactamente un mes
-  // de deuda, "Toda la deuda" y el chip "1 mes" son el mismo monto — mostrar
-  // los dos duplica la opción en la pantalla de cobro más usada del sistema.
-  if (member.debtStatus === 'in_debt' && member.balanceCents > (member.currentFeeCents ?? 0)) {
-    chips.push({ label: `Toda la deuda (${formatCentsCompact(member.balanceCents)})`, cents: member.balanceCents })
-  }
+  const blocked = hasStrip && (entry.overrideInvalid || (!entry.custom && entryDerivedCents(options, entry, creditCents) <= 0))
 
   async function onValid(values: FormValues) {
     const cents = values.amountCents as number
 
-    // Confirmación cuando el pago excede la deuda (route-caja.md): solo
-    // tiene sentido si TODAVÍA debe algo — pagar por adelantado con los chips
-    // "2/3 meses" es un flujo esperado (D13) y no interrumpe.
-    if (member.debtStatus === 'in_debt' && cents > member.balanceCents && !needsOverpayConfirm) {
-      setNeedsOverpayConfirm(true)
-      return
-    }
-
+    // Sin confirmación bloqueante de sobrepago (brief 2026-10-24): marcar un
+    // adelanto es explícito y "Otro monto" avisa en línea si queda saldo a favor.
     setFormError(null)
     setReceiptError(null)
     let receiptPath: string | null = null
@@ -135,11 +138,12 @@ export function PaymentForm({
       receiptPath = uploaded.path
     }
 
+    const openingBalance = hasStrip ? entryOpeningBalance(options, entry) : null
     const result = await registerPayment({
       batchId,
       paidOn: values.paidOn,
       method: values.method,
-      items: [{ memberId: member.memberId, amountCents: cents }],
+      items: [{ memberId: member.memberId, amountCents: cents, openingBalance }],
       notes: values.notes.trim() || null,
       receiptPath,
       familyGroupId: null,
@@ -152,7 +156,7 @@ export function PaymentForm({
         form.setFocus(result.field)
       } else if (result.field === 'receiptPath') {
         setReceiptError(result.error)
-      } else if (result.field && PAYMENT_PATH_FIELDS.includes(result.field)) {
+      } else if (result.field && PAYMENT_PATH_FIELDS.includes(result.field) && (!hasStrip || entry.custom)) {
         // Un error de `items` es el monto: el único ítem de este formulario.
         form.setError('amountCents', { message: result.error })
       } else {
@@ -161,8 +165,18 @@ export function PaymentForm({
       return
     }
 
-    toast.success(result.data.alreadyRegistered ? 'El pago ya estaba registrado' : resultingAccountMessage(member, cents))
-    onSuccess?.(cents)
+    if (result.data.alreadyRegistered) {
+      // Un reintento no toca nada: lo que vale es lo que quedó registrado la primera vez, no lo que tiene el formulario ahora.
+      toast.success('El pago ya estaba registrado')
+      if (openingBalance && result.data.openingBalanceFeeIds.length === 0) {
+        toast.warning('El saldo anterior no se cargó. Indicá desde cuándo debía desde la ficha del socio.')
+      }
+      onSuccess?.(result.data.totalCents)
+    } else {
+      toast.success(resultingAccountMessage(member, cents, openingBalance))
+      const months = hasStrip && !entry.custom ? coverLabel(entryEffectiveOptions(options, entry, creditCents), entry.selection) : ''
+      onSuccess?.(cents, hasStrip ? (months ? `Cubre ${months}` : 'Pago a cuenta') : undefined)
+    }
     onDone()
   }
 
@@ -192,18 +206,22 @@ export function PaymentForm({
           method="post"
           className="flex flex-col gap-4"
         >
-          <div className="flex flex-col gap-2">
+          {hasStrip ? (
+            <MonthEntry
+              options={options}
+              entry={entry}
+              onEntryChange={setEntry}
+              control={form.control}
+              amountName="amountCents"
+              onAmountChange={(cents) => form.setValue('amountCents', cents, { shouldValidate: form.formState.isSubmitted })}
+              creditCents={creditCents}
+              error={form.formState.errors.amountCents?.message}
+              disabled={pending}
+              showTotal={false}
+            />
+          ) : (
             <AmountField control={form.control} name="amountCents" label="Monto" autoFocus />
-            {chips.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {chips.map((chip) => (
-                  <Button key={chip.label} type="button" variant="outline" size="sm" disabled={pending} onClick={() => setAmount(chip.cents)}>
-                    {chip.label}
-                  </Button>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          )}
 
           <DateField control={form.control} name="paidOn" label="Fecha" max={toClubDate()} min={PAYMENT_MIN_DATE} disabled={pending} />
 
@@ -247,42 +265,29 @@ export function PaymentForm({
           {notesOpen ? (
             <TextareaField control={form.control} name="notes" label="Notas" placeholder="Opcional" disabled={pending} />
           ) : (
-            <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={() => setNotesOpen(true)}>
+            <Button type="button" variant="ghost" size="sm" className="min-h-11 w-fit" onClick={() => setNotesOpen(true)}>
               Agregar nota
             </Button>
           )}
 
-          {needsOverpayConfirm ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-status-in-debt/30 bg-status-in-debt/5 p-3">
-              <p className="text-sm">
-                El pago supera la deuda actual ({formatCentsCompact(member.balanceCents)}). Va a quedar un saldo a favor de{' '}
-                {formatCentsCompact((amountCents ?? 0) - member.balanceCents)}.
+          <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+            {footerLine ? (
+              <p role="status" className="text-sm text-muted-foreground tabular-nums">
+                {footerLine}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit" form="payment-form" disabled={pending} className="h-11">
-                  Sí, registrar igual
-                </Button>
-                <Button type="button" variant="outline" className="h-11" onClick={() => setNeedsOverpayConfirm(false)}>
-                  Ajustar el monto
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          {formError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {formError}
-            </p>
-          ) : null}
-
-          {!needsOverpayConfirm ? (
-            <Button type="submit" disabled={pending} className="h-11 w-full">
+            ) : null}
+            {formError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {formError}
+              </p>
+            ) : null}
+            <Button type="submit" disabled={pending || blocked} className="h-11 w-full">
               {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
               {uploadStage === 'uploading'
                 ? 'Subiendo comprobante…'
                 : `Registrar pago${amountCents ? ` de ${formatCentsCompact(amountCents)}` : ''}`}
             </Button>
-          ) : null}
+          </div>
         </form>
       </div>
     </div>

@@ -27,7 +27,8 @@ import {
 } from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import type { FamilyGroupSummary, MemberAccount } from '@/models/types'
+import { MonthEntry, creditOf, entryDerivedCents, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
+import type { FamilyGroupSummary, MemberAccount, PaymentMonthOption } from '@/models/types'
 
 const rowSchema = z.object({
   memberId: z.number(),
@@ -73,23 +74,42 @@ type FormValues = z.infer<typeof schema>
  */
 export function GroupPaymentForm({
   members,
+  monthOptions,
   familyGroup,
   onDone,
   onSuccess,
 }: {
   members: MemberAccount[]
+  /** Celdas por socio; sin entrada o vacío = ese integrante carga el monto a mano. */
+  monthOptions: Record<number, PaymentMonthOption[]>
   familyGroup: FamilyGroupSummary
   /** Qué pasa después de un registro exitoso (ver el comentario en `PaymentForm`). */
   onDone: () => void
   /** Avisa el total del lote justo antes de `onDone` (ver `PaymentForm`). */
-  onSuccess?: (amountCents: number) => void
+  onSuccess?: (amountCents: number, label?: string) => void
 }) {
   const [batchId] = useState(() => crypto.randomUUID())
   const [file, setFile] = useState<File | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [receiptError, setReceiptError] = useState<string | null>(null)
-  const [needsOverpayConfirm, setNeedsOverpayConfirm] = useState(false)
   const [uploadStage, setUploadStage] = useState<'idle' | 'uploading'>('idle')
+
+  // Un estado de entrada por integrante: la tira, el pliegue "desde cuándo" y
+  // "Otro monto" son independientes entre hermanos.
+  const [entries, setEntries] = useState<Record<number, EntryState>>(() =>
+    Object.fromEntries(
+      members.filter((m) => (monthOptions[m.memberId] ?? []).length > 0).map((m) => [m.memberId, initialEntry(monthOptions[m.memberId], m.status)]),
+    ),
+  )
+
+  function defaultRowAmount(m: MemberAccount): number | null {
+    const options = monthOptions[m.memberId] ?? []
+    if (options.length > 0) {
+      const entry = entries[m.memberId] ?? initialEntry(options, m.status)
+      return entry.custom ? null : entryDerivedCents(options, entry, creditOf(m.balanceCents))
+    }
+    return m.status === 'inactive' && m.debtStatus === 'in_debt' ? m.balanceCents : (m.currentFeeCents ?? null)
+  }
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -102,7 +122,7 @@ export function GroupPaymentForm({
         fullName: m.fullName,
         status: m.status,
         checked: m.status === 'active',
-        amountCents: m.status === 'inactive' && m.debtStatus === 'in_debt' ? m.balanceCents : (m.currentFeeCents ?? null),
+        amountCents: defaultRowAmount(m),
       })),
     },
   })
@@ -113,37 +133,17 @@ export function GroupPaymentForm({
   const pending = form.formState.isSubmitting
 
   const totalCents = rows.filter((row) => row.checked).reduce((total, row) => total + (row.amountCents ?? 0), 0)
+  const anyInvalidOverride = rows.some((row) => row.checked && entries[row.memberId]?.overrideInvalid)
+  const checkedCount = rows.filter((row) => row.checked).length
   const accountByMemberId = new Map(members.map((m) => [m.memberId, m]))
   const rowsErrorRaw = form.formState.errors.rows?.message
   const rowsError = typeof rowsErrorRaw === 'string' ? rowsErrorRaw : undefined
 
-  // Integrantes tildados cuyo monto supera SU deuda individual (D13, mismo
-  // criterio que `PaymentForm`: solo cuenta si todavía debe algo — precargar
-  // meses futuros con los montos por defecto no es sobrepago). Se recalcula
-  // en cada render para que el texto de la confirmación siga el monto que se
-  // está tipeando, igual que en el formulario individual.
-  const overpayingRows = rows
-    .filter((row) => row.checked)
-    .flatMap((row) => {
-      const account = accountByMemberId.get(row.memberId)
-      if (!account || account.debtStatus !== 'in_debt') return []
-      const extraCents = (row.amountCents ?? 0) - account.balanceCents
-      return extraCents > 0 ? [{ memberId: row.memberId, fullName: row.fullName, extraCents }] : []
-    })
-
   async function onValid(values: FormValues) {
     const checkedRows = values.rows.filter((row) => row.checked)
 
-    // Misma interacción y mismo texto que `PaymentForm`, extendida a "por
-    // integrante": un lote puede dejar a más de un integrante con saldo a
-    // favor, así que la confirmación lista a cada uno en vez de un solo
-    // monto. Se resuelve por lote entero (un "Ajustar montos" para volver a
-    // editar, no una confirmación fila por fila) porque el registro también
-    // es de lote entero: un solo `batchId`, un solo submit.
-    if (overpayingRows.length > 0 && !needsOverpayConfirm) {
-      setNeedsOverpayConfirm(true)
-      return
-    }
+    // Sin confirmación bloqueante de sobrepago (brief 2026-10-24): cada fila
+    // avisa en línea si queda saldo a favor.
     setFormError(null)
     setReceiptError(null)
 
@@ -161,11 +161,21 @@ export function GroupPaymentForm({
       receiptPath = uploaded.path
     }
 
+    const items = checkedRows.map((row) => {
+      const options = monthOptions[row.memberId] ?? []
+      const entry = entries[row.memberId]
+      return {
+        memberId: row.memberId,
+        amountCents: row.amountCents as number,
+        openingBalance: options.length > 0 && entry ? entryOpeningBalance(options, entry) : null,
+      }
+    })
+
     const result = await registerPayment({
       batchId,
       paidOn: values.paidOn,
       method: values.method,
-      items: checkedRows.map((row) => ({ memberId: row.memberId, amountCents: row.amountCents as number })),
+      items,
       notes: values.notes.trim() || null,
       receiptPath,
       familyGroupId: familyGroup.id,
@@ -187,12 +197,17 @@ export function GroupPaymentForm({
       return
     }
 
-    toast.success(
-      result.data.alreadyRegistered
-        ? 'El pago ya estaba registrado'
-        : `Pago registrado para ${checkedRows.length} ${checkedRows.length === 1 ? 'integrante' : 'integrantes'}.`,
-    )
-    onSuccess?.(totalCents)
+    if (result.data.alreadyRegistered) {
+      toast.success('El pago ya estaba registrado')
+      const withOpening = items.filter((item) => item.openingBalance).length
+      if (withOpening > result.data.openingBalanceFeeIds.length) {
+        toast.warning('Algún saldo anterior no se cargó. Indicá desde cuándo debía desde la ficha del socio.')
+      }
+      onSuccess?.(result.data.totalCents)
+    } else {
+      toast.success(`Pago registrado para ${checkedRows.length} ${checkedRows.length === 1 ? 'integrante' : 'integrantes'}.`)
+      onSuccess?.(totalCents)
+    }
     onDone()
   }
 
@@ -209,8 +224,10 @@ export function GroupPaymentForm({
           <ul className="flex flex-col divide-y divide-border">
             {fields.map((field, index) => {
               const account = accountByMemberId.get(field.memberId)
+              const options = monthOptions[field.memberId] ?? []
+              const entry = entries[field.memberId]
               return (
-                <li key={field.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                <li key={field.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
                   {/* `field.memberId`, no `field.id`: el id que genera
                       `useFieldArray` no es estable entre el render del
                       servidor y la hidratación del cliente, y usarlo en un
@@ -232,17 +249,30 @@ export function GroupPaymentForm({
                       </span>
                     </span>
                   </Label>
-                  <AmountField control={form.control} name={`rows.${index}.amountCents`} label="Monto" className="sm:w-40" disabled={pending} />
+                  {rows[index]?.checked ? (
+                    options.length > 0 && entry ? (
+                      <MonthEntry
+                        options={options}
+                        entry={entry}
+                        onEntryChange={(next) => setEntries((prev) => ({ ...prev, [field.memberId]: next }))}
+                        control={form.control}
+                        amountName={`rows.${index}.amountCents`}
+                        onAmountChange={(cents) => form.setValue(`rows.${index}.amountCents`, cents, { shouldValidate: form.formState.isSubmitted })}
+                        creditCents={creditOf(account?.balanceCents ?? 0)}
+                        error={form.formState.errors.rows?.[index]?.amountCents?.message}
+                        variant="compact"
+                        disabled={pending}
+                        amountLabel={`Otro monto de ${field.fullName}`}
+                      />
+                    ) : (
+                      <AmountField control={form.control} name={`rows.${index}.amountCents`} label="Monto" disabled={pending} />
+                    )
+                  ) : null}
                 </li>
               )
             })}
           </ul>
           {rowsError ? <FieldError role="alert">{rowsError}</FieldError> : null}
-
-          <div className="flex items-center justify-between border-t border-border pt-3 text-sm font-medium">
-            <span>Total del lote</span>
-            <span className="tabular-nums">{formatCentsCompact(totalCents)}</span>
-          </div>
 
           <DateField control={form.control} name="paidOn" label="Fecha" max={toClubDate()} min={PAYMENT_MIN_DATE} disabled={pending} />
 
@@ -285,45 +315,21 @@ export function GroupPaymentForm({
 
           <TextareaField control={form.control} name="notes" label="Notas (opcional)" disabled={pending} />
 
-          {needsOverpayConfirm ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-status-in-debt/30 bg-status-in-debt/5 p-3">
-              <p className="text-sm">
-                {overpayingRows.length === 1
-                  ? `El pago de ${overpayingRows[0].fullName} supera la deuda actual. Va a quedar un saldo a favor de ${formatCentsCompact(overpayingRows[0].extraCents)}.`
-                  : 'Estos pagos superan la deuda actual de cada integrante. Van a quedar con saldo a favor:'}
-              </p>
-              {overpayingRows.length > 1 ? (
-                <ul className="flex flex-col gap-1 text-sm">
-                  {overpayingRows.map((row) => (
-                    <li key={row.memberId}>
-                      {row.fullName}: saldo a favor de {formatCentsCompact(row.extraCents)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit" form="group-payment-form" disabled={pending} className="h-11">
-                  Sí, registrar igual
-                </Button>
-                <Button type="button" variant="outline" className="h-11" onClick={() => setNeedsOverpayConfirm(false)}>
-                  Ajustar montos
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          {formError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {formError}
+          <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+            <p role="status" className="flex justify-between text-sm text-muted-foreground">
+              <span>{checkedCount === 1 ? '1 integrante' : `${checkedCount} integrantes`}</span>
+              <span className="tabular-nums">Total {formatCentsCompact(totalCents)}</span>
             </p>
-          ) : null}
-
-          {!needsOverpayConfirm ? (
-            <Button type="submit" disabled={pending} className="h-11 w-full">
+            {formError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {formError}
+              </p>
+            ) : null}
+            <Button type="submit" disabled={pending || anyInvalidOverride} className="h-11 w-full">
               {pending ? <Loader2 aria-hidden className="animate-spin" /> : null}
               {uploadStage === 'uploading' ? 'Subiendo comprobante…' : `Registrar pago de ${formatCentsCompact(totalCents)}`}
             </Button>
-          ) : null}
+          </div>
         </form>
       </div>
     </div>

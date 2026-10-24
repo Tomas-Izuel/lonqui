@@ -260,3 +260,61 @@ describe('getMemberAccountDetail: composición cuenta + statement + pagos + sald
     expect(detail.openingBalance).toMatchObject({ id: 20, kind: 'opening_balance', amountCents: 2_000_000 })
   })
 })
+
+describe('getPaymentMonthOptions', () => {
+  const RAW_CELL = {
+    member_id: 5,
+    period: '2026-10-01',
+    kind: 'monthly',
+    amount_cents: 1_000_000,
+    covered_cents: 400_000,
+    pending_cents: 600_000,
+    is_current: true,
+    priced_at_today: false,
+  }
+
+  it('una sola RPC con todos los ids y mapeo snake -> camel', async () => {
+    const rpc = vi.fn(async (_name: string, _args: Record<string, unknown>) => ({ data: [RAW_CELL], error: null }))
+    createClientMock.mockResolvedValue({ rpc })
+    const { getPaymentMonthOptions } = await importModel()
+
+    const result = await getPaymentMonthOptions([5, 6, 7])
+
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith('payment_month_options', { member_ids: [5, 6, 7] })
+    expect(result).toEqual([
+      {
+        memberId: 5,
+        period: '2026-10-01',
+        kind: 'monthly',
+        amountCents: 1_000_000,
+        coveredCents: 400_000,
+        pendingCents: 600_000,
+        isCurrent: true,
+        pricedAtToday: false,
+      },
+    ])
+  })
+
+  it('sin ids: [] y NO llama a la base', async () => {
+    const rpc = vi.fn()
+    createClientMock.mockResolvedValue({ rpc })
+    const { getPaymentMonthOptions } = await importModel()
+    expect(await getPaymentMonthOptions([])).toEqual([])
+    expect(createClientMock).not.toHaveBeenCalled()
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('data null sin error: []', async () => {
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: null, error: null }) })
+    const { getPaymentMonthOptions } = await importModel()
+    expect(await getPaymentMonthOptions([1])).toEqual([])
+  })
+
+  it('un error de la RPC se relanza (no se traga como "sin tira")', async () => {
+    const error = { code: '42501', message: 'No tenés permiso para ver esta información' }
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: null, error }) })
+    const { getPaymentMonthOptions } = await importModel()
+    await expect(getPaymentMonthOptions([1])).rejects.toBe(error)
+  })
+})

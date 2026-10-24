@@ -22,7 +22,7 @@ type State = { status: 'idle' | 'loading' } | { status: 'error'; error: string }
  * botón, no hay nada que tocar— y con movimiento reducido es un fade simple,
  * sin el resorte de escala.
  */
-function PaymentSuccessMoment({ amountCents }: { amountCents: number }) {
+function PaymentSuccessMoment({ amountCents, label }: { amountCents: number; label?: string }) {
   const { reduced, pick } = useMotionPreference()
   return (
     <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 px-4 py-10 text-center">
@@ -37,6 +37,7 @@ function PaymentSuccessMoment({ amountCents }: { amountCents: number }) {
       <div className="flex flex-col gap-0.5">
         <p className="text-lg font-semibold tabular-nums">{formatCentsCompact(amountCents)}</p>
         <p className="text-sm text-muted-foreground">Pago registrado</p>
+        {label ? <p className="text-sm font-medium">{label}</p> : null}
       </div>
     </div>
   )
@@ -70,7 +71,7 @@ export function RegisterPaymentSheetBody({
 }) {
   const router = useRouter()
   const [state, setState] = useState<State>({ status: 'idle' })
-  const [successAmountCents, setSuccessAmountCents] = useState<number | null>(null)
+  const [success, setSuccess] = useState<{ amountCents: number; label?: string } | null>(null)
   const closeTimeoutRef = useRef<number | undefined>(undefined)
 
   // Si el overlay se cierra a mano (Esc, backdrop) mientras el check todavía
@@ -109,8 +110,8 @@ export function RegisterPaymentSheetBody({
     }
   }, [memberId, familyGroupId])
 
-  function handleSuccess(amountCents: number) {
-    setSuccessAmountCents(amountCents)
+  function handleSuccess(amountCents: number, label?: string) {
+    setSuccess({ amountCents, label })
     // El check queda visible un instante (`focal`, `motion.ts`) antes de
     // cerrar de verdad: cerrar de una desaparecería el sheet antes de que
     // nadie llegue a ver la confirmación.
@@ -120,8 +121,8 @@ export function RegisterPaymentSheetBody({
     }, DURATION.focal * 1000)
   }
 
-  if (successAmountCents != null) {
-    return <PaymentSuccessMoment amountCents={successAmountCents} />
+  if (success != null) {
+    return <PaymentSuccessMoment amountCents={success.amountCents} label={success.label} />
   }
 
   return (
@@ -134,12 +135,18 @@ export function RegisterPaymentSheetBody({
         state.data.familyGroup ? (
           <GroupPaymentForm
             members={state.data.members}
+            monthOptions={state.data.monthOptions}
             familyGroup={state.data.familyGroup}
             onDone={() => {}}
             onSuccess={handleSuccess}
           />
         ) : (
-          <PaymentForm member={state.data.members[0]} onDone={() => {}} onSuccess={handleSuccess} />
+          <PaymentForm
+            member={state.data.members[0]}
+            options={state.data.monthOptions[state.data.members[0].memberId] ?? []}
+            onDone={() => {}}
+            onSuccess={handleSuccess}
+          />
         )
       ) : null}
     </>

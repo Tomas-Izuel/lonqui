@@ -48,6 +48,19 @@ export function formatPeriod(period: string): string {
   return label.replace(' de ', ' ')
 }
 
+/**
+ * Rango de períodos para la descripción del saldo anterior y el resumen de la
+ * tira de meses: "julio 2026", "julio a septiembre 2026", "noviembre 2025 a
+ * febrero 2026". El año se escribe una sola vez si los dos extremos lo comparten.
+ */
+export function periodRangeLabel(from: string, to: string): string {
+  if (from.slice(0, 7) === to.slice(0, 7)) return formatPeriod(from)
+  const fromLabel = formatPeriod(from)
+  const toLabel = formatPeriod(to)
+  if (from.slice(0, 4) === to.slice(0, 4)) return `${fromLabel.replace(/ \d{4}$/, '')} a ${toLabel}`
+  return `${fromLabel} a ${toLabel}`
+}
+
 /** `2026-09-25` (date de Postgres) → "25/09/2026". Sin pasar por `Date`. */
 export function formatDate(isoDate: string): string {
   const [year, month, day] = isoDate.slice(0, 10).split('-')

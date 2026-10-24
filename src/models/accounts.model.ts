@@ -16,6 +16,8 @@ import type {
   MemberStatus,
   MemberType,
   Payment,
+  PaymentMonthKind,
+  PaymentMonthOption,
 } from '@/models/types'
 
 /**
@@ -141,6 +143,46 @@ export async function getMemberAccounts(memberIds: number[]): Promise<MemberAcco
   if (error) throw error
 
   return ((data ?? []) as unknown as MemberAccountRow[]).map(mapMemberAccountRow)
+}
+
+// -----------------------------------------------------------------------------
+// Celdas de la tira de meses del formulario de pago
+// -----------------------------------------------------------------------------
+
+type PaymentMonthOptionRow = {
+  member_id: number
+  period: string
+  kind: string
+  amount_cents: number
+  covered_cents: number
+  pending_cents: number
+  is_current: boolean
+  priced_at_today: boolean
+}
+
+/**
+ * Las celdas de la tira de meses de UNO o varios socios en una sola RPC
+ * (`payment_month_options`). Nada se calcula acá: la ventana, los montos
+ * pendientes y el precio proyectado salen de la base. Vacío si no hay
+ * facturación activa (el formulario cae al campo de monto).
+ */
+export async function getPaymentMonthOptions(memberIds: number[]): Promise<PaymentMonthOption[]> {
+  if (memberIds.length === 0) return []
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('payment_month_options', { member_ids: memberIds })
+  if (error) throw error
+
+  return ((data ?? []) as unknown as PaymentMonthOptionRow[]).map((row) => ({
+    memberId: row.member_id,
+    period: row.period,
+    kind: row.kind as PaymentMonthKind,
+    amountCents: row.amount_cents,
+    coveredCents: row.covered_cents,
+    pendingCents: row.pending_cents,
+    isCurrent: row.is_current,
+    pricedAtToday: row.priced_at_today,
+  }))
 }
 
 // -----------------------------------------------------------------------------

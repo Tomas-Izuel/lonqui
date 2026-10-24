@@ -124,6 +124,60 @@ describe('createOpeningBalance: traducción de fees_opening_balance_guard', () =
   })
 })
 
+describe('openingBalanceDescription / createOpeningBalanceFromMonths', () => {
+  it('descripción: "Saldo anterior · <rango>" con el año una vez si es el mismo, dos si cruza', async () => {
+    const { openingBalanceDescription } = await importModel()
+    expect(openingBalanceDescription('2026-07-01', '2026-09-01')).toBe('Saldo anterior · julio a septiembre 2026')
+    expect(openingBalanceDescription('2026-09-01', '2026-09-01')).toBe('Saldo anterior · septiembre 2026')
+    expect(openingBalanceDescription('2025-11-01', '2026-02-01')).toBe('Saldo anterior · noviembre 2025 a febrero 2026')
+  })
+
+  it('delega en createOpeningBalance: inserta el monto elegido (no la suma de meses) con esa descripción', async () => {
+    const insert = vi.fn((_row: Record<string, unknown>) => ({
+      select: () => ({
+        single: async () => ({
+          data: {
+            id: 3, member_id: 1, period: '2026-09-01', kind: 'opening_balance', amount_cents: 2_750_000,
+            description: 'x', category_id: null, created_at: '2026-10-24T00:00:00Z', voided_at: null, void_reason: null,
+          },
+          error: null,
+        }),
+      }),
+    }))
+    createClientMock.mockResolvedValue({ from: () => ({ insert }) })
+    const { createOpeningBalanceFromMonths } = await importModel()
+    const fee = await createOpeningBalanceFromMonths({ memberId: 1, fromPeriod: '2026-07-01', toPeriod: '2026-09-01', amountCents: 2_750_000 })
+    expect(fee.id).toBe(3)
+    expect(insert.mock.calls[0][0]).toMatchObject({
+      member_id: 1,
+      kind: 'opening_balance',
+      amount_cents: 2_750_000,
+      description: 'Saldo anterior · julio a septiembre 2026',
+    })
+  })
+})
+
+describe('createOpeningBalanceFromMonthsSchema', () => {
+  const base = { memberId: 1, fromPeriod: '2026-07-01', toPeriod: '2026-09-01', amountCents: 3_000_000 }
+
+  it('acepta la forma válida', async () => {
+    const { createOpeningBalanceFromMonthsSchema } = await importModel()
+    expect(createOpeningBalanceFromMonthsSchema.safeParse(base).success).toBe(true)
+  })
+
+  it.each([
+    ['from > to', { ...base, fromPeriod: '2026-09-01', toPeriod: '2026-07-01' }],
+    ['período no día 1', { ...base, fromPeriod: '2026-07-10' }],
+    ['monto 0', { ...base, amountCents: 0 }],
+    ['monto decimal', { ...base, amountCents: 10.5 }],
+    ['memberId inválido', { ...base, memberId: 0 }],
+    ['clave de más', { ...base, description: 'x' }],
+  ])('rechaza %s', async (_label, input) => {
+    const { createOpeningBalanceFromMonthsSchema } = await importModel()
+    expect(createOpeningBalanceFromMonthsSchema.safeParse(input).success).toBe(false)
+  })
+})
+
 describe('voidFee: D33 — 0 filas (policy solo payments.void) es un caso de negocio, no un error de Postgres', () => {
   it('0 filas afectadas (editor sin payments.void, o id inexistente) -> DomainError explícito', async () => {
     createClientMock.mockResolvedValue(makeVoidClient({ data: null, error: null }))

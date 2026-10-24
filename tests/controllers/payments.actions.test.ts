@@ -34,14 +34,24 @@ vi.mock('@/models/payments.model', async () => {
 })
 
 const insertOpeningBalanceMock = vi.fn()
+const insertOpeningBalanceFromMonthsMock = vi.fn()
 const voidFeeRowMock = vi.fn()
 vi.mock('@/models/fees.model', async () => {
   const actual = await vi.importActual<typeof import('@/models/fees.model')>('@/models/fees.model')
-  return { ...actual, createOpeningBalance: insertOpeningBalanceMock, voidFee: voidFeeRowMock }
+  return {
+    ...actual,
+    createOpeningBalance: insertOpeningBalanceMock,
+    createOpeningBalanceFromMonths: insertOpeningBalanceFromMonthsMock,
+    voidFee: voidFeeRowMock,
+  }
 })
 
 const getMemberAccountsMock = vi.fn()
-vi.mock('@/models/accounts.model', () => ({ getMemberAccounts: getMemberAccountsMock }))
+const getPaymentMonthOptionRowsMock = vi.fn()
+vi.mock('@/models/accounts.model', () => ({
+  getMemberAccounts: getMemberAccountsMock,
+  getPaymentMonthOptions: getPaymentMonthOptionRowsMock,
+}))
 
 const getFamilyGroupMock = vi.fn()
 vi.mock('@/models/family-groups.model', () => ({ getFamilyGroup: getFamilyGroupMock }))
@@ -65,6 +75,8 @@ const {
   attachReceipt,
   getReceiptUrlAction,
   createOpeningBalance,
+  createOpeningBalanceFromMonths,
+  getPaymentMonthOptions,
   voidFee,
   getPaymentFormData,
   loadMoreMonthPayments,
@@ -89,6 +101,8 @@ beforeEach(() => {
   getReceiptPathMock.mockReset()
   getMonthPaymentsPageRowsMock.mockReset()
   insertOpeningBalanceMock.mockReset()
+  insertOpeningBalanceFromMonthsMock.mockReset()
+  getPaymentMonthOptionRowsMock.mockReset().mockResolvedValue([])
   voidFeeRowMock.mockReset()
   getMemberAccountsMock.mockReset()
   getFamilyGroupMock.mockReset()
@@ -343,6 +357,132 @@ describe('voidFee', () => {
     const result = await voidFee({ feeId: 1, reason: 'Cargado por error' })
     expect(result.ok).toBe(true)
     expect(revalidatePathMock).toHaveBeenCalledWith('/', 'layout')
+  })
+})
+
+describe('createOpeningBalanceFromMonths', () => {
+  const INPUT = { memberId: 1, fromPeriod: '2026-07-01', toPeriod: '2026-09-01', amountCents: 3_000_000 }
+
+  it('exige payments.register y no toca el modelo sin permiso', async () => {
+    requirePermissionMock.mockRejectedValue(new PermissionError())
+    const result = await createOpeningBalanceFromMonths(INPUT)
+    expect(result.ok).toBe(false)
+    expect(insertOpeningBalanceFromMonthsMock).not.toHaveBeenCalled()
+    expect(requirePermissionMock).toHaveBeenCalledWith('payments.register')
+  })
+
+  it.each([
+    ['fromPeriod > toPeriod', { ...INPUT, fromPeriod: '2026-09-01', toPeriod: '2026-07-01' }],
+    ['período que no es día 1', { ...INPUT, toPeriod: '2026-09-15' }],
+    ['monto 0', { ...INPUT, amountCents: 0 }],
+    ['clave de más', { ...INPUT, description: 'x' }],
+  ])('valida con Zod antes del modelo: %s', async (_label, input) => {
+    const result = await createOpeningBalanceFromMonths(input)
+    expect(result.ok).toBe(false)
+    expect(insertOpeningBalanceFromMonthsMock).not.toHaveBeenCalled()
+  })
+
+  it('monto inválido: el error trae el field amountCents (la ficha lo muestra bajo el campo)', async () => {
+    const result = await createOpeningBalanceFromMonths({ ...INPUT, amountCents: 0 })
+    expect(result).toMatchObject({ ok: false, field: 'amountCents' })
+  })
+
+  it('toPeriod igual o posterior al inicio de la facturación: DomainError con field toPeriod, sin tocar el modelo', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: true, startPeriod: '2026-09-01' })
+    const result = await createOpeningBalanceFromMonths(INPUT) // toPeriod 2026-09-01 = inicio
+    expect(result).toMatchObject({ ok: false, field: 'toPeriod' })
+    expect(insertOpeningBalanceFromMonthsMock).not.toHaveBeenCalled()
+  })
+
+  it('toPeriod = inicio - 1 (el límite): pasa', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: true, startPeriod: '2026-10-01' })
+    insertOpeningBalanceFromMonthsMock.mockResolvedValue({ id: 1 })
+    expect((await createOpeningBalanceFromMonths(INPUT)).ok).toBe(true)
+  })
+
+  it('facturación sin activar: "Primero activá las cuotas en Ajustes", sin tocar el modelo', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: false, startPeriod: null })
+    const result = await createOpeningBalanceFromMonths(INPUT)
+    expect(result).toMatchObject({ ok: false, error: 'Primero activá las cuotas en Ajustes' })
+    expect(insertOpeningBalanceFromMonthsMock).not.toHaveBeenCalled()
+  })
+
+  it('caso feliz: crea, devuelve el id y revalida', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: true, startPeriod: '2026-10-01' })
+    insertOpeningBalanceFromMonthsMock.mockResolvedValue({ id: 9 })
+    const result = await createOpeningBalanceFromMonths(INPUT)
+    expect(result).toEqual({ ok: true, data: { id: 9 } })
+    expect(insertOpeningBalanceFromMonthsMock).toHaveBeenCalledWith(INPUT)
+    expect(revalidatePathMock).toHaveBeenCalledWith('/', 'layout')
+  })
+
+  it('un error de dominio de la base (ya tiene saldo vigente) llega como mensaje', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: true, startPeriod: '2026-10-01' })
+    insertOpeningBalanceFromMonthsMock.mockRejectedValue(new DomainError('Este socio ya tiene un saldo anterior cargado'))
+    const result = await createOpeningBalanceFromMonths(INPUT)
+    expect(result).toMatchObject({ ok: false, error: 'Este socio ya tiene un saldo anterior cargado' })
+  })
+})
+
+describe('getPaymentMonthOptions (action)', () => {
+  it('exige payments.register y no toca el modelo sin permiso', async () => {
+    requirePermissionMock.mockRejectedValue(new PermissionError())
+    const result = await getPaymentMonthOptions({ memberId: 1 })
+    expect(result.ok).toBe(false)
+    expect(getPaymentMonthOptionRowsMock).not.toHaveBeenCalled()
+  })
+
+  it.each([[{}], [{ memberId: 0 }], [{ memberId: 1.5 }], [{ memberId: 1, extra: true }], [{ memberId: '1' }]])('input inválido %j: rechaza antes del modelo', async (input) => {
+    const result = await getPaymentMonthOptions(input)
+    expect(result.ok).toBe(false)
+    expect(getPaymentMonthOptionRowsMock).not.toHaveBeenCalled()
+  })
+
+  it('caso feliz: pide las celdas de ESE socio', async () => {
+    const rows = [{ memberId: 1, period: '2026-07-01', kind: 'pre_system' }]
+    getPaymentMonthOptionRowsMock.mockResolvedValue(rows)
+    const result = await getPaymentMonthOptions({ memberId: 1 })
+    expect(getPaymentMonthOptionRowsMock).toHaveBeenCalledWith([1])
+    expect(result).toEqual({ ok: true, data: rows })
+  })
+})
+
+describe('getPaymentFormData: monthOptions', () => {
+  const cell = (memberId: number, period: string) => ({ memberId, period, kind: 'monthly' })
+
+  it('grupo de 3: UNA sola llamada a las celdas con todos los ids, agrupadas por socio; el que no trajo filas queda con []', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: true })
+    getFamilyGroupMock.mockResolvedValue({
+      id: 9,
+      members: [
+        { id: 1, fullName: 'Uno', status: 'active', isPaymentResponsible: true },
+        { id: 2, fullName: 'Dos', status: 'active', isPaymentResponsible: false },
+        { id: 3, fullName: 'Tres', status: 'inactive', isPaymentResponsible: false },
+      ],
+    })
+    getMemberAccountsMock.mockResolvedValue([{ memberId: 1 }, { memberId: 2 }, { memberId: 3 }])
+    getPaymentMonthOptionRowsMock.mockResolvedValue([cell(1, '2026-10-01'), cell(1, '2026-11-01'), cell(2, '2026-10-01')])
+
+    const result = await getPaymentFormData({ familyGroupId: 9 })
+
+    expect(getPaymentMonthOptionRowsMock).toHaveBeenCalledTimes(1)
+    expect(getPaymentMonthOptionRowsMock).toHaveBeenCalledWith([1, 2, 3])
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(Object.keys(result.data.monthOptions).sort()).toEqual(['1', '2', '3'])
+      expect(result.data.monthOptions[1]).toHaveLength(2)
+      expect(result.data.monthOptions[2]).toHaveLength(1)
+      expect(result.data.monthOptions[3]).toEqual([])
+    }
+  })
+
+  it('socio solo: una llamada con su id; sin facturación activa las celdas vienen vacías (el formulario cae al monto)', async () => {
+    getBillingStatusMock.mockResolvedValue({ active: false })
+    getMemberAccountsMock.mockResolvedValue([{ memberId: 7 }])
+    getPaymentMonthOptionRowsMock.mockResolvedValue([])
+    const result = await getPaymentFormData({ memberId: 7 })
+    expect(getPaymentMonthOptionRowsMock).toHaveBeenCalledWith([7])
+    expect(result).toMatchObject({ ok: true, data: { monthOptions: { 7: [] } } })
   })
 })
 

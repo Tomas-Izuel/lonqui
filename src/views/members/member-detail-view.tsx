@@ -91,6 +91,7 @@ export function MemberDetailView({
         <MemberAccountSection
           memberId={member.id}
           familyGroupId={member.familyGroupId}
+          joinedOn={member.joinedOn}
           account={account.account}
           openingBalance={account.openingBalance}
           billing={billing}

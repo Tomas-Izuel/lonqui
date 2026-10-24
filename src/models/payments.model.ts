@@ -3,10 +3,12 @@ import 'server-only'
 import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
-import { DomainError } from '@/lib/errors'
+import { DomainError, PermissionError } from '@/lib/errors'
+import { isRawPostgresMessage } from '@/models/pg-errors'
+import { openingBalanceDescription, openingBalanceMonthsSchema } from '@/models/fees.model'
 import { toClubDate, lastDayOfPeriod } from '@/lib/dates'
 import { sumCents } from '@/lib/money'
-import type { Page, Payment, PaymentListItem, PaymentMethod } from '@/models/types'
+import type { Page, Payment, PaymentListItem, PaymentMethod, RegisterPaymentResult } from '@/models/types'
 
 /**
  * Pagos (`payments`, S2). Un pago suelto es un lote de uno: `batchId` lo
@@ -69,6 +71,12 @@ const paymentItemSchema = z
       .number('Ingresá el monto')
       .int('El monto no es válido')
       .positive('El monto tiene que ser mayor a cero'),
+    /**
+     * Deuda previa al sistema que se crea en la MISMA transacción que el pago
+     * (saldo anterior por meses). Que `toPeriod` quede antes del inicio de la
+     * facturación y que no haya ya un saldo vigente lo valida la base.
+     */
+    openingBalance: openingBalanceMonthsSchema.nullish(),
   })
   .strict()
 
@@ -83,7 +91,12 @@ export const registerPaymentSchema = z
     batchId: z.uuid('El identificador del lote no es válido'),
     paidOn: z.iso.date('La fecha no es válida'),
     method: z.enum(['cash', 'transfer'] satisfies PaymentMethod[], 'Elegí el medio de pago: efectivo o transferencia'),
-    items: z.array(paymentItemSchema).min(1, 'Cargá al menos un pago'),
+    items: z
+      .array(paymentItemSchema)
+      .min(1, 'Cargá al menos un pago')
+      .refine((items) => new Set(items.map((item) => item.memberId)).size === items.length, {
+        message: 'El mismo socio aparece dos veces en el lote',
+      }),
     notes: z.string().trim().max(500, 'Las notas no pueden tener más de 500 caracteres').nullish(),
     receiptPath: z
       .string()
@@ -159,17 +172,26 @@ export type GetMonthPaymentsPageInput = z.infer<typeof getMonthPaymentsPageSchem
 // -----------------------------------------------------------------------------
 
 const BATCH_MEMBER_UNIQUE_INDEX = 'payments_batch_member_key'
-
-function isBatchAlreadyRegistered(error: PostgrestError): boolean {
-  return error.code === '23505' && error.message.includes(BATCH_MEMBER_UNIQUE_INDEX)
-}
+const ONE_OPENING_BALANCE_INDEX = 'fees_one_opening_balance'
 
 /**
- * `payments_paid_on_guard` (fecha futura o demasiado vieja) y las FK de socio.
- * El monto (`amount_cents > 0`) lo ataja Zod; si llegara a la base por
- * PostgREST directo se traduce igual, con el mismo texto.
+ * Errores de `register_payment_batch`. La RPC y los triggers de `payments` /
+ * `fees` redactan sus mensajes para el usuario (23514 con texto propio): se
+ * pasan tal cual. Un 23514 de un CHECK declarativo trae el mensaje crudo de
+ * Postgres y NO se muestra (`isRawPostgresMessage`): sube como error interno.
  */
-function translateInsertError(error: PostgrestError): unknown {
+function translateRegisterError(error: PostgrestError): unknown {
+  if (error.code === '42501') {
+    return new PermissionError('No tenés permiso para registrar pagos')
+  }
+  if (error.code === '23505' && error.message.includes(ONE_OPENING_BALANCE_INDEX)) {
+    return new DomainError('Ya tiene un saldo anterior vigente. Actualizá la pantalla y volvé a intentar.', {
+      field: 'openingBalance',
+    })
+  }
+  if (error.code === '23505' && error.message.includes(BATCH_MEMBER_UNIQUE_INDEX)) {
+    return new DomainError('El mismo socio aparece dos veces en el lote', { field: 'items' })
+  }
   if (error.code === '23514' && error.message === 'La fecha del pago no puede ser futura') {
     return new DomainError(PAYMENT_DATE_FUTURE_MESSAGE, { field: 'paidOn' })
   }
@@ -178,6 +200,11 @@ function translateInsertError(error: PostgrestError): unknown {
   }
   if (error.code === '23514' && error.message.includes('payments_amount_cents_check')) {
     return new DomainError('El monto tiene que ser mayor a cero', { field: 'amountCents' })
+  }
+  if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
+    return new DomainError(error.message, {
+      field: error.message.includes('mayor a cero') ? 'amountCents' : undefined,
+    })
   }
   if (error.code === '23503') {
     return new DomainError('El socio no existe', { field: 'memberId' })
@@ -273,55 +300,64 @@ const PAYMENT_SELECT =
 // Escrituras
 // -----------------------------------------------------------------------------
 
+type RegisterBatchRow = {
+  member_id: number
+  payment_id: number
+  amount_cents: number
+  opening_balance_fee_id: number | null
+  already_registered: boolean
+}
+
 /**
- * Registra un pago o un cobro a varios integrantes de un grupo en una sola
- * sentencia `insert` con N filas (mismo `batchId`, `paidOn`, `method`,
- * `receiptPath`, `notes`; solo cambia `memberId`/`amountCents` por fila).
+ * Registra un pago o un cobro a varios integrantes de un grupo (mismo
+ * `batchId`, `paidOn`, `method`, `receiptPath`, `notes`; cambia `memberId` /
+ * `amountCents` por ítem) llamando a `register_payment_batch`: UN solo
+ * camino de escritura, una transacción. Si un ítem trae `openingBalance`, el
+ * saldo anterior se crea en esa misma transacción (todo o nada).
  *
- * Un reintento con el mismo `batchId` (doble toque, mala señal) choca contra
- * el índice único `(batch_id, member_id)`: se trata como éxito idempotente
- * (`alreadyRegistered: true`), recuperando lo que ya había quedado cargado
- * la primera vez, en vez de mostrar un error de "ya existe".
+ * La RPC es SECURITY INVOKER: corre con la sesión del usuario, así que las
+ * RLS, los grants por columna y el actor de la auditoría (`auth.uid()`) valen
+ * igual que con un insert directo.
+ *
+ * Idempotencia (D22): un reintento con el mismo `batchId` no toca nada y la
+ * RPC devuelve lo ya cargado con `already_registered = true`.
  */
-export async function registerPayment(
-  input: RegisterPaymentInput,
-): Promise<{ paymentIds: number[]; totalCents: number; alreadyRegistered: boolean }> {
+export async function registerPayment(input: RegisterPaymentInput): Promise<RegisterPaymentResult> {
   const supabase = await createClient()
 
-  const rows = input.items.map((item) => ({
+  const items = input.items.map((item) => ({
     member_id: item.memberId,
     amount_cents: item.amountCents,
-    paid_on: input.paidOn,
-    method: input.method,
-    receipt_storage_path: input.receiptPath ?? null,
-    notes: input.notes ?? null,
-    batch_id: input.batchId,
+    opening_balance: item.openingBalance
+      ? {
+          from_period: item.openingBalance.fromPeriod,
+          to_period: item.openingBalance.toPeriod,
+          amount_cents: item.openingBalance.amountCents,
+          description: openingBalanceDescription(item.openingBalance.fromPeriod, item.openingBalance.toPeriod),
+        }
+      : null,
   }))
 
-  const { data, error } = await supabase.from('payments').insert(rows).select('id, amount_cents')
+  // Los tipos generados marcan `notes` y `receipt_storage_path` como `string`
+  // (no saben de DEFAULT NULL): la RPC los acepta nulos.
+  const { data, error } = await supabase.rpc('register_payment_batch', {
+    batch_id: input.batchId,
+    paid_on: input.paidOn,
+    method: input.method,
+    receipt_storage_path: (input.receiptPath ?? null) as string,
+    notes: (input.notes ?? null) as string,
+    items,
+  })
+  if (error) throw translateRegisterError(error)
 
-  if (error) {
-    if (isBatchAlreadyRegistered(error)) {
-      const { data: existing, error: existingError } = await supabase
-        .from('payments')
-        .select('id, amount_cents')
-        .eq('batch_id', input.batchId)
-      if (existingError) throw existingError
-
-      return {
-        paymentIds: (existing ?? []).map((row) => row.id),
-        totalCents: sumCents((existing ?? []).map((row) => row.amount_cents)),
-        alreadyRegistered: true,
-      }
-    }
-    throw translateInsertError(error)
-  }
-
-  const created = data ?? []
+  const rows = (data ?? []) as unknown as RegisterBatchRow[]
   return {
-    paymentIds: created.map((row) => row.id),
-    totalCents: sumCents(created.map((row) => row.amount_cents)),
-    alreadyRegistered: false,
+    paymentIds: rows.map((row) => row.payment_id),
+    totalCents: sumCents(rows.map((row) => row.amount_cents)),
+    alreadyRegistered: rows.some((row) => row.already_registered),
+    openingBalanceFeeIds: rows
+      .map((row) => row.opening_balance_fee_id)
+      .filter((id): id is number => id !== null),
   }
 }
 

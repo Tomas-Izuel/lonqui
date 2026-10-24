@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
+import { periodRangeLabel } from '@/lib/dates'
 import { isRawPostgresMessage } from '@/models/pg-errors'
 import type { TablesInsert } from '@/lib/supabase/database.types'
 import type { Fee, FeeKind } from '@/models/types'
@@ -34,6 +35,46 @@ export const createOpeningBalanceSchema = z
   })
   .strict()
 export type CreateOpeningBalanceInput = z.infer<typeof createOpeningBalanceSchema>
+
+/** `YYYY-MM-01`: los períodos son siempre el primer día del mes. */
+const periodSchema = z
+  .iso.date('El mes no es válido')
+  .refine((value) => value.endsWith('-01'), 'El mes no es válido')
+
+const openingBalanceMonthsBase = z.object({
+  fromPeriod: periodSchema,
+  toPeriod: periodSchema,
+  amountCents: z
+    .number('Ingresá el monto del saldo anterior')
+    .int('El monto no es válido')
+    .positive('El saldo anterior tiene que ser mayor a cero'),
+})
+
+const fromNotAfterTo = {
+  check: (data: { fromPeriod: string; toPeriod: string }) => data.fromPeriod <= data.toPeriod,
+  params: { message: 'El mes de inicio no puede ser posterior al último', path: ['fromPeriod'] },
+}
+
+/**
+ * Meses de un saldo anterior (de `fromPeriod` a `toPeriod`, ambos incluidos).
+ * Compartido con `payments.model` (el saldo anterior que viaja dentro de un pago).
+ * Que `toPeriod` quede antes del inicio de la facturación lo valida la base
+ * (lote) y la action (ficha).
+ */
+export const openingBalanceMonthsSchema = openingBalanceMonthsBase
+  .strict()
+  .refine(fromNotAfterTo.check, fromNotAfterTo.params)
+
+export const createOpeningBalanceFromMonthsSchema = openingBalanceMonthsBase
+  .extend({ memberId: z.number().int().positive() })
+  .strict()
+  .refine(fromNotAfterTo.check, fromNotAfterTo.params)
+export type CreateOpeningBalanceFromMonthsInput = z.infer<typeof createOpeningBalanceFromMonthsSchema>
+
+/** Un solo formato de descripción: la RPC de lote recibe esta misma cadena armada acá. */
+export function openingBalanceDescription(fromPeriod: string, toPeriod: string): string {
+  return `Saldo anterior · ${periodRangeLabel(fromPeriod, toPeriod)}`
+}
 
 export const voidFeeSchema = z
   .object({
@@ -170,6 +211,15 @@ export async function createOpeningBalance(input: CreateOpeningBalanceInput): Pr
 
   if (error) throw translateOpeningBalanceError(error)
   return mapFeeRow(data)
+}
+
+/** Saldo anterior expresado en meses ("julio a septiembre 2026"): el monto lo decide el llamador. */
+export async function createOpeningBalanceFromMonths(input: CreateOpeningBalanceFromMonthsInput): Promise<Fee> {
+  return createOpeningBalance({
+    memberId: input.memberId,
+    amountCents: input.amountCents,
+    description: openingBalanceDescription(input.fromPeriod, input.toPeriod),
+  })
 }
 
 /**
