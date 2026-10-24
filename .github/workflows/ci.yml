@@ -92,8 +92,48 @@ jobs:
         if: always()
         run: npx supabase stop
 
-  # El deploy de migraciones a producción (`supabase db push` en main, después
-  # de que pasen los dos jobs de arriba) se agrega cuando exista el proyecto
-  # hosted. Mismo esquema que Burger Shop: needs [build, db], concurrency
-  # serializada sin cancel, y NUNCA `supabase config push` (config.toml
-  # describe solo el stack local).
+  # Migraciones a producción: solo en push a main, después de que pasen los
+  # dos jobs de arriba. Serializado y sin cancelar (cortar un `db push` a
+  # mitad de camino es peor que esperar). Nunca `supabase config push`:
+  # config.toml describe solo el stack local; por lo mismo `--skip-vault`, que
+  # evita copiar a producción los secretos de vault de config.toml.
+  #
+  # Se saltea solo si falta configuración (fork, repo recién clonado):
+  #   vars.SUPABASE_PROJECT_REF       ref del proyecto hosted
+  #   secrets.SUPABASE_ACCESS_TOKEN   token personal de supabase.com
+  #   secrets.SUPABASE_DB_PASSWORD    contraseña de Postgres del proyecto
+  # Los secrets viven en el environment `production` del repo. La variable va a
+  # nivel repositorio: el `if` del job se evalúa antes de entrar al
+  # environment, así que una variable del environment ahí llega vacía.
+  #
+  # Vercel despliega la app en paralelo, así que durante unos minutos el código
+  # nuevo puede correr contra la base vieja: toda migración tiene que tolerar
+  # convivir con el código anterior y con el nuevo.
+  deploy-migrations:
+    name: migraciones a producción
+    needs: [build, db]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SUPABASE_PROJECT_REF != ''
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-migrations
+      cancel-in-progress: false
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Vincular el proyecto hosted
+        run: supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}" --password "$SUPABASE_DB_PASSWORD"
+
+      # Queda en el log qué se va a aplicar antes de aplicarlo.
+      - name: Migraciones pendientes
+        run: supabase db push --linked --dry-run --skip-vault --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Aplicar migraciones
+        run: supabase db push --linked --skip-vault --yes --password "$SUPABASE_DB_PASSWORD"
