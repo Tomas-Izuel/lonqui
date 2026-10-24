@@ -323,7 +323,7 @@ export function GroupPaymentForm({
 
           <TextareaField control={form.control} name="notes" label="Notas (opcional)" disabled={pending} />
 
-          <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <div className="sticky -bottom-4 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <p role="status" className="flex justify-between text-sm text-muted-foreground">
               <span>{checkedCount === 1 ? '1 integrante' : `${checkedCount} integrantes`}</span>
               <span className="tabular-nums">Total {formatCentsCompact(totalCents)}</span>

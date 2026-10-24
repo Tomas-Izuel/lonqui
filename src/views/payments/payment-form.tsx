@@ -274,7 +274,7 @@ export function PaymentForm({
             </Button>
           )}
 
-          <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <div className="sticky -bottom-4 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             {footerLine ? (
               <p role="status" className="text-sm text-muted-foreground tabular-nums">
                 {footerLine}
