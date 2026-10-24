@@ -28,7 +28,9 @@ import {
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
 import { MonthEntry, creditOf, entryDerivedCents, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
-import type { FamilyGroupSummary, MemberAccount, PaymentMonthOption } from '@/models/types'
+import { BeforeStartNote } from '@/views/payments/month-strip'
+import { isBeforeStart } from '@/views/payments/month-selection'
+import type { FamilyGroupSummary, ISODate, MemberAccount, PaymentMonthOption } from '@/models/types'
 
 const rowSchema = z.object({
   memberId: z.number(),
@@ -76,6 +78,7 @@ export function GroupPaymentForm({
   members,
   monthOptions,
   familyGroup,
+  startPeriod,
   onDone,
   onSuccess,
 }: {
@@ -83,6 +86,8 @@ export function GroupPaymentForm({
   /** Celdas por socio; sin entrada o vacío = ese integrante carga el monto a mano. */
   monthOptions: Record<number, PaymentMonthOption[]>
   familyGroup: FamilyGroupSummary
+  /** Primer mes de la facturación (`billing.startPeriod`), para la tira de meses previos. */
+  startPeriod?: ISODate | null
   /** Qué pasa después de un registro exitoso (ver el comentario en `PaymentForm`). */
   onDone: () => void
   /** Avisa el total del lote justo antes de `onDone` (ver `PaymentForm`). */
@@ -221,6 +226,7 @@ export function GroupPaymentForm({
       <div className="border-t border-border pt-4">
         <form id="group-payment-form" onSubmit={form.handleSubmit(onValid)} noValidate method="post" className="flex flex-col gap-4">
           <p className="text-sm font-medium">Integrantes</p>
+          {startPeriod && Object.values(monthOptions).some(isBeforeStart) ? <BeforeStartNote startPeriod={startPeriod} /> : null}
           <ul className="flex flex-col divide-y divide-border">
             {fields.map((field, index) => {
               const account = accountByMemberId.get(field.memberId)
@@ -261,6 +267,8 @@ export function GroupPaymentForm({
                         creditCents={creditOf(account?.balanceCents ?? 0)}
                         error={form.formState.errors.rows?.[index]?.amountCents?.message}
                         variant="compact"
+                        startPeriod={startPeriod}
+                        hideBeforeStartNote={startPeriod != null}
                         disabled={pending}
                         amountLabel={`Otro monto de ${field.fullName}`}
                       />

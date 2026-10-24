@@ -60,8 +60,12 @@ export type MonthStripPreSystem = {
   open: boolean
   /** Sin `onToggle` el pliegue no se dibuja y las celdas previas quedan siempre visibles (la ficha). */
   onToggle?: () => void
-  /** Primer mes de la facturación: "¿Debe meses de antes de octubre 2026?". */
+  /** Primer mes de la facturación (el real, no derivado de las celdas): "¿Debe meses de antes de octubre 2026?". */
   startPeriod: ISODate
+  /** Antes del inicio: sin pliegue y con la línea que explica por qué los meses previos son saldo anterior. */
+  beforeStart?: boolean
+  /** El formulario ya muestra la línea una vez (pago de grupo). */
+  hideBeforeStartNote?: boolean
   overrideCents: number | null
   onOverrideChange: (cents: number | null) => void
   /** false mientras el total tipeado no se puede leer (o es 0): el formulario frena el envío. Legado: preferí `onChange`. */
@@ -71,6 +75,15 @@ export type MonthStripPreSystem = {
    * Si está, la tira no llama a `onOverrideChange` ni a `onValidityChange`.
    */
   onChange?: (cents: number | null, valid: boolean) => void
+}
+
+/** La línea que explica por qué antes del inicio todo es saldo anterior (la usa también el pago de grupo, una sola vez). */
+export function BeforeStartNote({ startPeriod }: { startPeriod: ISODate }) {
+  return (
+    <p className="text-sm text-muted-foreground">
+      Las cuotas arrancan en {formatPeriod(startPeriod)}. Los meses anteriores se cargan como saldo anterior.
+    </p>
+  )
 }
 
 export type MonthStripCoverage = {
@@ -131,13 +144,17 @@ export function MonthStrip({
         </button>
       ) : null}
 
+      {preSystem?.beforeStart && !preSystem.hideBeforeStartNote ? <BeforeStartNote startPeriod={preSystem.startPeriod} /> : null}
+
       <ul className="grid grid-cols-4 gap-1.5">
         {visible.map(({ option, index }, position) => {
           const tone = cellTone(option)
           const selectable = isSelectable(option)
           const isPartialCover = coverage?.partial?.index === index
           const isMarked = covered ? covered.has(index) || isPartialCover : marked.has(index)
-          const Icon = TONE_ICON[tone]
+          // Antes del inicio el mes actual es una celda previa: conserva el trazo punteado pero dice "este mes".
+          const preCurrent = tone === 'pre_system' && option.isCurrent
+          const Icon = preCurrent ? CircleDot : TONE_ICON[tone]
           const previous = position > 0 ? visible[position - 1].option : null
           const showYear = tone === 'pre_system' || !previous || previous.period.slice(0, 4) !== option.period.slice(0, 4)
 
@@ -146,8 +163,11 @@ export function MonthStrip({
             ? `cubre ${formatCentsCompact(coverage!.partial!.cents)} de ${formatCentsCompact(option.pendingCents)}`
             : covered && isMarked
               ? 'se cubre'
-              : toneLabel(option, tone)
-          const fullLabel = `${formatPeriod(option.period)}: ${stateLabel}${isMarked ? ', marcado' : ''}${selectable ? '' : ', no se puede marcar'}`
+              : preCurrent
+                ? 'este mes'
+                : toneLabel(option, tone)
+          const spokenState = preCurrent && stateLabel === 'este mes' ? 'este mes, antes del sistema' : stateLabel
+          const fullLabel = `${formatPeriod(option.period)}: ${spokenState}${isMarked ? ', marcado' : ''}${selectable ? '' : ', no se puede marcar'}`
 
           return (
             <li key={`${option.period}-${option.kind}`} className="min-w-0">

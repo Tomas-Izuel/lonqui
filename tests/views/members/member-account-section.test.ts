@@ -96,8 +96,14 @@ describe('MemberAccountSection: "Indicar desde cuándo debía"', () => {
     expect(render({ billing: { ...BILLING, startPeriod: null } })).not.toContain(CTA)
   })
 
-  it('inicio en el futuro (todavía no empezó la facturación): no aparece', () => {
-    expect(render({ billing: { ...BILLING, startPeriod: '2026-12-01', currentPeriod: '2026-10-01' } })).not.toContain(CTA)
+  it('inicio en el futuro (todavía no empezó la facturación): SÍ aparece, el mes actual ya es "antes del sistema"', () => {
+    expect(render({ billing: { ...BILLING, startPeriod: '2026-12-01', currentPeriod: '2026-10-01' } })).toContain(CTA)
+  })
+
+  it('inicio en el futuro pero sin payments.register o con saldo anterior vigente: igual no aparece el botón', () => {
+    const future = { ...BILLING, startPeriod: '2026-12-01', currentPeriod: '2026-10-01' }
+    expect(render({ billing: future, canRegister: false })).not.toContain(CTA)
+    expect(render({ billing: future, openingBalance: OPENING })).not.toContain(CTA)
   })
 
   it('sin payments.register (canRegister = false): no aparece, ni el saldo ya cargado', () => {

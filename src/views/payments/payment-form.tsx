@@ -20,7 +20,7 @@ import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
 import { MonthEntry, creditOf, entryDerivedCents, entryEffectiveOptions, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
 import { coverLabel, coverageForAmount, selectionSummary, summaryText } from '@/views/payments/month-selection'
-import type { MemberAccount, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
+import type { ISODate, MemberAccount, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
 
 const schema = z.object({
   amountCents: amountCentsSchema,
@@ -66,12 +66,15 @@ function resultingAccountMessage(member: MemberAccount, amountCents: number, ope
 export function PaymentForm({
   member,
   options,
+  startPeriod,
   onDone,
   onSuccess,
 }: {
   member: MemberAccount
   /** Celdas de la tira. Vacío (cuotas sin activar, baja al día) = el formulario de monto de siempre. */
   options: PaymentMonthOption[]
+  /** Primer mes de la facturación (`billing.startPeriod`), para la tira de meses previos. */
+  startPeriod?: ISODate | null
   onDone: () => void
   /** Avisa monto y, si hubo meses, "Cubre ago–oct" (o "Pago a cuenta") justo antes de `onDone`. */
   onSuccess?: (amountCents: number, label?: string) => void
@@ -218,6 +221,7 @@ export function PaymentForm({
               error={form.formState.errors.amountCents?.message}
               disabled={pending}
               showTotal={false}
+              startPeriod={startPeriod}
             />
           ) : (
             <AmountField control={form.control} name="amountCents" label="Monto" autoFocus />

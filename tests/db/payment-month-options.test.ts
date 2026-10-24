@@ -41,15 +41,7 @@ describe.skipIf(!dbAvailable)('payment_month_options: sin facturación no hay ti
       expect(await monthOptions(client, [memberId])).toEqual([])
     })
   })
-
-  it('con el inicio en un mes futuro: 0 filas', async () => {
-    await withRollback(async (client) => {
-      const memberId = await createFakeMember(client)
-      await setBillingStartOffset(client, 1)
-      await asEditor(client)
-      expect(await monthOptions(client, [memberId])).toEqual([])
-    })
-  })
+  // Con el inicio en el futuro la tira SÍ trae celdas: payment-month-options-before-start.test.ts.
 })
 
 describe.skipIf(!dbAvailable)('payment_month_options: ventana adeudado + mes actual + 6 de adelanto', () => {

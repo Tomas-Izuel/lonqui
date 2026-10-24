@@ -137,6 +137,7 @@ export function RegisterPaymentSheetBody({
             members={state.data.members}
             monthOptions={state.data.monthOptions}
             familyGroup={state.data.familyGroup}
+            startPeriod={state.data.billing.startPeriod}
             onDone={() => {}}
             onSuccess={handleSuccess}
           />
@@ -144,6 +145,7 @@ export function RegisterPaymentSheetBody({
           <PaymentForm
             member={state.data.members[0]}
             options={state.data.monthOptions[state.data.members[0].memberId] ?? []}
+            startPeriod={state.data.billing.startPeriod}
             onDone={() => {}}
             onSuccess={handleSuccess}
           />
