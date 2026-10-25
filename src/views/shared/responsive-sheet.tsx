@@ -85,8 +85,22 @@ export function ResponsiveSheet({ open, onOpenChange, title, description, footer
             <DialogTitle>{title}</DialogTitle>
             {description ? <DialogDescription>{description}</DialogDescription> : null}
           </DialogHeader>
-          <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">{children}</div>
-          <DialogFooter>{footer}</DialogFooter>
+          {/*
+            El scroller se extiende al borde del diálogo (`-mx-4`) y devuelve ese
+            espacio como padding: así el anillo de foco no se recorta, y el pie
+            sticky de los formularios de pago (`-mx-4 -mb-4`, pensado para un
+            contenedor con `p-4`, como el del sheet móvil) queda al ras en vez de
+            desbordar y disparar una barra horizontal. Sin `footer` no hay pie
+            (ni su banda vacía) y el scroller absorbe el padding inferior del
+            diálogo. `overflow-x-clip`: la entrada del paso (`x: 16`) no debe
+            sumar scroll horizontal ni por un frame.
+          */}
+          <div
+            className={`-mx-4 -mt-1 flex max-h-[70vh] flex-col gap-4 overflow-y-auto overflow-x-clip px-4 pt-1 ${footer ? 'pb-1' : '-mb-4 pb-4'}`}
+          >
+            {children}
+          </div>
+          {footer ? <DialogFooter>{footer}</DialogFooter> : null}
         </DialogContent>
       </Dialog>
     )
@@ -158,8 +172,8 @@ export function ResponsiveSheet({ open, onOpenChange, title, description, footer
             <SheetTitle>{title}</SheetTitle>
             {description ? <SheetDescription>{description}</SheetDescription> : null}
           </SheetHeader>
-          <div className="flex flex-col gap-4 overflow-y-auto px-4 py-4">{children}</div>
-          <SheetFooter className="flex-row justify-end gap-2 border-t border-border">{footer}</SheetFooter>
+          <div className="flex flex-col gap-4 overflow-x-clip overflow-y-auto px-4 py-4">{children}</div>
+          {footer ? <SheetFooter className="flex-row justify-end gap-2 border-t border-border">{footer}</SheetFooter> : null}
         </motion.div>
       </SheetContent>
     </Sheet>

@@ -49,7 +49,7 @@ describe.skipIf(!dbAvailable)('alta de un socio: la ficha de ingreso es automát
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', current_date, 'Se fue del club')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', private.club_today(), 'Se fue del club')`,
         [memberId],
       )
       expect(err.message).toMatch(/row-level security|permission denied/i)
@@ -64,7 +64,7 @@ describe.skipIf(!dbAvailable)('alta de un socio: la ficha de ingreso es automát
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'admission', current_date, 'Ficha de ingreso manual')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'admission', private.club_today(), 'Ficha de ingreso manual')`,
         [memberId],
       )
       expect(err.message).toMatch(/ya tiene su ficha de ingreso/i)
@@ -117,13 +117,13 @@ describe.skipIf(!dbAvailable)('baja, reactivación: transiciones de estado', () 
       await actAs(client, userId)
       const memberId = await createMember(client, { firstName: 'Fabio', lastName: 'Doble Baja' })
       await client.query(
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', current_date, 'Motivo uno')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', private.club_today(), 'Motivo uno')`,
         [memberId],
       )
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', current_date, 'Motivo dos')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', private.club_today(), 'Motivo dos')`,
         [memberId],
       )
       expect(err.message).toMatch(/ya está dado de baja/i)
@@ -160,7 +160,7 @@ describe.skipIf(!dbAvailable)('baja, reactivación: transiciones de estado', () 
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'reactivation', current_date, 'Intento inválido')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'reactivation', private.club_today(), 'Intento inválido')`,
         [memberId],
       )
       expect(err.message).toMatch(/ya está activo/i)
@@ -206,7 +206,7 @@ describe.skipIf(!dbAvailable)('baja, reactivación: transiciones de estado', () 
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', current_date, 'ok')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', private.club_today(), 'ok')`,
         [memberId],
       )
       expect(err.code).toBe('23514')
@@ -221,7 +221,7 @@ describe.skipIf(!dbAvailable)('baja, reactivación: transiciones de estado', () 
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', current_date, 'Editor no puede')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', private.club_today(), 'Editor no puede')`,
         [memberId],
       )
       expect(err.message).toMatch(/row-level security|permission denied/i)
@@ -236,13 +236,13 @@ describe.skipIf(!dbAvailable)('baja, reactivación: transiciones de estado', () 
 
       const insertMemberErr = await expectQueryError(
         client,
-        `insert into public.members (first_name, last_name, joined_on) values ('X', 'Y', current_date)`,
+        `insert into public.members (first_name, last_name, joined_on) values ('X', 'Y', private.club_today())`,
       )
       expect(insertMemberErr.message).toMatch(/row-level security|permission denied/i)
 
       const insertEventErr = await expectQueryError(
         client,
-        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', current_date, 'Consulta no puede')`,
+        `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', private.club_today(), 'Consulta no puede')`,
         [memberId],
       )
       expect(insertEventErr.message).toMatch(/row-level security|permission denied/i)
@@ -308,7 +308,7 @@ describe.skipIf(!dbAvailable)('DNI: unicidad parcial (nullable con carga histór
 
       const err = await expectQueryError(
         client,
-        `insert into public.members (first_name, last_name, dni, joined_on) values ('Otro', 'Con Mismo DNI', '99000001', current_date)`,
+        `insert into public.members (first_name, last_name, dni, joined_on) values ('Otro', 'Con Mismo DNI', '99000001', private.club_today())`,
       )
       expect(err.code).toBe('23505')
     })
@@ -330,7 +330,7 @@ describe.skipIf(!dbAvailable)('DNI: unicidad parcial (nullable con carga histór
       await actAs(client, userId)
       const err = await expectQueryError(
         client,
-        `insert into public.members (first_name, last_name, dni, joined_on) values ('X', 'Y', '123', current_date)`,
+        `insert into public.members (first_name, last_name, dni, joined_on) values ('X', 'Y', '123', private.club_today())`,
       )
       expect(err.code).toBe('23514')
     })
@@ -361,7 +361,7 @@ describe.skipIf(!dbAvailable)('responsable de pago: unicidad y RPC atómica', ()
       const err = await expectQueryError(
         client,
         `insert into public.members (first_name, last_name, family_group_id, is_payment_responsible, joined_on)
-         values ('Otro', 'Responsable Dos', $1, true, current_date)`,
+         values ('Otro', 'Responsable Dos', $1, true, private.club_today())`,
         [groupId],
       )
       expect(err.code).toBe('23505')
@@ -375,7 +375,7 @@ describe.skipIf(!dbAvailable)('responsable de pago: unicidad y RPC atómica', ()
       const err = await expectQueryError(
         client,
         `insert into public.members (first_name, last_name, is_payment_responsible, joined_on)
-         values ('X', 'Y', true, current_date)`,
+         values ('X', 'Y', true, private.club_today())`,
       )
       expect(err.code).toBe('23514')
     })

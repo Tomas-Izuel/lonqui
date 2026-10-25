@@ -335,10 +335,20 @@ Lo que muestran los Excel reales y el modelo tiene que soportar:
 - Hoy la cuota es **$10.000 plana** para todas las categorías, pero el contrato
   exige que se pueda diferenciar por categoría o tipo de socio.
 
-Cómo se imputa un pago a los meses (el más viejo primero, o elegidos a mano) y
-cómo cobra un grupo familiar (cargo por integrante al responsable, o un cargo
-de grupo) son decisiones abiertas: las resuelve el `feature-planner` y las
-confirma la Comisión.
+**Imputación: balance forward** (2026-10-24). Un pago cubre los meses del más
+viejo al más nuevo; nadie elige meses sueltos. El formulario de pago marca meses
+en una grilla (se pliega, se toca o se arrastra) y el monto sale de lo marcado.
+El grupo familiar usa la misma grilla por integrante.
+
+**Saldo anterior con tramo** (2026-10-24, pipeline
+`2026-10-24-carga-inicial-meses`). En la carga inicial, el primer mes previo
+marcado es "desde cuándo debía": el saldo anterior va de ahí hasta el último mes
+previo, y el pago cubre solo lo marcado. El resto queda adeudado. El saldo guarda
+su tramo (`fees.from_period`/`to_period`, inmutables), y `payment_month_options`
+lo devuelve mes por mes, con el total repartido en partes enteras y el resto en
+el último mes. Así se pueden cargar varios pagos históricos seguidos. Un saldo sin
+tramo (los viejos) sigue siendo una sola celda. Para cambiar desde cuándo debía,
+el saldo se anula (admin) y se vuelve a cargar: nunca se edita ni se extiende.
 
 ### Datos personales (Ley 25.326)
 

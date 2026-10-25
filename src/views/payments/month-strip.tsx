@@ -8,7 +8,8 @@ import { formatPeriod } from '@/lib/dates'
 import { formatCentsCompact, parsePesosToCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
 import { shortMonth } from '@/views/shared/chart-format'
-import { cellTone, isSelectable, selectedIndexes, type CellTone, type Selection } from '@/views/payments/month-selection'
+import { cellTone, isSelectable, preCellRole, selectedIndexes, type CellTone, type OpeningScope, type Selection } from '@/views/payments/month-selection'
+import { useMonthDrag } from '@/views/payments/use-month-drag'
 import type { ISODate, PaymentMonthOption } from '@/models/types'
 
 /** Misma regla que `MemberPeriodStrip`: un ícono distinto por estado, el color solo refuerza. */
@@ -58,6 +59,8 @@ function toneLabel(o: PaymentMonthOption, tone: CellTone): string {
 
 export type MonthStripPreSystem = {
   open: boolean
+  /** Con tramo (F..P): rotula el total y la pista de pagó / queda debiendo. */
+  scope?: OpeningScope | null
   /** Sin `onToggle` el pliegue no se dibuja y las celdas previas quedan siempre visibles (la ficha). */
   onToggle?: () => void
   /** Primer mes de la facturación (el real, no derivado de las celdas): "¿Debe meses de antes de octubre 2026?". */
@@ -105,19 +108,27 @@ export function MonthStrip({
   options,
   selection,
   onTap,
+  onRange,
   variant = 'default',
   preSystem,
   coverage,
   disabled = false,
+  id,
 }: {
   options: PaymentMonthOption[]
   selection: Selection
   onTap: (index: number) => void
+  /** Arrastre en vivo (mouse y dedo). Sin esto la tira solo se toca (la ficha). */
+  onRange?: (anchor: number, over: number) => void
+  /** Para que el botón "Cambiar" del resumen apunte a la grilla (`aria-controls`). */
+  id?: string
   variant?: 'default' | 'compact'
   preSystem: MonthStripPreSystem | null
   coverage: MonthStripCoverage | null
   disabled?: boolean
 }) {
+  const dragEnabled = Boolean(onRange) && !disabled
+  const { setList, listProps, consumeClick } = useMonthDrag({ onRange: onRange ?? (() => {}), enabled: dragEnabled })
   const preOpen = preSystem?.open ?? false
   const marked = new Set(selectedIndexes(options, selection))
   const covered = coverage ? new Set(coverage.fullyCovered) : null
@@ -126,11 +137,10 @@ export function MonthStrip({
   const hasPre = options.some((o) => o.kind === 'pre_system')
   const visible = options.map((option, index) => ({ option, index })).filter(({ option }) => preOpen || option.kind !== 'pre_system')
 
-  const preSelected = [...marked].filter((i) => options[i].kind === 'pre_system')
   const showsAdvanceNote = [...marked].some((i) => options[i].kind === 'projected' && !options[i].isCurrent && options[i].pricedAtToday)
 
   return (
-    <div className="flex flex-col gap-2">
+    <div id={id} className="flex flex-col gap-2">
       {preSystem?.onToggle && hasPre ? (
         <button
           type="button"
@@ -146,7 +156,7 @@ export function MonthStrip({
 
       {preSystem?.beforeStart && !preSystem.hideBeforeStartNote ? <BeforeStartNote startPeriod={preSystem.startPeriod} /> : null}
 
-      <ul className="grid grid-cols-4 gap-1.5">
+      <ul ref={setList} {...listProps} className={cn('grid grid-cols-4 gap-1.5', dragEnabled && 'select-none [-webkit-touch-callout:none]')}>
         {visible.map(({ option, index }, position) => {
           const tone = cellTone(option)
           const selectable = isSelectable(option)
@@ -154,7 +164,9 @@ export function MonthStrip({
           const isMarked = covered ? covered.has(index) || isPartialCover : marked.has(index)
           // Antes del inicio el mes actual es una celda previa: conserva el trazo punteado pero dice "este mes".
           const preCurrent = tone === 'pre_system' && option.isCurrent
-          const Icon = preCurrent ? CircleDot : TONE_ICON[tone]
+          // Una previa dentro del tramo que no se marca queda adeudada: se dice con texto, no solo con color.
+          const owed = preCellRole(options, selection, index) === 'owed' && !isMarked
+          const Icon = owed ? AlertCircle : preCurrent ? CircleDot : TONE_ICON[tone]
           const previous = position > 0 ? visible[position - 1].option : null
           const showYear = tone === 'pre_system' || !previous || previous.period.slice(0, 4) !== option.period.slice(0, 4)
 
@@ -163,22 +175,29 @@ export function MonthStrip({
             ? `cubre ${formatCentsCompact(coverage!.partial!.cents)} de ${formatCentsCompact(option.pendingCents)}`
             : covered && isMarked
               ? 'se cubre'
-              : preCurrent
+              : owed
+                ? 'queda debiendo'
+                : preCurrent
                 ? 'este mes'
                 : toneLabel(option, tone)
           const spokenState = preCurrent && stateLabel === 'este mes' ? 'este mes, antes del sistema' : stateLabel
           const fullLabel = `${formatPeriod(option.period)}: ${spokenState}${isMarked ? ', marcado' : ''}${selectable ? '' : ', no se puede marcar'}`
 
           return (
-            <li key={`${option.period}-${option.kind}`} className="min-w-0">
+            <li key={`${option.period}-${option.kind}`} data-month-index={index} className="min-w-0">
               <button
                 type="button"
                 disabled={disabled || !selectable}
                 aria-pressed={selectable ? isMarked : undefined}
-                onClick={() => onTap(index)}
+                onClick={() => {
+                  // La cola de un arrastre no es un toque: la selección ya quedó como la dejó el dedo.
+                  if (consumeClick()) return
+                  onTap(index)
+                }}
                 className={cn(
                   'relative flex w-full flex-col items-start gap-0.5 rounded-lg border px-2 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
                   compact ? 'min-h-11 py-1' : 'min-h-16 py-1.5',
+                  dragEnabled && 'touch-pan-y',
                   tone === 'pre_system' && 'border-dashed',
                   isMarked && !isPartialCover && 'border-primary bg-primary/10',
                   isPartialCover && 'border-dashed border-primary bg-primary/5',
@@ -196,7 +215,7 @@ export function MonthStrip({
                 {isMarked ? <CircleCheck aria-hidden className="absolute top-1.5 right-1.5 size-4 text-primary" /> : null}
                 <span
                   aria-hidden
-                  className={cn('flex items-start gap-1 text-xs leading-tight tabular-nums', isMarked ? 'text-foreground' : TONE_TEXT_CLASS[tone])}
+                  className={cn('flex items-start gap-1 text-xs leading-tight tabular-nums', owed ? 'text-status-in-debt' : isMarked ? 'text-foreground' : TONE_TEXT_CLASS[tone])}
                 >
                   <Icon className="mt-px size-3 shrink-0" />
                   {tone === 'pre_system' && stateLabel === 'antes del sistema' ? null : <span className="min-w-0 break-words">{stateLabel}</span>}
@@ -208,11 +227,18 @@ export function MonthStrip({
         })}
       </ul>
 
+      {dragEnabled && hasPre && preOpen ? (
+        <p className="text-xs text-muted-foreground">
+          <span className="pointer-coarse:hidden">Tocá el primer y el último mes, o arrastrá.</span>
+          <span className="hidden pointer-coarse:inline">Tocá el primer y el último mes, o mantené apretado y arrastrá.</span>
+        </p>
+      ) : null}
+
       {showsAdvanceNote ? <p className="text-xs text-muted-foreground">Los meses de adelanto se cobran al valor de hoy.</p> : null}
 
-      {preSystem && preOpen && preSelected.length > 0 ? (
+      {preSystem && preOpen && preSystem.scope ? (
         <OpeningTotalField
-          preSelected={preSelected.map((i) => options[i])}
+          scope={preSystem.scope}
           overrideCents={preSystem.overrideCents}
           onOverrideChange={preSystem.onOverrideChange}
           onValidityChange={preSystem.onValidityChange}
@@ -224,15 +250,15 @@ export function MonthStrip({
   )
 }
 
-/** Total del saldo anterior: arranca en la suma de los marcados y se puede corregir. Lo vacío vuelve a la suma. */
+/** Total de la deuda previa (F..P): arranca en la suma de las celdas y se puede corregir. Lo vacío vuelve a la suma. */
 function OpeningTotalField({
-  preSelected,
+  scope,
   onOverrideChange,
   onValidityChange,
   onChange,
   disabled,
 }: {
-  preSelected: PaymentMonthOption[]
+  scope: OpeningScope
   overrideCents: number | null
   onOverrideChange: (cents: number | null) => void
   onValidityChange?: (valid: boolean) => void
@@ -240,11 +266,11 @@ function OpeningTotalField({
   disabled: boolean
 }) {
   const id = useId()
-  const sum = preSelected.reduce((total, o) => total + o.amountCents, 0)
+  const sum = scope.sumCents
   const [text, setText] = useState<string | null>(null)
 
-  // Si se movió la selección, el texto vuelve a mostrar la suma (el formulario descarta la corrección).
-  const key = preSelected.map((o) => o.period).join()
+  // Si cambió "desde cuándo", el texto vuelve a mostrar la suma (el formulario descarta la corrección).
+  const key = scope.fromPeriod
   const [lastKey, setLastKey] = useState(key)
   if (key !== lastKey) {
     setLastKey(key)
@@ -255,11 +281,12 @@ function OpeningTotalField({
   const parsed = text === null || text.trim() === '' ? undefined : parsePesosToCents(text)
   const invalid = parsed !== undefined && (parsed === null || parsed <= 0)
   const errorId = `${id}-error`
+  const plural = (n: number) => (n === 1 ? '1 mes' : `${n} meses`)
 
   return (
     <div className="flex flex-col gap-1">
       <Label htmlFor={id} className="text-sm font-medium">
-        Total del saldo anterior
+        Total de la deuda desde {formatPeriod(scope.fromPeriod)} ({plural(scope.months)})
       </Label>
       <div className="relative">
         <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-foreground">
@@ -295,7 +322,12 @@ function OpeningTotalField({
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          {preSelected.length === 1 ? '1 mes' : `${preSelected.length} meses`} a la cuota de hoy. Si debía otro valor, corregí el total.
+          {scope.payment
+            ? `Pagó ${plural(scope.paidMonths)} · ${formatCentsCompact(scope.paidCents)}.${
+                scope.owedMonths > 0 ? ` Queda debiendo ${plural(scope.owedMonths)} · ${formatCentsCompact(scope.owedCents)}.` : ''
+              }`
+            : `${plural(scope.months)} a la cuota de hoy.`}{' '}
+          Si debía otro valor, corregí el total.
         </p>
       )}
     </div>

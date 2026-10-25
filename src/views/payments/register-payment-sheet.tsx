@@ -10,7 +10,12 @@ import { GroupPaymentForm } from '@/views/payments/group-payment-form'
 import { getPaymentFormData } from '@/controllers/payments.actions'
 import { DURATION, SPRING_OVERLAY, useMotionPreference } from '@/views/shared/motion'
 import { formatCentsCompact } from '@/lib/money'
-import type { PaymentFormData } from '@/models/types'
+import type { BillingStatus, PaymentFormData } from '@/models/types'
+
+/** Desde el primer mes de facturación; antes, todo lo que se carga es carga inicial. */
+function billingStarted(billing: BillingStatus): boolean {
+  return billing.startPeriod !== null && billing.startPeriod <= billing.currentPeriod
+}
 
 type State = { status: 'idle' | 'loading' } | { status: 'error'; error: string } | { status: 'ready'; data: PaymentFormData }
 
@@ -138,6 +143,7 @@ export function RegisterPaymentSheetBody({
             monthOptions={state.data.monthOptions}
             familyGroup={state.data.familyGroup}
             startPeriod={state.data.billing.startPeriod}
+            billingStarted={billingStarted(state.data.billing)}
             onDone={() => {}}
             onSuccess={handleSuccess}
           />
@@ -146,6 +152,7 @@ export function RegisterPaymentSheetBody({
             member={state.data.members[0]}
             options={state.data.monthOptions[state.data.members[0].memberId] ?? []}
             startPeriod={state.data.billing.startPeriod}
+            billingStarted={billingStarted(state.data.billing)}
             onDone={() => {}}
             onSuccess={handleSuccess}
           />

@@ -23,7 +23,7 @@ const P = 1_000_000
 function opt(partial: Partial<PaymentMonthOption> & Pick<PaymentMonthOption, 'period' | 'kind'>): PaymentMonthOption {
   const amountCents = partial.amountCents ?? P
   const coveredCents = partial.coveredCents ?? 0
-  return { memberId: 1, amountCents, coveredCents, pendingCents: amountCents - coveredCents, isCurrent: false, pricedAtToday: true, ...partial }
+  return { memberId: 1, amountCents, coveredCents, pendingCents: amountCents - coveredCents, isCurrent: false, pricedAtToday: true, openingFrom: null, ...partial }
 }
 
 /** ago debe · sep pagado · oct actual · nov adelanto al valor de hoy · dic adelanto con valor programado ($15.000) */
@@ -192,7 +192,7 @@ describe('MonthStrip antes del inicio de la facturacion', () => {
 
 describe('PaymentForm antes del inicio de la facturacion', () => {
   const render = (member = MEMBER) =>
-    renderToStaticMarkup(createElement(PaymentForm, { member, options: BEFORE_START, onDone: () => {} }))
+    renderToStaticMarkup(createElement(PaymentForm, { member, options: BEFORE_START, billingStarted: false, onDone: () => {} }))
 
   it('muestra la tira con los meses previos desde el primer render (sin tocar nada) y la linea explicativa', () => {
     const html = render()
@@ -228,7 +228,7 @@ const FAR_START: PaymentMonthOption[] = [
 
 describe('antes del inicio, inicio a varios meses: el mes de inicio real viaja explicito', () => {
   it('PaymentForm con startPeriod = enero 2027: la linea dice enero (no noviembre, que seria ultimo previo + 1)', () => {
-    const html = renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options: FAR_START, startPeriod: '2027-01-01', onDone: () => {} }))
+    const html = renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options: FAR_START, startPeriod: '2027-01-01', billingStarted: false, onDone: () => {} }))
     expect(html).toContain('Las cuotas arrancan en enero 2027.')
     expect(html).not.toContain('Las cuotas arrancan en noviembre')
     expect(html).toMatch(/1 mes · octubre 2026/)
@@ -236,7 +236,7 @@ describe('antes del inicio, inicio a varios meses: el mes de inicio real viaja e
   })
 
   it('sin startPeriod cae a la derivacion vieja (ultimo previo + 1): documentado, solo correcto con inicio al mes siguiente', () => {
-    const html = renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options: FAR_START, onDone: () => {} }))
+    const html = renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options: FAR_START, billingStarted: false, onDone: () => {} }))
     expect(html).toContain('Las cuotas arrancan en noviembre 2026.')
   })
 
@@ -259,7 +259,10 @@ describe('GroupPaymentForm antes del inicio: la linea explicativa va UNA sola ve
       createElement(GroupPaymentForm, { members, monthOptions, familyGroup: group, startPeriod: '2027-01-01', onDone: () => {} }),
     )
     expect(count(html, 'Las cuotas arrancan en enero 2027.')).toBe(1)
-    expect(cells(html)).toHaveLength(15)
+    // En grupo la grilla arranca colapsada (N socios × grilla no entra en el sheet): una tira de resumen por integrante.
+    expect(cells(html)).toHaveLength(0)
+    expect(count(html, '>Cambiar<')).toBe(3)
+    expect(count(html, '1 mes · octubre 2026')).toBe(3)
   })
 
   it('despues del inicio (sin celda previa actual) no hay linea', () => {
@@ -272,8 +275,9 @@ describe('GroupPaymentForm antes del inicio: la linea explicativa va UNA sola ve
 })
 
 describe('PaymentForm', () => {
-  const render = (options: PaymentMonthOption[], member = MEMBER) =>
-    renderToStaticMarkup(createElement(PaymentForm, { member, options, onDone: () => {} }))
+  // Grilla abierta (`billingStarted: false`): lo que se prueba acá es la tira. Colapsada, en su describe aparte.
+  const render = (options: PaymentMonthOption[], member = MEMBER, billingStarted = false) =>
+    renderToStaticMarkup(createElement(PaymentForm, { member, options, billingStarted, onDone: () => {} }))
 
   it('sin opciones: campo de monto (como antes) y ninguna tira', () => {
     const html = render([])
@@ -318,7 +322,7 @@ describe('PaymentForm', () => {
   it('opciones con socio de baja con deuda: marca toda la deuda y el botón nombra ese total', () => {
     const inactive = { ...MEMBER, status: 'inactive' as const }
     const options = [opt({ period: '2026-08-01', kind: 'monthly' }), opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true })]
-    const html = renderToStaticMarkup(createElement(PaymentForm, { member: inactive, options, onDone: () => {} }))
+    const html = renderToStaticMarkup(createElement(PaymentForm, { member: inactive, options, billingStarted: false, onDone: () => {} }))
     expect(html).toMatch(/Registrar pago de \$\s?20\.000/)
   })
 

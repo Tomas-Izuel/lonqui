@@ -497,7 +497,7 @@ describe.skipIf(!dbAvailable)('member_categories: permisos por rol y auditoría'
 
       const err = await expectQueryError(
         client,
-        `insert into public.member_categories (member_id, category_id, joined_on) values ($1, $2, current_date)`,
+        `insert into public.member_categories (member_id, category_id, joined_on) values ($1, $2, private.club_today())`,
         [memberId, otherCategoryId],
       )
       expect(err.message).toMatch(/row-level security|permission denied/i)

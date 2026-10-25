@@ -3,10 +3,16 @@ import {
   cellTone,
   closePreSystem,
   effectiveOptions,
-  extendToDueMonths,
   optionsForSelection,
   coverLabel,
   coverageForAmount,
+  debtAfterPayment,
+  dragSelect,
+  isLegacyOpening,
+  openingScope,
+  openingSpan,
+  preCellRole,
+  splitOpeningTotal,
   defaultSelection,
   derivedAmountCents,
   firstSystemIndex,
@@ -38,6 +44,7 @@ function opt(partial: Partial<PaymentMonthOption> & Pick<PaymentMonthOption, 'pe
     pendingCents: partial.pendingCents ?? amountCents - coveredCents,
     isCurrent: false,
     pricedAtToday: true,
+    openingFrom: null,
     ...partial,
   }
 }
@@ -275,29 +282,33 @@ describe('derivedAmountCents', () => {
 describe('effectiveOptions / optionsForSelection', () => {
   it('sin saldo anterior (null): devuelve las MISMAS opciones', () => {
     const options = withCredit()
-    expect(effectiveOptions(options, null, CREDIT)).toBe(options)
+    expect(effectiveOptions(options, null, { creditCents: CREDIT })).toBe(options)
   })
 
-  it('mismo largo y mismo orden de períodos; las pre_system no cambian (mismas referencias)', () => {
+  it('mismo largo y mismo orden de períodos; las pre_system ANTERIORES a F no cambian (mismas referencias)', () => {
     const options = withCredit()
-    const eff = effectiveOptions(options, 3 * P, CREDIT)
+    const eff = effectiveOptions(options, sel(1, 2), { creditCents: CREDIT })
     expect(eff).toHaveLength(options.length)
     expect(eff.map((o) => o.period)).toEqual(options.map((o) => o.period))
     expect(eff.map((o) => o.kind)).toEqual(options.map((o) => o.kind))
-    options.forEach((o, i) => {
-      if (o.kind === 'pre_system') expect(eff[i]).toBe(o)
-    })
+    expect(eff[0]).toBe(options[0])
+  })
+
+  it('las pre_system dentro de F..P absorben el pozo ya pagado (quedan sin pendiente) y las del sistema pierden cobertura', () => {
+    const eff = effectiveOptions(withCredit(), sel(0, 2), { creditCents: CREDIT })
+    for (const i of [0, 1, 2]) expect(eff[i]).toMatchObject({ coveredCents: P, pendingCents: 0 })
+    expect(eff[3].coveredCents).toBe(0)
   })
 
   it('no muta las opciones de entrada', () => {
     const options = withCredit()
     const snapshot = JSON.parse(JSON.stringify(options))
-    effectiveOptions(options, 3 * P, CREDIT)
+    effectiveOptions(options, sel(0, 2), { creditCents: CREDIT })
     expect(options).toEqual(snapshot)
   })
 
   it('saldo anterior de 3P con el pozo de 3P: oct, nov y dic pierden la cobertura y vuelven a ser elegibles con su pendiente real', () => {
-    const eff = effectiveOptions(withCredit(), 3 * P, CREDIT)
+    const eff = effectiveOptions(withCredit(), sel(0, 2), { creditCents: CREDIT })
     for (const i of [3, 4, 5, 6, 7]) {
       expect(eff[i]).toMatchObject({ coveredCents: 0, pendingCents: P })
       expect(isSelectable(eff[i])).toBe(true)
@@ -309,13 +320,13 @@ describe('effectiveOptions / optionsForSelection', () => {
   })
 
   it('saldo anterior MAYOR que el pozo: ninguna celda del sistema queda cubierta', () => {
-    const eff = effectiveOptions(withCredit(), 10 * P, CREDIT)
+    const eff = effectiveOptions(withCredit(), sel(0, 2), { creditCents: CREDIT, openingBalanceOverrideCents: 10 * P })
     expect(eff.filter((o) => o.kind !== 'pre_system').every((o) => o.coveredCents === 0)).toBe(true)
   })
 
   it('saldo anterior MENOR que el pozo: lo que sobra se reparte en orden (el último cubierto queda parcial si no alcanza)', () => {
     // Pozo 3P - A (1,5P) = 1,5P: oct entera, nov a la mitad.
-    const eff = effectiveOptions(withCredit(), 1_500_000, CREDIT)
+    const eff = effectiveOptions(withCredit(), sel(0, 2), { creditCents: CREDIT, openingBalanceOverrideCents: 1_500_000 })
     expect(eff[3]).toMatchObject({ coveredCents: P, pendingCents: 0 })
     expect(eff[4]).toMatchObject({ coveredCents: 500_000, pendingCents: 500_000 })
     expect(eff[5]).toMatchObject({ coveredCents: 0, pendingCents: P })
@@ -323,7 +334,7 @@ describe('effectiveOptions / optionsForSelection', () => {
 
   it('conservación: lo cubierto + el saldo anterior nunca supera el pozo pagado (el crédito no se usa dos veces)', () => {
     for (const a of [0, 1, P, 3 * P - 1, 3 * P, 3 * P + 1, 9 * P]) {
-      const eff = effectiveOptions(withCredit(), a, CREDIT)
+      const eff = effectiveOptions(withCredit(), sel(0, 2), { creditCents: CREDIT, openingBalanceOverrideCents: a })
       const covered = eff.filter((o) => o.kind !== 'pre_system').reduce((t, o) => t + o.coveredCents, 0)
       expect(covered + Math.min(a, 3 * P)).toBeLessThanOrEqual(3 * P)
       expect(covered).toBe(Math.max(0, 3 * P - a))
@@ -409,31 +420,33 @@ describe('coverageForAmount ("Otro monto")', () => {
   })
 
   it('CASO DEL REVIEW: con crédito $20.000, "otro monto" de $20.000 sobre jul-ene cubre solo hasta noviembre', () => {
+    // El crédito ya se come jul-sep (pendiente 0 en las efectivas): no figuran como cubiertas por ESTE pago.
     const r = coverageForAmount(withCredit(), sel(0, 6), 2 * P, { creditCents: CREDIT })
-    expect(r).toEqual({ fullyCovered: [0, 1, 2, 3, 4], partial: null, leftoverCents: 0 })
+    expect(r).toEqual({ fullyCovered: [3, 4], partial: null, leftoverCents: 0 })
   })
 
   it('con $40.000 cubre hasta enero inclusive y no sobra nada; un peso menos deja enero parcial', () => {
     expect(coverageForAmount(withCredit(), sel(0, 6), 4 * P, { creditCents: CREDIT })).toEqual({
-      fullyCovered: [0, 1, 2, 3, 4, 5, 6],
+      fullyCovered: [3, 4, 5, 6],
       partial: null,
       leftoverCents: 0,
     })
     const short = coverageForAmount(withCredit(), sel(0, 6), 4 * P - 1, { creditCents: CREDIT })
-    expect(short.fullyCovered).toEqual([0, 1, 2, 3, 4, 5])
+    expect(short.fullyCovered).toEqual([3, 4, 5])
     expect(short.partial).toEqual({ index: 6, cents: P - 1 })
   })
 
   it('un peso menos que $20.000: noviembre queda parcial (el número que promete la UI no miente)', () => {
     const r = coverageForAmount(withCredit(), sel(0, 6), 2 * P - 1, { creditCents: CREDIT })
-    expect(r.fullyCovered).toEqual([0, 1, 2, 3])
+    expect(r.fullyCovered).toEqual([3])
     expect(r.partial).toEqual({ index: 4, cents: P - 1 })
   })
 
   it('con saldo anterior, un monto corto deja parcial al último mes previo', () => {
     const r = coverageForAmount(withPreSystem(), sel(1, 2), P + 400_000, ctx)
+    // El pozo de 400k de octubre se come el primer mes del saldo (idx 1: queda 600k); lo que sobra va al último previo.
     expect(r.fullyCovered).toEqual([1])
-    expect(r.partial).toEqual({ index: 2, cents: 400_000 })
+    expect(r.partial).toEqual({ index: 2, cents: P + 400_000 - 600_000 })
   })
 
   it('el monto derivado siempre cubre exactamente lo marcado (derivado y cobertura no se contradicen)', () => {
@@ -454,9 +467,13 @@ describe('coverageForAmount ("Otro monto")', () => {
   })
 
   it('con override del saldo anterior, la cobertura usa el total corregido', () => {
-    const r = coverageForAmount(withPreSystem(), sel(0, 2), 2_000_000, { creditCents: 0, openingBalanceOverrideCents: 2_500_000 })
+    const ctxO = { creditCents: 0, openingBalanceOverrideCents: 2_500_000 }
+    const r = coverageForAmount(withPreSystem(), sel(0, 2), 2_000_000, ctxO)
     expect(r.partial).not.toBeNull()
-    expect(r.partial!.cents + P * r.fullyCovered.length).toBe(2_000_000)
+    // El monto se reparte entre las partes del total corregido (no n × cuota): lo cubierto + la parcial = lo pagado.
+    const eff = effectiveOptions(withPreSystem(), sel(0, 2), ctxO)
+    const covered = r.fullyCovered.reduce((t, i) => t + eff[i].pendingCents, 0)
+    expect(covered + r.partial!.cents).toBe(2_000_000)
   })
 })
 
@@ -506,67 +523,10 @@ describe('selectionSummary / summaryText / coverLabel', () => {
   it('caso del review: "Cubre jul 26–ene 27" y "4 meses" no cuentan mal con las opciones efectivas', () => {
     const selection = sel(0, 6)
     const eff = optionsForSelection(withCredit(), selection, { creditCents: CREDIT })
-    expect(coverLabel(eff, selection)).toBe('jul 26–ene 27')
-    expect(selectionSummary(eff, selection).rangeLabel).toBe('julio 2026 a enero 2027')
-  })
-})
-
-describe('extendToDueMonths (tocar un mes previo marca también lo que el saldo anterior deja debiendo)', () => {
-  const ctx0 = { creditCents: 0 }
-
-  /** 0-2 jul-sep pre · 3 oct monthly actual SIN pagar · 4 nov · 5 dic adelantos */
-  function octDue(): PaymentMonthOption[] {
-    return [
-      opt({ period: '2026-07-01', kind: 'pre_system' }),
-      opt({ period: '2026-08-01', kind: 'pre_system' }),
-      opt({ period: '2026-09-01', kind: 'pre_system' }),
-      opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
-      opt({ period: '2026-11-01', kind: 'projected' }),
-      opt({ period: '2026-12-01', kind: 'projected' }),
-    ]
-  }
-
-  it('debe octubre y no hay crédito: tocar julio extiende el final hasta octubre', () => {
-    expect(extendToDueMonths(octDue(), sel(0, 2), ctx0)).toEqual(sel(0, 3))
-  })
-
-  it('octubre pago con pozo de sobra (pagó 4 cuotas: oct + 3 de crédito) y saldo de 3: no extiende', () => {
-    const paid: PaymentMonthOption[] = [
-      opt({ period: '2026-07-01', kind: 'pre_system' }),
-      opt({ period: '2026-08-01', kind: 'pre_system' }),
-      opt({ period: '2026-09-01', kind: 'pre_system' }),
-      opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true, coveredCents: P }),
-      opt({ period: '2026-11-01', kind: 'projected', coveredCents: P }),
-      opt({ period: '2026-12-01', kind: 'projected', coveredCents: P }),
-      opt({ period: '2027-01-01', kind: 'projected', coveredCents: P }),
-      opt({ period: '2027-02-01', kind: 'projected' }),
-    ]
-    expect(extendToDueMonths(paid, sel(0, 2), { creditCents: 3 * P })).toEqual(sel(0, 2))
-  })
-
-  it('crédito que con el saldo anterior deja octubre elegible: extiende hasta octubre (caso del review)', () => {
-    expect(extendToDueMonths(withCredit(), sel(0, 2), { creditCents: CREDIT })).toEqual(sel(0, 3))
-  })
-
-  it('el saldo corregido a menos que el pozo: octubre sigue cubierto y no se extiende', () => {
-    expect(extendToDueMonths(withCredit(), sel(0, 2), { creditCents: CREDIT, openingBalanceOverrideCents: P })).toEqual(sel(0, 2))
-  })
-
-  it('una selección que no arranca en pre_system queda igual (misma referencia), y null sigue null', () => {
-    const selection = sel(3, 3)
-    expect(extendToDueMonths(octDue(), selection, ctx0)).toBe(selection)
-    expect(extendToDueMonths(octDue(), null, ctx0)).toBeNull()
-  })
-
-  it('un final que ya está más adelante (adelanto) no se acorta', () => {
-    expect(extendToDueMonths(octDue(), sel(0, 5), ctx0)).toEqual(sel(0, 5))
-    expect(extendToDueMonths(withCredit(), sel(0, 5), { creditCents: CREDIT })).toEqual(sel(0, 5))
-  })
-
-  it('solo extiende por cuotas monthly: un adelanto que pierde cobertura no arrastra el final', () => {
-    // Con crédito, oct pasa a deberse (monthly) pero nov/dic (projected) no se marcan solos.
-    const extended = extendToDueMonths(withCredit(), sel(0, 2), { creditCents: CREDIT })
-    expect(extended?.endIndex).toBe(3)
+    // El crédito ya cubre jul-sep: no son marcables, el rótulo arranca en el primer mes que sí se paga.
+    expect(coverLabel(eff, selection)).toBe('oct 26–ene 27')
+    expect(selectionSummary(eff, selection).rangeLabel).toBe('octubre 2026 a enero 2027')
+    expect(selectionSummary(eff, selection).monthsCount).toBe(4)
   })
 })
 
@@ -770,5 +730,410 @@ describe('antes del inicio con saldo a favor C y {actual, actual}', () => {
     expect(eff[4]).toMatchObject({ coveredCents: P, pendingCents: 0 })
     expect(eff[5]).toMatchObject({ coveredCents: 0, pendingCents: P })
     expect(eff[6]).toMatchObject({ coveredCents: 0, pendingCents: P })
+  })
+})
+
+
+/**
+ * Carga inicial por meses (00-architecture §6-§7, pipeline 2026-10-24-carga-inicial-meses).
+ * Facturación que arranca en noviembre, hoy es octubre 2026: la RPC devuelve los previos
+ * ene..oct 2026 (oct = mes actual, pre_system) y proyectados nov y dic.
+ *   0 ene · 1 feb · 2 mar · 3 abr · 4 may · 5 jun · 6 jul · 7 ago · 8 sep · 9 oct (actual) · 10 nov proj · 11 dic proj
+ */
+function carga(): PaymentMonthOption[] {
+  const pre = Array.from({ length: 10 }, (_, i) =>
+    opt({ period: `2026-${String(i + 1).padStart(2, '0')}-01` as PaymentMonthOption['period'], kind: 'pre_system', isCurrent: i === 9 }),
+  )
+  return [...pre, opt({ period: '2026-11-01', kind: 'projected' }), opt({ period: '2026-12-01', kind: 'projected' })]
+}
+
+describe('splitOpeningTotal', () => {
+  it('total no múltiplo: el último mes absorbe el resto ($100.000 en 3 meses, igual que la RPC)', () => {
+    expect(splitOpeningTotal(10_000_000, 3)).toEqual([3_333_333, 3_333_333, 3_333_334])
+  })
+
+  it('un solo mes: todo el total; cero o negativo de meses: vacío', () => {
+    expect(splitOpeningTotal(777, 1)).toEqual([777])
+    expect(splitOpeningTotal(777, 0)).toEqual([])
+    expect(splitOpeningTotal(777, -2)).toEqual([])
+  })
+
+  it('total menor que la cantidad de meses: ceros y el resto en el último (nunca negativos)', () => {
+    expect(splitOpeningTotal(2, 5)).toEqual([0, 0, 0, 0, 2])
+    expect(splitOpeningTotal(0, 4)).toEqual([0, 0, 0, 0])
+  })
+
+  it('invariante: suma exacta, partes enteras y el último nunca menor que el resto', () => {
+    for (const total of [0, 1, 99, 1_000_000, 10_000_001, 123_456_789]) {
+      for (const n of [1, 2, 3, 7, 10, 36]) {
+        const parts = splitOpeningTotal(total, n)
+        expect(parts).toHaveLength(n)
+        expect(parts.reduce((a, b) => a + b, 0)).toBe(total)
+        expect(parts.every((x) => Number.isInteger(x) && x >= 0)).toBe(true)
+        expect(parts[n - 1]).toBeGreaterThanOrEqual(parts[0])
+      }
+    }
+  })
+})
+
+describe('openingSpan', () => {
+  it('ene–jun marcados de ene..oct: el tramo va de ene hasta el último previo (oct), no hasta lo marcado', () => {
+    expect(openingSpan(carga(), sel(0, 5))).toEqual({ from: 0, to: 9 })
+  })
+
+  it('el primer previo marcado es F, aunque no sea el primero de la ventana', () => {
+    expect(openingSpan(carga(), sel(4, 6))).toEqual({ from: 4, to: 9 })
+  })
+
+  it('null si la selección no arranca en una previa, o no hay selección', () => {
+    expect(openingSpan(carga(), sel(10, 11))).toBeNull()
+    expect(openingSpan(carga(), null)).toBeNull()
+    expect(openingSpan(plain(), sel(0, 2))).toBeNull()
+  })
+})
+
+describe('openingBalanceFromSelection (carga por meses)', () => {
+  it('ene–jun marcados de ene..oct: desde enero, hasta octubre, suma de los 10 meses', () => {
+    expect(openingBalanceFromSelection(carga(), sel(0, 5))).toEqual({ fromPeriod: '2026-01-01', toPeriod: '2026-10-01', amountCents: 10 * P })
+  })
+
+  it('con override el monto es el corregido, el tramo no cambia', () => {
+    expect(openingBalanceFromSelection(carga(), sel(0, 5), 8_765_432)).toEqual({
+      fromPeriod: '2026-01-01',
+      toPeriod: '2026-10-01',
+      amountCents: 8_765_432,
+    })
+  })
+
+  it('marcar hasta el final del tramo o solo un mes da el mismo "hasta" (octubre)', () => {
+    expect(openingBalanceFromSelection(carga(), sel(0, 9))?.toPeriod).toBe('2026-10-01')
+    expect(openingBalanceFromSelection(carga(), sel(0, 0))?.toPeriod).toBe('2026-10-01')
+  })
+
+  it('con proyectados marcados además de previos, el tramo sigue terminando en el último previo', () => {
+    expect(openingBalanceFromSelection(carga(), sel(0, 10))).toMatchObject({ fromPeriod: '2026-01-01', toPeriod: '2026-10-01' })
+  })
+})
+
+describe('derivedAmountCents (carga por meses)', () => {
+  it('ene–jun de ene..oct: el pago son solo los 6 marcados (los 4 sin marcar quedan debiendo)', () => {
+    expect(derivedAmountCents(carga(), sel(0, 5), { creditCents: 0 })).toBe(6 * P)
+  })
+
+  it('con total corregido: cada marcado vale su parte del total, no una cuota', () => {
+    // $90.000 en 10 meses = 9.000 por mes: 6 marcados = 54.000
+    expect(derivedAmountCents(carga(), sel(0, 5), { creditCents: 0, openingBalanceOverrideCents: 9_000_000 })).toBe(5_400_000)
+  })
+
+  it('el resto del reparto cae en el último mes del tramo: marcando todo, el pago es exactamente el total corregido', () => {
+    const ctx = { creditCents: 0, openingBalanceOverrideCents: 1_000_001 }
+    expect(derivedAmountCents(carga(), sel(0, 9), ctx)).toBe(1_000_001)
+    // marcando solo los primeros 6, el resto (1) no está en el pago
+    expect(derivedAmountCents(carga(), sel(0, 5), ctx)).toBe(600_000)
+  })
+
+  it('con saldo a favor: se come los meses más viejos primero y el pago baja en igual medida', () => {
+    expect(derivedAmountCents(carga(), sel(0, 5), { creditCents: 2 * P })).toBe(4 * P)
+  })
+
+  it('el saldo a favor mayor que todo lo marcado deja el pago en 0, nunca negativo', () => {
+    expect(derivedAmountCents(carga(), sel(0, 5), { creditCents: 100 * P })).toBe(0)
+  })
+
+  it('previos + proyectado marcado: suma el proyectado a pleno', () => {
+    expect(derivedAmountCents(carga(), sel(0, 10), { creditCents: 0 })).toBe(11 * P)
+  })
+})
+
+describe('debtAfterPayment', () => {
+  it('ene–jun de ene..oct: quedan debiendo 4 meses · $40.000 (jul–oct)', () => {
+    expect(debtAfterPayment(carga(), sel(0, 5), { creditCents: 0 })).toEqual({ months: 4, cents: 4 * P })
+  })
+
+  it('marcar todo el tramo: no queda nada (los adelantos proyectados no son deuda)', () => {
+    expect(debtAfterPayment(carga(), sel(0, 9), { creditCents: 0 })).toEqual({ months: 0, cents: 0 })
+  })
+
+  it('con total corregido, lo que queda es la suma de las partes sin marcar (incluye el resto)', () => {
+    // 1.000.001 en 10: 100.000 x9 + 100.001; sin marcar 4 (jul..oct) = 300.000 + 100.001
+    expect(debtAfterPayment(carga(), sel(0, 5), { creditCents: 0, openingBalanceOverrideCents: 1_000_001 })).toEqual({
+      months: 4,
+      cents: 400_001,
+    })
+  })
+
+  it('el saldo a favor reduce lo que queda: el crédito se aplica al más viejo, que está marcado', () => {
+    // Crédito de 2 cuotas cubre ene y feb; quedan los mismos 4 sin marcar
+    expect(debtAfterPayment(carga(), sel(0, 5), { creditCents: 2 * P })).toEqual({ months: 4, cents: 4 * P })
+    // Crédito de 8 cuotas: cubre ene..ago (incluye jul y ago, sin marcar); solo sep y oct siguen pendientes
+    expect(debtAfterPayment(carga(), sel(0, 5), { creditCents: 8 * P })).toEqual({ months: 2, cents: 2 * P })
+  })
+
+  it('después del inicio: un mes del sistema sin marcar sigue siendo deuda', () => {
+    const o = [
+      opt({ period: '2026-07-01', kind: 'pre_system' }),
+      opt({ period: '2026-08-01', kind: 'pre_system' }),
+      opt({ period: '2026-09-01', kind: 'monthly' }),
+      opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
+      opt({ period: '2026-11-01', kind: 'projected' }),
+    ]
+    expect(debtAfterPayment(o, sel(0, 1), { creditCents: 0 })).toEqual({ months: 2, cents: 2 * P })
+  })
+
+  it('el mes actual proyectado sin marcar es deuda; el adelanto no', () => {
+    const o = [
+      opt({ period: '2026-09-01', kind: 'pre_system' }),
+      opt({ period: '2026-10-01', kind: 'projected', isCurrent: true }),
+      opt({ period: '2026-11-01', kind: 'projected' }),
+    ]
+    expect(debtAfterPayment(o, sel(0, 0), { creditCents: 0 })).toEqual({ months: 1, cents: P })
+  })
+
+  it('sin tramo (no arranca en previa): cuenta lo no marcado que se debe, sin inventar previas', () => {
+    expect(debtAfterPayment(plain(), sel(0, 0), { creditCents: 0 })).toEqual({ months: 1, cents: P })
+  })
+
+  it('un saldo anterior viejo (legacy) sin marcar es deuda', () => {
+    const o = [
+      opt({ period: '2026-09-01', kind: 'opening_balance', amountCents: 3 * P }),
+      opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
+    ]
+    expect(debtAfterPayment(o, sel(1, 1), { creditCents: 0 })).toEqual({ months: 1, cents: 3 * P })
+  })
+})
+
+describe('tapCell modo "free" (formularios de pago)', () => {
+  const free = { preSystemOpen: true, preMode: 'free' as const }
+
+  it('fresh: la selección por defecto no cuenta, el toque arranca un rango nuevo de una celda', () => {
+    expect(tapCell(carga(), sel(9, 9), 2, { ...free, fresh: true })).toEqual(sel(2, 2))
+  })
+
+  it('sin selección: arranca en la celda tocada', () => {
+    expect(tapCell(carga(), null, 3, free)).toEqual(sel(3, 3))
+  })
+
+  it('tocar-tocar da un rango sin arrastrar: primero y último', () => {
+    const first = tapCell(carga(), null, 0, { ...free, fresh: true })
+    expect(tapCell(carga(), first, 5, free)).toEqual(sel(0, 5))
+  })
+
+  it('tocar antes del inicio del rango lo extiende hacia atrás', () => {
+    expect(tapCell(carga(), sel(3, 5), 1, free)).toEqual(sel(1, 5))
+  })
+
+  it('tocar una marcada intermedia la vuelve el final ("hasta acá")', () => {
+    expect(tapCell(carga(), sel(0, 5), 2, free)).toEqual(sel(0, 2))
+  })
+
+  it('tocar el final achica de a uno; si era la única celda, desmarca todo', () => {
+    expect(tapCell(carga(), sel(0, 5), 5, free)).toEqual(sel(0, 4))
+    expect(tapCell(carga(), sel(3, 3), 3, free)).toBeNull()
+  })
+
+  it('con el pliegue cerrado tocar una previa no hace nada', () => {
+    const selection = sel(9, 9)
+    expect(tapCell(carga(), selection, 2, { preSystemOpen: false, preMode: 'free' })).toBe(selection)
+  })
+
+  it('una celda sin pendiente no se toca', () => {
+    const o = carga()
+    o[2] = { ...o[2], coveredCents: P, pendingCents: 0 }
+    const selection = sel(0, 1)
+    expect(tapCell(o, selection, 2, free)).toBe(selection)
+  })
+
+  it('sobre celdas del sistema se comporta igual que en to_end (inicio mantenido, final donde se tocó)', () => {
+    const sel0 = sel(0, 5)
+    expect(tapCell(carga(), sel0, 10, free)).toEqual(tapCell(carga(), sel0, 10, { preSystemOpen: true }))
+    expect(tapCell(carga(), sel0, 10, free)).toEqual(sel(0, 10))
+  })
+
+  it('"to_end" es el default y no cambió: tocar una previa marca hasta el mes actual (ficha)', () => {
+    expect(tapCell(carga(), null, 2, { preSystemOpen: true })).toEqual(sel(2, 9))
+    expect(tapCell(carga(), null, 2, { preSystemOpen: true, preMode: 'to_end' })).toEqual(sel(2, 9))
+  })
+
+  it('"to_end" ignora `fresh`: el modo de la ficha no se altera', () => {
+    expect(tapCell(carga(), sel(4, 9), 6, { preSystemOpen: true, fresh: true })).toEqual(sel(6, 9))
+  })
+})
+
+describe('dragSelect', () => {
+  it('de una previa a otra: rango entre las dos', () => {
+    expect(dragSelect(carga(), 0, 5)).toEqual(sel(0, 5))
+  })
+
+  it('en cualquier sentido: arrastrar de derecha a izquierda da el mismo rango', () => {
+    expect(dragSelect(carga(), 5, 0)).toEqual(dragSelect(carga(), 0, 5))
+  })
+
+  it('una sola celda (mantener apretado sin mover) = esa celda', () => {
+    expect(dragSelect(carga(), 3, 3)).toEqual(sel(3, 3))
+  })
+
+  it('un arrastre que llega a un mes del sistema arranca en la previa de donde salió', () => {
+    expect(dragSelect(carga(), 7, 10)).toEqual(sel(7, 10))
+  })
+
+  it('nadie salta meses: si el extremo viejo es del sistema, arranca en el primer mes elegible del sistema', () => {
+    const o = [
+      opt({ period: '2026-08-01', kind: 'monthly', coveredCents: P }),
+      opt({ period: '2026-09-01', kind: 'monthly' }),
+      opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
+      opt({ period: '2026-11-01', kind: 'projected' }),
+    ]
+    expect(dragSelect(o, 3, 3)).toEqual(sel(1, 3))
+    expect(dragSelect(o, 2, 3)).toEqual(sel(1, 3))
+  })
+
+  it('las celdas sin pendiente de los extremos se recortan', () => {
+    const o = carga()
+    o[0] = { ...o[0], coveredCents: P, pendingCents: 0 }
+    o[5] = { ...o[5], coveredCents: P, pendingCents: 0 }
+    expect(dragSelect(o, 0, 5)).toEqual(sel(1, 4))
+  })
+
+  it('null si no queda ninguna elegible, o un índice fuera de rango', () => {
+    const o = carga().map((c) => ({ ...c, coveredCents: c.amountCents, pendingCents: 0 }))
+    expect(dragSelect(o, 0, 3)).toBeNull()
+    expect(dragSelect(carga(), 0, 99)).toBeNull()
+    expect(dragSelect(carga(), -1, 2)).toBeNull()
+  })
+
+  it('dos meses pagados sin ninguna elegible del sistema devuelven null (no inventa rango)', () => {
+    const o = [opt({ period: '2026-09-01', kind: 'monthly', coveredCents: P }), opt({ period: '2026-10-01', kind: 'monthly', coveredCents: P })]
+    expect(dragSelect(o, 0, 1)).toBeNull()
+  })
+})
+
+describe('preCellRole', () => {
+  it('ene–jun: ene..jun son "marked", jul..oct "owed", los proyectados null', () => {
+    const selection = sel(0, 5)
+    const eff = effectiveOptions(carga(), selection, { creditCents: 0 })
+    const roles = eff.map((_, i) => preCellRole(eff, selection, i))
+    expect(roles).toEqual([...Array(6).fill('marked'), ...Array(4).fill('owed'), null, null])
+  })
+
+  it('sin tramo (selección en el sistema): null en todas', () => {
+    const selection = sel(10, 10)
+    const eff = effectiveOptions(carga(), selection, { creditCents: 0 })
+    expect(eff.map((_, i) => preCellRole(eff, selection, i)).every((r) => r === null)).toBe(true)
+  })
+
+  it('una previa anterior a F no tiene rol', () => {
+    const selection = sel(3, 5)
+    const eff = effectiveOptions(carga(), selection, { creditCents: 0 })
+    expect(preCellRole(eff, selection, 0)).toBeNull()
+    expect(preCellRole(eff, selection, 3)).toBe('marked')
+  })
+
+  it('una previa que el saldo a favor ya cubrió (pendiente 0) da null: no hay nada que marcar ni que deber', () => {
+    const selection = sel(0, 5)
+    const eff = effectiveOptions(carga(), selection, { creditCents: P })
+    expect(preCellRole(eff, selection, 0)).toBeNull()
+    expect(preCellRole(eff, selection, 1)).toBe('marked')
+  })
+})
+
+describe('openingScope', () => {
+  it('ene–jun de ene..oct: desde enero, 10 meses, pagó 6 · $60.000, queda debiendo 4 · $40.000', () => {
+    expect(openingScope(carga(), sel(0, 5), { creditCents: 0 }, { payment: true })).toEqual({
+      fromPeriod: '2026-01-01',
+      months: 10,
+      sumCents: 10 * P,
+      payment: true,
+      paidMonths: 6,
+      paidCents: 6 * P,
+      owedMonths: 4,
+      owedCents: 4 * P,
+    })
+  })
+
+  it('null sin tramo', () => {
+    expect(openingScope(carga(), sel(10, 10), { creditCents: 0 }, { payment: true })).toBeNull()
+  })
+
+  it('en la ficha (payment false) lo dice en el alcance', () => {
+    expect(openingScope(carga(), sel(0, 9), { creditCents: 0 }, { payment: false })?.payment).toBe(false)
+  })
+})
+
+describe('cellTone / selectionSummary / coverLabel con openingFrom vs legacy', () => {
+  const withSpan = (partial: Partial<PaymentMonthOption> = {}) =>
+    opt({ period: '2026-03-01', kind: 'opening_balance', openingFrom: '2026-01-01', ...partial })
+  const legacy = (partial: Partial<PaymentMonthOption> = {}) => opt({ period: '2026-09-01', kind: 'opening_balance', amountCents: 3 * P, ...partial })
+
+  it('isLegacyOpening: solo el saldo sin tramo', () => {
+    expect(isLegacyOpening(legacy())).toBe(true)
+    expect(isLegacyOpening(withSpan())).toBe(false)
+    expect(isLegacyOpening(opt({ period: '2026-10-01', kind: 'monthly' }))).toBe(false)
+  })
+
+  it('con tramo se pinta como una cuota cualquiera: debe, parcial, pagada', () => {
+    expect(cellTone(withSpan())).toBe('due')
+    expect(cellTone(withSpan({ coveredCents: 400_000 }))).toBe('partial')
+    expect(cellTone(withSpan({ coveredCents: P }))).toBe('paid')
+  })
+
+  it('la legacy conserva "opening_balance" (y pagada, "paid")', () => {
+    expect(cellTone(legacy())).toBe('opening_balance')
+    expect(cellTone(legacy({ coveredCents: 3 * P }))).toBe('paid')
+  })
+
+  it('una previa con pendiente 0 (cubierta por saldo a favor) es "covered"; con pendiente es "pre_system"', () => {
+    expect(cellTone(opt({ period: '2026-01-01', kind: 'pre_system' }))).toBe('pre_system')
+    expect(cellTone(opt({ period: '2026-01-01', kind: 'pre_system', coveredCents: P }))).toBe('covered')
+  })
+
+  it('selectionSummary: las celdas del saldo con tramo cuentan como meses; la legacy no', () => {
+    const spanCells = [withSpan({ period: '2026-03-01' }), withSpan({ period: '2026-04-01' }), opt({ period: '2026-05-01', kind: 'monthly' })]
+    expect(selectionSummary(spanCells, sel(0, 2))).toMatchObject({ monthsCount: 3, hasOpeningBalance: false, rangeLabel: 'marzo a mayo 2026' })
+    const leg = [legacy(), opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true })]
+    expect(selectionSummary(leg, sel(0, 1))).toMatchObject({ monthsCount: 1, hasOpeningBalance: true })
+  })
+
+  it('coverLabel: con tramo incluye esos meses; con legacy los saltea', () => {
+    const spanCells = [withSpan({ period: '2026-03-01' }), withSpan({ period: '2026-04-01' })]
+    expect(coverLabel(spanCells, sel(0, 1))).toBe('mar–abr')
+    const leg = [legacy(), opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true })]
+    expect(coverLabel(leg, sel(0, 1))).toBe('oct')
+  })
+})
+
+describe('coverageForAmount con tramo', () => {
+  it('arranca en F: las previas anteriores a F no entran aunque sobre plata', () => {
+    // F = abr (idx 3): ene..mar no existen para este pago.
+    const r = coverageForAmount(carga(), sel(3, 4), 100 * P, { creditCents: 0 })
+    expect(r.fullyCovered).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(r.fullyCovered.some((i) => i < 3)).toBe(false)
+    expect(r.leftoverCents).toBe(100 * P - 9 * P)
+  })
+
+  it('"otro monto" cubre de F en orden y deja la parcial en el mes siguiente', () => {
+    const r = coverageForAmount(carga(), sel(0, 5), 3 * P + 250_000, { creditCents: 0 })
+    expect(r.fullyCovered).toEqual([0, 1, 2])
+    expect(r.partial).toEqual({ index: 3, cents: 250_000 })
+    expect(r.leftoverCents).toBe(0)
+  })
+
+  it('con total corregido, las partes mandan: un monto igual al total cubre todo el tramo', () => {
+    const r = coverageForAmount(carga(), sel(0, 5), 9_000_000, { creditCents: 0, openingBalanceOverrideCents: 9_000_000 })
+    expect(r.fullyCovered).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(r.partial).toBeNull()
+    expect(r.leftoverCents).toBe(0)
+  })
+
+  it('un peso menos que el total corregido: el último mes del tramo queda parcial', () => {
+    const r = coverageForAmount(carga(), sel(0, 5), 8_999_999, { creditCents: 0, openingBalanceOverrideCents: 9_000_000 })
+    expect(r.fullyCovered).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    expect(r.partial).toEqual({ index: 9, cents: 899_999 })
+  })
+
+  it('el monto derivado de lo marcado cubre justo lo marcado (sin parcial ni sobrante)', () => {
+    const ctx = { creditCents: 0 }
+    const amount = derivedAmountCents(carga(), sel(0, 5), ctx)
+    const r = coverageForAmount(carga(), sel(0, 5), amount, ctx)
+    expect(r).toEqual({ fullyCovered: [0, 1, 2, 3, 4, 5], partial: null, leftoverCents: 0 })
   })
 })

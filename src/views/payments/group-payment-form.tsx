@@ -88,6 +88,11 @@ export function GroupPaymentForm({
   familyGroup: FamilyGroupSummary
   /** Primer mes de la facturación (`billing.startPeriod`), para la tira de meses previos. */
   startPeriod?: ISODate | null
+  /**
+   * La facturación ya arrancó. En grupo la grilla de cada integrante arranca cerrada
+   * siempre (N grillas no entran en el sheet); se acepta por contrato con el pago individual.
+   */
+  billingStarted?: boolean
   /** Qué pasa después de un registro exitoso (ver el comentario en `PaymentForm`). */
   onDone: () => void
   /** Avisa el total del lote justo antes de `onDone` (ver `PaymentForm`). */
@@ -103,14 +108,14 @@ export function GroupPaymentForm({
   // "Otro monto" son independientes entre hermanos.
   const [entries, setEntries] = useState<Record<number, EntryState>>(() =>
     Object.fromEntries(
-      members.filter((m) => (monthOptions[m.memberId] ?? []).length > 0).map((m) => [m.memberId, initialEntry(monthOptions[m.memberId], m.status)]),
+      members.filter((m) => (monthOptions[m.memberId] ?? []).length > 0).map((m) => [m.memberId, initialEntry(monthOptions[m.memberId], m.status, { expanded: false })]),
     ),
   )
 
   function defaultRowAmount(m: MemberAccount): number | null {
     const options = monthOptions[m.memberId] ?? []
     if (options.length > 0) {
-      const entry = entries[m.memberId] ?? initialEntry(options, m.status)
+      const entry = entries[m.memberId] ?? initialEntry(options, m.status, { expanded: false })
       return entry.custom ? null : entryDerivedCents(options, entry, creditOf(m.balanceCents))
     }
     return m.status === 'inactive' && m.debtStatus === 'in_debt' ? m.balanceCents : (m.currentFeeCents ?? null)
@@ -323,7 +328,7 @@ export function GroupPaymentForm({
 
           <TextareaField control={form.control} name="notes" label="Notas (opcional)" disabled={pending} />
 
-          <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <div className="sticky -bottom-4 z-10 -mx-4 -mb-4 mt-2 flex flex-col gap-2 border-t border-border bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <p role="status" className="flex justify-between text-sm text-muted-foreground">
               <span>{checkedCount === 1 ? '1 integrante' : `${checkedCount} integrantes`}</span>
               <span className="tabular-nums">Total {formatCentsCompact(totalCents)}</span>

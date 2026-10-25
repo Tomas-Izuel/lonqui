@@ -292,8 +292,21 @@ describe('getPaymentMonthOptions', () => {
         pendingCents: 600_000,
         isCurrent: true,
         pricedAtToday: false,
+        openingFrom: null,
       },
     ])
+  })
+
+  it('opening_from se mapea a openingFrom; ausente (RPC vieja) o null da null, nunca undefined', async () => {
+    const rows = [
+      { ...RAW_CELL, kind: 'opening_balance', opening_from: '2026-01-01' },
+      { ...RAW_CELL, kind: 'opening_balance', opening_from: null },
+      { ...RAW_CELL },
+    ]
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: rows, error: null }) })
+    const { getPaymentMonthOptions } = await importModel()
+    const result = await getPaymentMonthOptions([5])
+    expect(result.map((o) => o.openingFrom)).toEqual(['2026-01-01', null, null])
   })
 
   it('sin ids: [] y NO llama a la base', async () => {
