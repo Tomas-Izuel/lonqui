@@ -7,7 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LoadingList, EmptyState, ErrorState } from '@/views/shared/states'
 import { MonthStrip } from '@/views/payments/month-strip'
-import { tapCell, isBeforeStart, openingBalanceFromSelection, type Selection } from '@/views/payments/month-selection'
+import { tapCell, isBeforeStart, openingBalanceFromSelection, openingScope, type Selection } from '@/views/payments/month-selection'
 import { createOpeningBalanceFromMonths, getPaymentMonthOptions } from '@/controllers/payments.actions'
 import { formatCentsCompact } from '@/lib/money'
 import { formatPeriod, periodRangeLabel } from '@/lib/dates'
@@ -62,6 +62,8 @@ export function OpeningBalanceMonths({
   const options = load.status === 'ready' ? load.options : []
   const beforeStart = isBeforeStart(options)
   const opening = openingBalanceFromSelection(options, selection, overrideCents ?? undefined)
+  // Acá no hay pago: el alcance solo rotula el total (siempre de F al último mes previo, sin arrastre).
+  const scope = openingScope(options, selection, { openingBalanceOverrideCents: overrideCents, creditCents }, { payment: false })
 
   function retry() {
     setLoad({ status: 'loading' })
@@ -150,6 +152,7 @@ export function OpeningBalanceMonths({
         variant="default"
         preSystem={{
           open: true,
+          scope,
           startPeriod,
           overrideCents,
           onValidityChange: setTotalValid,

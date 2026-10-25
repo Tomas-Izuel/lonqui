@@ -18,8 +18,9 @@ import { accountLineText, categoriesLabel, currentFeeLabel } from '@/views/payme
 import { METHOD_ERROR_ID, PAYMENT_MIN_DATE, amountCentsSchema, methodSchema, notesSchema, paidOnSchema } from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import { MonthEntry, creditOf, entryDerivedCents, entryEffectiveOptions, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
-import { coverLabel, coverageForAmount, selectionSummary, summaryText } from '@/views/payments/month-selection'
+import { MonthEntry, creditOf, debtLine, entryDebtAfter, entryDerivedCents, entryEffectiveOptions, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
+import { coverLabel, coverageForAmount } from '@/views/payments/month-selection'
+import { AlertCircle } from 'lucide-react'
 import type { ISODate, MemberAccount, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
 
 const schema = z.object({
@@ -67,6 +68,7 @@ export function PaymentForm({
   member,
   options,
   startPeriod,
+  billingStarted,
   onDone,
   onSuccess,
 }: {
@@ -75,6 +77,8 @@ export function PaymentForm({
   options: PaymentMonthOption[]
   /** Primer mes de la facturación (`billing.startPeriod`), para la tira de meses previos. */
   startPeriod?: ISODate | null
+  /** La facturación ya arrancó. Antes del inicio todo es carga inicial: la grilla de meses abre abierta. */
+  billingStarted: boolean
   onDone: () => void
   /** Avisa monto y, si hubo meses, "Cubre ago–oct" (o "Pago a cuenta") justo antes de `onDone`. */
   onSuccess?: (amountCents: number, label?: string) => void
@@ -90,7 +94,7 @@ export function PaymentForm({
   const isInactiveWithDebt = member.status === 'inactive' && member.debtStatus === 'in_debt'
   const hasStrip = options.length > 0
   const creditCents = creditOf(member.balanceCents)
-  const [entry, setEntry] = useState<EntryState>(() => initialEntry(options, member.status))
+  const [entry, setEntry] = useState<EntryState>(() => initialEntry(options, member.status, { expanded: !billingStarted }))
   const defaultAmount = hasStrip
     ? entry.custom
       ? null
@@ -108,16 +112,14 @@ export function PaymentForm({
   const method = useWatch({ control: form.control, name: 'method' })
   const pending = form.formState.isSubmitting
   // En modo meses un derivado de $0 (el saldo a favor ya cubre lo marcado) no es un pago.
+  // El resumen de lo marcado vive arriba, junto a "Cambiar": el pie solo suma lo que
+  // conviene tener a la vista justo antes de confirmar.
   let footerLine: string | null = null
-  if (hasStrip) {
-    if (entry.custom) {
-      const left = coverageForAmount(options, entry.selection, amountCents ?? 0, { openingBalanceOverrideCents: entry.overrideCents, creditCents }).leftoverCents
-      footerLine = left > 0 ? `Pago a cuenta · queda saldo a favor de ${formatCentsCompact(left)}` : 'Pago a cuenta'
-    } else {
-      const text = summaryText(selectionSummary(entryEffectiveOptions(options, entry, creditCents), entry.selection))
-      footerLine = text ? text.charAt(0).toUpperCase() + text.slice(1) : null
-    }
+  if (hasStrip && entry.custom) {
+    const left = coverageForAmount(options, entry.selection, amountCents ?? 0, { openingBalanceOverrideCents: entry.overrideCents, creditCents }).leftoverCents
+    footerLine = left > 0 ? `Pago a cuenta · queda saldo a favor de ${formatCentsCompact(left)}` : 'Pago a cuenta'
   }
+  const debtAfter = hasStrip ? entryDebtAfter(options, entry, creditCents) : { months: 0, cents: 0 }
   const blocked = hasStrip && (entry.overrideInvalid || (!entry.custom && entryDerivedCents(options, entry, creditCents) <= 0))
 
   async function onValid(values: FormValues) {
@@ -221,6 +223,7 @@ export function PaymentForm({
               error={form.formState.errors.amountCents?.message}
               disabled={pending}
               showTotal={false}
+              showDebtLine={false}
               startPeriod={startPeriod}
             />
           ) : (
@@ -278,6 +281,12 @@ export function PaymentForm({
             {footerLine ? (
               <p role="status" className="text-sm text-muted-foreground tabular-nums">
                 {footerLine}
+              </p>
+            ) : null}
+            {debtAfter.months > 0 ? (
+              <p className="flex items-start gap-1.5 text-sm font-medium tabular-nums">
+                <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-status-in-debt" />
+                {debtLine(debtAfter)}
               </p>
             ) : null}
             {formError ? (

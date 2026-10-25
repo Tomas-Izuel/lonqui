@@ -153,6 +153,9 @@ describe('openingBalanceDescription / createOpeningBalanceFromMonths', () => {
       kind: 'opening_balance',
       amount_cents: 2_750_000,
       description: 'Saldo anterior · julio a septiembre 2026',
+      // El tramo viaja a la base: sin esto el saldo vuelve a ser una celda única.
+      from_period: '2026-07-01',
+      to_period: '2026-09-01',
     })
   })
 })

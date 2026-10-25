@@ -119,6 +119,7 @@ export type MonthRow = {
   pending_cents: string
   is_current: boolean
   priced_at_today: boolean
+  opening_from: string | null
 }
 
 export type MonthRowNum = {
@@ -130,12 +131,15 @@ export type MonthRowNum = {
   pending: number
   isCurrent: boolean
   pricedAtToday: boolean
+  /** Inicio del tramo del saldo anterior (celda `opening_balance` con tramo); null en el resto y en el saldo viejo sin tramo. */
+  openingFrom: string | null
 }
 
 /** `payment_month_options` con fechas como `YYYY-MM-DD` y bigints como number. Corre con el rol actual de la sesión. */
 export async function monthOptions(client: ClientBase, memberIds: number[]): Promise<MonthRowNum[]> {
   const r = await client.query<MonthRow>(
-    `select member_id, to_char(period, 'YYYY-MM-DD') as period, kind, amount_cents, covered_cents, pending_cents, is_current, priced_at_today
+    `select member_id, to_char(period, 'YYYY-MM-DD') as period, kind, amount_cents, covered_cents, pending_cents, is_current, priced_at_today,
+            to_char(opening_from, 'YYYY-MM-DD') as opening_from
      from public.payment_month_options($1::bigint[]) order by member_id, period`,
     [memberIds],
   )
@@ -148,6 +152,7 @@ export async function monthOptions(client: ClientBase, memberIds: number[]): Pro
     pending: Number(row.pending_cents),
     isCurrent: row.is_current,
     pricedAtToday: row.priced_at_today,
+    openingFrom: row.opening_from,
   }))
 }
 

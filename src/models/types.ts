@@ -679,7 +679,10 @@ export type PaymentMonthKind = 'pre_system' | 'opening_balance' | 'monthly' | 'p
 /** Una fila de `payment_month_options`: una celda de la tira de meses del formulario de pago. */
 export type PaymentMonthOption = {
   memberId: number
-  /** Mes. En 'opening_balance' es su período real (el anterior al inicio de la facturación). */
+  /**
+   * Mes. En 'opening_balance' con tramo (`openingFrom`) es un mes real del saldo
+   * anterior; sin tramo, la celda única del saldo viejo (el mes anterior al inicio).
+   */
   period: ISODate
   kind: PaymentMonthKind
   /** Total del período: saldo anterior, suma de cuotas no anuladas, o precio proyectado / de hoy. */
@@ -691,6 +694,12 @@ export type PaymentMonthOption = {
   isCurrent: boolean
   /** 'projected'/'pre_system' valuados con la cuota de hoy (sin valor programado distinto). */
   pricedAtToday: boolean
+  /**
+   * Primer mes del saldo anterior en las celdas 'opening_balance' con tramo
+   * (una celda por mes, el total repartido). null en todo lo demás; null en una
+   * celda 'opening_balance' = saldo viejo sin tramo, que sigue siendo una sola celda.
+   */
+  openingFrom: ISODate | null
 }
 
 /** Los meses anteriores al sistema que se vuelven saldo anterior. Períodos `YYYY-MM-01`. */

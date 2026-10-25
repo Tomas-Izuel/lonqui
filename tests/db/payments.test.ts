@@ -17,7 +17,7 @@ describe.skipIf(!dbAvailable)('payments: quién puede cargar', () => {
 
       const err = await expectQueryError(
         client,
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'cash', $2)`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'cash', $2)`,
         [memberId, randomUUID()],
       )
       expect(err.message).toMatch(/row-level security|permission denied/i)
@@ -31,7 +31,7 @@ describe.skipIf(!dbAvailable)('payments: quién puede cargar', () => {
       await actAs(client, editorId)
 
       const ok = await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'cash', $2) returning created_by`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'cash', $2) returning created_by`,
         [memberId, randomUUID()],
       )
       expect(ok.rows[0].created_by).toBe(editorId)
@@ -41,7 +41,7 @@ describe.skipIf(!dbAvailable)('payments: quién puede cargar', () => {
       await actAs(client, editorId)
       const err = await expectQueryError(
         client,
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id, created_by) values ($1, 1000000, current_date, 'cash', $2, $3)`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id, created_by) values ($1, 1000000, private.club_today(), 'cash', $2, $3)`,
         [memberId, randomUUID(), otherId],
       )
       expect(err.message).toMatch(/row-level security|permission denied/i)
@@ -64,9 +64,9 @@ describe.skipIf(!dbAvailable)('payments: lote atómico e idempotente (batch_id)'
       const err = await expectQueryError(
         client,
         `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values
-         ($1, 1000000, current_date, 'cash', $3),
-         ($2, 1000000, current_date, 'cash', $3),
-         ($1, 0, current_date, 'cash', $3)`,
+         ($1, 1000000, private.club_today(), 'cash', $3),
+         ($2, 1000000, private.club_today(), 'cash', $3),
+         ($1, 0, private.club_today(), 'cash', $3)`,
         [memberA, memberB, batchId],
       )
       expect(err.code).toBe('23514')
@@ -83,12 +83,12 @@ describe.skipIf(!dbAvailable)('payments: lote atómico e idempotente (batch_id)'
       const batchId = randomUUID()
 
       await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'cash', $2)`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'cash', $2)`,
         [memberId, batchId],
       )
       const err = await expectQueryError(
         client,
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'cash', $2)`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'cash', $2)`,
         [memberId, batchId],
       )
       expect(err.code).toBe('23505')
@@ -140,7 +140,7 @@ describe.skipIf(!dbAvailable)('payments: fecha, inmutabilidad', () => {
       const { userId: editorId } = await createUserWithRole(client, 'editor')
       await actAs(client, editorId)
       const payment = await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'cash', $2) returning id`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'cash', $2) returning id`,
         [memberId, randomUUID()],
       )
       const id = payment.rows[0].id
@@ -184,7 +184,7 @@ describe.skipIf(!dbAvailable)('payments: anulación y comprobante', () => {
       const { userId: editorId } = await createUserWithRole(client, 'editor')
       await actAs(client, editorId)
       const payment = await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'cash', $2) returning id`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'cash', $2) returning id`,
         [memberId, randomUUID()],
       )
       const id = payment.rows[0].id
@@ -227,7 +227,7 @@ describe.skipIf(!dbAvailable)('payments: anulación y comprobante', () => {
       const { userId: editorId } = await createUserWithRole(client, 'editor')
       await actAs(client, editorId)
       const payment = await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'transfer', $2) returning id`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'transfer', $2) returning id`,
         [memberId, randomUUID()],
       )
       const id = payment.rows[0].id
@@ -257,7 +257,7 @@ describe.skipIf(!dbAvailable)('payments: anulación y comprobante', () => {
       const { userId: editorId } = await createUserWithRole(client, 'editor')
       await actAs(client, editorId)
       const payment = await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'transfer', $2) returning id`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'transfer', $2) returning id`,
         [memberId, randomUUID()],
       )
       const id = payment.rows[0].id
@@ -285,7 +285,7 @@ describe.skipIf(!dbAvailable)('payments: anulación y comprobante', () => {
       const { userId: editorId } = await createUserWithRole(client, 'editor')
       await actAs(client, editorId)
       const payment = await client.query(
-        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, current_date, 'transfer', $2) returning id`,
+        `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 1000000, private.club_today(), 'transfer', $2) returning id`,
         [memberId, randomUUID()],
       )
       const id = payment.rows[0].id

@@ -148,13 +148,13 @@ isOneToOne: false
                   ]
                 },"fees": {
                   Row: {
-                    "amount_cents": number,"category_id": number | null,"created_at": string,"created_by": string | null,"description": string | null,"discipline_id": number | null,"fee_price_id": number | null,"id": number,"kind": string,"member_id": number,"period": string,"void_reason": string | null,"voided_at": string | null,"voided_by": string | null
+                    "amount_cents": number,"category_id": number | null,"created_at": string,"created_by": string | null,"description": string | null,"discipline_id": number | null,"fee_price_id": number | null,"from_period": string | null,"id": number,"kind": string,"member_id": number,"period": string,"to_period": string | null,"void_reason": string | null,"voided_at": string | null,"voided_by": string | null
                   }
                   Insert: {
-                    "amount_cents": number,"category_id"?: number | null,"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"discipline_id"?: number | null,"fee_price_id"?: number | null,"id"?: never,"kind": string,"member_id": number,"period": string,"void_reason"?: string | null,"voided_at"?: string | null,"voided_by"?: string | null
+                    "amount_cents": number,"category_id"?: number | null,"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"discipline_id"?: number | null,"fee_price_id"?: number | null,"from_period"?: string | null,"id"?: never,"kind": string,"member_id": number,"period": string,"to_period"?: string | null,"void_reason"?: string | null,"voided_at"?: string | null,"voided_by"?: string | null
                   }
                   Update: {
-                    "amount_cents"?: number,"category_id"?: number | null,"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"discipline_id"?: number | null,"fee_price_id"?: number | null,"id"?: never,"kind"?: string,"member_id"?: number,"period"?: string,"void_reason"?: string | null,"voided_at"?: string | null,"voided_by"?: string | null
+                    "amount_cents"?: number,"category_id"?: number | null,"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"discipline_id"?: number | null,"fee_price_id"?: number | null,"from_period"?: string | null,"id"?: never,"kind"?: string,"member_id"?: number,"period"?: string,"to_period"?: string | null,"void_reason"?: string | null,"voided_at"?: string | null,"voided_by"?: string | null
                   }
                   Relationships: [
                     {
@@ -390,7 +390,7 @@ isOneToOne: false
                            },
 "payment_month_options":
 { Args: { "member_ids": (number)[] }; Returns: {
-              "amount_cents": number,"covered_cents": number,"is_current": boolean,"kind": string,"member_id": number,"pending_cents": number,"period": string,"priced_at_today": boolean
+              "amount_cents": number,"covered_cents": number,"is_current": boolean,"kind": string,"member_id": number,"opening_from": string,"pending_cents": number,"period": string,"priced_at_today": boolean
             }[]
                            },
 "register_payment_batch":

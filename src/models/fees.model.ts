@@ -108,6 +108,11 @@ function translateOpeningBalanceError(error: PostgrestError): unknown {
   if (error.code === '23514' && error.message.includes('fees_amount_cents_check')) {
     return new DomainError('El saldo anterior tiene que ser mayor a cero', { field: 'amountCents' })
   }
+  // Red de seguridad: el guard ya valida los meses con mensaje propio; si igual
+  // salta un CHECK del tramo, el usuario ve lo mismo.
+  if (error.code === '23514' && error.message.includes('fees_opening_span_')) {
+    return new DomainError('Los meses del saldo anterior no son válidos')
+  }
   if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
     return new DomainError(error.message, { field: error.message.includes('mayor a cero') ? 'amountCents' : undefined })
   }
@@ -194,6 +199,14 @@ type OpeningBalanceInsert = Omit<TablesInsert<'fees'>, 'period'>
 
 /** Carga la deuda previa al sistema (contrato: "la deuda previa entra como un cargo inicial"). */
 export async function createOpeningBalance(input: CreateOpeningBalanceInput): Promise<Fee> {
+  return insertOpeningBalance(input)
+}
+
+/** Tramo opcional: sin él el saldo es un monto suelto (comportamiento histórico). */
+async function insertOpeningBalance(
+  input: CreateOpeningBalanceInput,
+  span?: { fromPeriod: string; toPeriod: string },
+): Promise<Fee> {
   const supabase = await createClient()
 
   const payload: OpeningBalanceInsert = {
@@ -201,6 +214,7 @@ export async function createOpeningBalance(input: CreateOpeningBalanceInput): Pr
     kind: 'opening_balance',
     amount_cents: input.amountCents,
     description: input.description ?? null,
+    ...(span ? { from_period: span.fromPeriod, to_period: span.toPeriod } : {}),
   }
 
   const { data, error } = await supabase
@@ -215,11 +229,14 @@ export async function createOpeningBalance(input: CreateOpeningBalanceInput): Pr
 
 /** Saldo anterior expresado en meses ("julio a septiembre 2026"): el monto lo decide el llamador. */
 export async function createOpeningBalanceFromMonths(input: CreateOpeningBalanceFromMonthsInput): Promise<Fee> {
-  return createOpeningBalance({
-    memberId: input.memberId,
-    amountCents: input.amountCents,
-    description: openingBalanceDescription(input.fromPeriod, input.toPeriod),
-  })
+  return insertOpeningBalance(
+    {
+      memberId: input.memberId,
+      amountCents: input.amountCents,
+      description: openingBalanceDescription(input.fromPeriod, input.toPeriod),
+    },
+    { fromPeriod: input.fromPeriod, toPeriod: input.toPeriod },
+  )
 }
 
 /**

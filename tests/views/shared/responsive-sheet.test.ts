@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createElement, type ReactNode } from 'react'
+import { createElement, type ComponentProps, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 /**
@@ -12,9 +12,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
  * puede alcanzar sin DOM.
  */
 vi.mock('@/components/ui/sheet', () => {
-  const slot = (name: string) => ({ children }: { children?: ReactNode }) => createElement('div', { 'data-slot': name }, children)
+  const slot = (name: string) => {
+    const Slot = ({ children }: { children?: ReactNode }) => createElement('div', { 'data-slot': name }, children)
+    Slot.displayName = `Slot(${name})`
+    return Slot
+  }
   return {
-    Sheet: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
+    Sheet: Object.assign(({ children }: { children?: ReactNode }) => createElement('div', null, children), { displayName: 'Sheet' }),
     SheetContent: slot('sheet-content'),
     SheetHeader: slot('sheet-header'),
     SheetTitle: slot('sheet-title'),
@@ -29,13 +33,8 @@ function render(footer?: ReactNode) {
   return renderToStaticMarkup(
     createElement(
       ResponsiveSheet,
-      {
-        open: true,
-        onOpenChange: () => {},
-        title: 'Titulo inventado',
-        footer,
-        children: createElement('form', { id: 'f' }, 'contenido'),
-      },
+      { open: true, onOpenChange: () => {}, title: 'Titulo inventado', footer } as unknown as ComponentProps<typeof ResponsiveSheet>,
+      createElement('form', { id: 'f' }, 'contenido'),
     ),
   )
 }

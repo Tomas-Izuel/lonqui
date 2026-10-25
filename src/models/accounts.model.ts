@@ -158,6 +158,7 @@ type PaymentMonthOptionRow = {
   pending_cents: number
   is_current: boolean
   priced_at_today: boolean
+  opening_from?: string | null
 }
 
 /**
@@ -182,6 +183,7 @@ export async function getPaymentMonthOptions(memberIds: number[]): Promise<Payme
     pendingCents: row.pending_cents,
     isCurrent: row.is_current,
     pricedAtToday: row.priced_at_today,
+    openingFrom: row.opening_from ?? null,
   }))
 }
 
