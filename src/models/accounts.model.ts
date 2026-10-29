@@ -158,7 +158,8 @@ type PaymentMonthOptionRow = {
   pending_cents: number
   is_current: boolean
   priced_at_today: boolean
-  opening_from?: string | null
+  /** Opcional a propósito: un schema viejo (sin la migración de imputaciones) no la trae y hay que frenar. */
+  before_joined?: boolean
 }
 
 /**
@@ -174,7 +175,14 @@ export async function getPaymentMonthOptions(memberIds: number[]): Promise<Payme
   const { data, error } = await supabase.rpc('payment_month_options', { member_ids: memberIds })
   if (error) throw error
 
-  return ((data ?? []) as unknown as PaymentMonthOptionRow[]).map((row) => ({
+  const rows = (data ?? []) as unknown as PaymentMonthOptionRow[]
+  // Gate de schema: durante un deploy la app nueva puede hablar con la base
+  // vieja (o al revés). Sin `before_joined` la grilla armaría celdas mal.
+  if (rows.some((row) => row.before_joined === undefined)) {
+    throw new DomainError('El sistema se está actualizando. Probá de nuevo en unos minutos')
+  }
+
+  return rows.map((row) => ({
     memberId: row.member_id,
     period: row.period,
     kind: row.kind as PaymentMonthKind,
@@ -183,7 +191,7 @@ export async function getPaymentMonthOptions(memberIds: number[]): Promise<Payme
     pendingCents: row.pending_cents,
     isCurrent: row.is_current,
     pricedAtToday: row.priced_at_today,
-    openingFrom: row.opening_from ?? null,
+    beforeJoined: row.before_joined === true,
   }))
 }
 
@@ -278,8 +286,8 @@ export async function getFeeStatement(memberId: number): Promise<FeeStatementLin
 // Detalle completo (cuenta + statement + pagos + saldo de arranque)
 // -----------------------------------------------------------------------------
 
-/** El saldo de arranque VIGENTE (no anulado) del socio, o null si nunca tuvo o el que tenía se anuló. */
-async function getOpeningBalance(memberId: number): Promise<Fee | null> {
+/** Los saldos anteriores VIGENTES (una fila por mes) del socio, por mes ascendente. Vacío si no tiene o se anularon todos. */
+export async function getOpeningBalances(memberId: number): Promise<Fee[]> {
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -288,16 +296,17 @@ async function getOpeningBalance(memberId: number): Promise<Fee | null> {
     .eq('member_id', memberId)
     .eq('kind', 'opening_balance')
     .is('voided_at', null)
-    .maybeSingle()
+    .order('period', { ascending: true })
+    .order('id', { ascending: true })
   if (error) throw error
 
-  return data ? mapFeeRow(data as FeeRow) : null
+  return ((data ?? []) as FeeRow[]).map(mapFeeRow)
 }
 
 /**
  * Ficha completa del estado de cuenta: cuenta, statement, TODOS los pagos
- * (incluidos anulados: es un registro, no solo lo vigente) y el saldo de
- * arranque vigente. Asume que quien llama ya verificó `payments.read`
+ * (incluidos anulados: es un registro, no solo lo vigente) y el saldos
+ * anteriores vigentes (uno por mes). Asume que quien llama ya verificó `payments.read`
  * (`MemberPageData.account` es `null` sin ese permiso, D. de B3) — acá no se
  * repite el chequeo porque las cuatro consultas ya lo hacen en su cuerpo
  * (`private.require_permission`) y fallarían igual si no lo tuviera.
@@ -308,11 +317,11 @@ export async function getMemberAccountDetail(memberId: number): Promise<MemberAc
     throw new DomainError('El socio no existe', { status: 404 })
   }
 
-  const [statement, payments, openingBalance] = await Promise.all([
+  const [statement, payments, openingBalances] = await Promise.all([
     getFeeStatement(memberId),
     listPaymentsForMember(memberId),
-    getOpeningBalance(memberId),
+    getOpeningBalances(memberId),
   ])
 
-  return { account, statement, payments: payments as Payment[], openingBalance }
+  return { account, statement, payments: payments as Payment[], openingBalances }
 }

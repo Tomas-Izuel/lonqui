@@ -33,6 +33,8 @@ type Tables = {
   members?: QueryResult<{ id: number; first_name: string; last_name: string }>
   categories?: QueryResult<{ id: number; name: string }>
   disciplines?: QueryResult<{ id: number; name: string }>
+  fees?: QueryResult<{ id: number; period: string; kind: string }>
+  payments?: QueryResult<{ id: number; paid_on: string }>
 }
 
 function makeFakeClient(tables: Tables) {
@@ -314,5 +316,91 @@ describe('audit.model: actorName resuelto por rol (sin nombres crudos si la RLS 
     const page = await getAuditPage({})
     expect(page.items[0].actorName).toBeNull()
     expect(page.items[0].actorId).toBe('uuid-sin-nombre')
+  })
+})
+
+describe('audit.model.buildLabelDraft (vía getAuditPage): payment_allocations', () => {
+  /** El formateador de montos usa un espacio de no separación después del $. */
+  const norm = (label: string | null) => (label ?? '').replace(/\u00a0/g, ' ')
+  const tables = (over: Tables = {}): Tables => ({
+    app_users: { data: [], error: null },
+    members: { data: [{ id: 42, first_name: 'Ana', last_name: 'Nombre Secreto' }], error: null },
+    categories: { data: [], error: null },
+    disciplines: { data: [], error: null },
+    ...over,
+  })
+  const allocRow = (over: Record<string, unknown> = {}) =>
+    auditRow('payment_allocations', { new_fee_id: '10', new_payment_id: '20', new_amount_cents: '150000', ...over })
+
+  it('"imputación de $X a cuota del mes MM/YYYY del pago del DD/MM/YYYY", sin nombre de socio', async () => {
+    createClientMock.mockResolvedValue(
+      makeFakeClient(
+        tables({
+          audit_log: { data: [allocRow()], error: null },
+          fees: { data: [{ id: 10, period: '2026-05-01', kind: 'monthly' }], error: null },
+          payments: { data: [{ id: 20, paid_on: '2026-09-15' }], error: null },
+        }),
+      ),
+    )
+    const page = await getAuditPage({})
+    const label = norm(page.items[0].recordLabel)
+    expect(label).toContain('imputación de $ 1.500')
+    expect(label).toContain('cuota del mes 05/2026')
+    expect(label).toContain('pago del 15/09/2026')
+    // Datos personales: el vínculo es pago ↔ cuota, el nombre del socio no entra.
+    expect(label).not.toMatch(/Nombre Secreto|Ana/)
+  })
+
+  it('una cuota de saldo anterior se rotula "a saldo anterior MM/YYYY"', async () => {
+    createClientMock.mockResolvedValue(
+      makeFakeClient(
+        tables({
+          audit_log: { data: [allocRow()], error: null },
+          fees: { data: [{ id: 10, period: '2026-03-01', kind: 'opening_balance' }], error: null },
+          payments: { data: [{ id: 20, paid_on: '2026-09-15' }], error: null },
+        }),
+      ),
+    )
+    const page = await getAuditPage({})
+    expect(norm(page.items[0].recordLabel)).toBe('imputación de $ 1.500 a saldo anterior 03/2026 del pago del 15/09/2026')
+  })
+
+  it('lo que no se pudo resolver (RLS o fila inexistente) se omite: nunca un id crudo', async () => {
+    createClientMock.mockResolvedValue(
+      makeFakeClient(
+        tables({
+          audit_log: { data: [allocRow()], error: null },
+          fees: { data: [], error: null },
+          payments: { data: [], error: null },
+        }),
+      ),
+    )
+    const page = await getAuditPage({})
+    expect(norm(page.items[0].recordLabel)).toBe('imputación de $ 1.500')
+    expect(page.items[0].recordLabel).not.toMatch(/\b10\b|\b20\b/)
+  })
+
+  it('resuelve cuotas y pagos en UNA consulta batch por tabla (sin N+1), con N imputaciones en la página', async () => {
+    const fromSpy = vi.fn()
+    const base = makeFakeClient(
+      tables({
+        audit_log: {
+          data: [allocRow({ id: 1 }), allocRow({ id: 2, new_fee_id: '11' }), allocRow({ id: 3, new_fee_id: '12', new_payment_id: '21' })],
+          error: null,
+        },
+        fees: { data: [{ id: 10, period: '2026-05-01', kind: 'monthly' }, { id: 11, period: '2026-06-01', kind: 'monthly' }, { id: 12, period: '2026-07-01', kind: 'monthly' }], error: null },
+        payments: { data: [{ id: 20, paid_on: '2026-09-15' }, { id: 21, paid_on: '2026-09-16' }], error: null },
+      }),
+    )
+    createClientMock.mockResolvedValue({ from: (t: string) => (fromSpy(t), base.from(t)) })
+    const page = await getAuditPage({})
+    const calls = fromSpy.mock.calls.map((c) => c[0] as string)
+    expect(calls.filter((t) => t === 'fees')).toHaveLength(1)
+    expect(calls.filter((t) => t === 'payments')).toHaveLength(1)
+    expect(page.items.map((i) => norm(i.recordLabel))).toEqual([
+      'imputación de $ 1.500 a cuota del mes 05/2026 del pago del 15/09/2026',
+      'imputación de $ 1.500 a cuota del mes 06/2026 del pago del 15/09/2026',
+      'imputación de $ 1.500 a cuota del mes 07/2026 del pago del 16/09/2026',
+    ])
   })
 })

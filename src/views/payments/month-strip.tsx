@@ -1,21 +1,30 @@
 'use client'
 
 import { useId, useState } from 'react'
-import { AlertCircle, CalendarPlus, Check, ChevronDown, CircleCheck, CircleDashed, CircleDot, History, Wallet, type LucideIcon } from 'lucide-react'
+import Link from 'next/link'
+import { AlertCircle, CalendarPlus, Check, ChevronDown, CircleCheck, CircleDashed, CircleDot, History, type LucideIcon } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatPeriod } from '@/lib/dates'
 import { formatCentsCompact, parsePesosToCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
 import { shortMonth } from '@/views/shared/chart-format'
-import { cellTone, isSelectable, preCellRole, selectedIndexes, type CellTone, type OpeningScope, type Selection } from '@/views/payments/month-selection'
+import {
+  advancesAllowedOn,
+  cellTone,
+  isSelectable,
+  preCellRole,
+  type CellTone,
+  type CoverageResult,
+  type OpeningScope,
+  type Selection,
+} from '@/views/payments/month-selection'
 import { useMonthDrag } from '@/views/payments/use-month-drag'
 import type { ISODate, PaymentMonthOption } from '@/models/types'
 
 /** Misma regla que `MemberPeriodStrip`: un ícono distinto por estado, el color solo refuerza. */
 const TONE_ICON: Record<CellTone, LucideIcon> = {
   pre_system: History,
-  opening_balance: Wallet,
   due: AlertCircle,
   partial: CircleDashed,
   paid: Check,
@@ -26,7 +35,6 @@ const TONE_ICON: Record<CellTone, LucideIcon> = {
 
 const TONE_TEXT_CLASS: Record<CellTone, string> = {
   pre_system: 'text-muted-foreground',
-  opening_balance: 'text-status-in-debt',
   due: 'text-status-in-debt',
   partial: 'text-status-in-debt',
   paid: 'text-status-up-to-date',
@@ -39,8 +47,6 @@ function toneLabel(o: PaymentMonthOption, tone: CellTone): string {
   switch (tone) {
     case 'pre_system':
       return 'antes del sistema'
-    case 'opening_balance':
-      return `Saldo anterior · ${formatCentsCompact(o.pendingCents)}`
     case 'due':
       return 'debe'
     case 'partial':
@@ -48,7 +54,8 @@ function toneLabel(o: PaymentMonthOption, tone: CellTone): string {
     case 'paid':
       return 'pagado'
     case 'covered':
-      return 'cubierto'
+      // Un mes previo sin pendiente solo se ve cuando el saldo a favor ya lo cubre.
+      return o.kind === 'pre_system' ? 'cubierto con saldo a favor' : 'cubierto'
     case 'current':
       return o.kind === 'projected' && !o.pricedAtToday ? `este mes · ${formatCentsCompact(o.amountCents)}` : 'este mes'
     case 'advance':
@@ -89,55 +96,72 @@ export function BeforeStartNote({ startPeriod }: { startPeriod: ISODate }) {
   )
 }
 
-export type MonthStripCoverage = {
-  fullyCovered: number[]
-  partial: { index: number; cents: number } | null
-}
+/** Lo que cubre un "Otro monto" (`coverageForAmount`): la grilla lo muestra en vivo. */
+export type MonthStripCoverage = CoverageResult
+
+/** Aviso de fecha de alta: hay meses previos marcados anteriores al alta (§6.3). No bloquea. */
+export type MonthStripJoinedWarning = { joinedPeriod: ISODate | null; memberId: number }
+
+const ADVANCE_HINT = 'Para adelantar meses, primero marcá los que debe.'
 
 /**
- * La tira de meses del formulario de pago (brief 2026-10-24): muestra EN ORDEN
- * lo que la cuenta ya hace (balance forward) y deja marcar hasta qué mes se
- * paga. Tocar un mes marca todo hasta ahí; no hay meses sueltos.
+ * La grilla de meses del formulario de pago (brief 2026-10-29): un CONJUNTO de
+ * meses sueltos. Tocar alterna, arrastrar pinta (marca o desmarca según la
+ * celda de partida). Muestra EN ORDEN lo que la cuenta ya hace y deja marcar
+ * qué meses se pagan; pagar mayo y julio deja junio adeudado.
  *
  * 4 columnas que crecen hacia abajo (a 390px nunca scrollea de costado). Cada
  * celda lleva ícono + texto, nunca solo color; `aria-pressed` en las marcadas
  * y un `sr-only` con mes, año y estado. Es 100% controlado: la selección y el
- * "otro monto" viven en el formulario.
+ * "otro monto" viven en el formulario. Recibe las opciones EFECTIVAS (con el
+ * saldo a favor y el total corregido ya aplicados).
  */
 export function MonthStrip({
   options,
   selection,
   onTap,
   onRange,
+  onDragStart,
   variant = 'default',
   preSystem,
   coverage,
+  joinedWarning = null,
   disabled = false,
   id,
 }: {
   options: PaymentMonthOption[]
   selection: Selection
   onTap: (index: number) => void
-  /** Arrastre en vivo (mouse y dedo). Sin esto la tira solo se toca (la ficha). */
+  /** Arrastre en vivo (mouse y dedo). Sin esto la grilla solo se toca. */
   onRange?: (anchor: number, over: number) => void
+  /** Se armó el arrastre: el formulario guarda la selección base sobre la que pinta `onRange`. */
+  onDragStart?: (anchor: number) => void
   /** Para que el botón "Cambiar" del resumen apunte a la grilla (`aria-controls`). */
   id?: string
   variant?: 'default' | 'compact'
   preSystem: MonthStripPreSystem | null
   coverage: MonthStripCoverage | null
+  joinedWarning?: MonthStripJoinedWarning | null
   disabled?: boolean
 }) {
   const dragEnabled = Boolean(onRange) && !disabled
-  const { setList, listProps, consumeClick } = useMonthDrag({ onRange: onRange ?? (() => {}), enabled: dragEnabled })
+  const { setList, listProps, consumeClick } = useMonthDrag({ onRange: onRange ?? (() => {}), onDragStart, enabled: dragEnabled })
+  // El aviso de adelantos vale para ESTA selección: al cambiarla desaparece solo.
+  const selectionKey = selection.join(',')
+  const [hintKey, setHintKey] = useState<string | null>(null)
   const preOpen = preSystem?.open ?? false
-  const marked = new Set(selectedIndexes(options, selection))
-  const covered = coverage ? new Set(coverage.fullyCovered) : null
+  const marked = new Set(selection)
   const compact = variant === 'compact'
+  const advancesOpen = advancesAllowedOn(options, selection)
+
+  const coveredFull = new Map((coverage?.marked ?? []).map((e) => [e.index, e.cents]))
+  const coveredUnmarked = new Map((coverage?.unmarked ?? []).map((e) => [e.index, e.cents]))
+  const coveredAdvance = new Map((coverage?.advances ?? []).map((e) => [e.index, e.cents]))
 
   const hasPre = options.some((o) => o.kind === 'pre_system')
   const visible = options.map((option, index) => ({ option, index })).filter(({ option }) => preOpen || option.kind !== 'pre_system')
 
-  const showsAdvanceNote = [...marked].some((i) => options[i].kind === 'projected' && !options[i].isCurrent && options[i].pricedAtToday)
+  const showsAdvanceNote = [...marked].some((i) => options[i]?.kind === 'projected' && !options[i].isCurrent && options[i].pricedAtToday)
 
   return (
     <div id={id} className="flex flex-col gap-2">
@@ -160,38 +184,61 @@ export function MonthStrip({
         {visible.map(({ option, index }, position) => {
           const tone = cellTone(option)
           const selectable = isSelectable(option)
-          const isPartialCover = coverage?.partial?.index === index
-          const isMarked = covered ? covered.has(index) || isPartialCover : marked.has(index)
+          const isMarked = marked.has(index)
+          const locked = option.kind === 'projected' && selectable && !isMarked && !advancesOpen
+          // Qué hace "Otro monto" con esta celda (la regla de la base, en vivo).
+          const partialCents = coverage?.partial?.index === index ? coverage.partial.cents : null
+          const absorbedCents = coveredUnmarked.get(index) ?? (coveredAdvance.has(index) ? option.pendingCents : null)
+          const absorbedPartial = coveredUnmarked.has(index) && (coveredUnmarked.get(index) ?? 0) < option.pendingCents
+          const paidByAmount = coveredFull.has(index)
+          const takesAmount = absorbedCents !== null
+          // Solo las celdas SIN marcar que absorben el remanente se dibujan distinto: las marcadas ya tienen su estilo.
+          const absorbed = !isMarked && takesAmount
           // Antes del inicio el mes actual es una celda previa: conserva el trazo punteado pero dice "este mes".
           const preCurrent = tone === 'pre_system' && option.isCurrent
           // Una previa dentro del tramo que no se marca queda adeudada: se dice con texto, no solo con color.
-          const owed = preCellRole(options, selection, index) === 'owed' && !isMarked
-          const Icon = owed ? AlertCircle : preCurrent ? CircleDot : TONE_ICON[tone]
+          const owed = preCellRole(options, selection, index) === 'owed'
           const previous = position > 0 ? visible[position - 1].option : null
           const showYear = tone === 'pre_system' || !previous || previous.period.slice(0, 4) !== option.period.slice(0, 4)
 
+          let stateLabel: string
+          let Icon: LucideIcon
+          if (partialCents !== null) {
+            stateLabel = `cubre ${formatCentsCompact(partialCents)} de ${formatCentsCompact(option.pendingCents)}`
+            Icon = CircleDashed
+          } else if (paidByAmount) {
+            stateLabel = 'pagado'
+            Icon = Check
+          } else if (takesAmount) {
+            stateLabel = coveredAdvance.has(index) ? 'cubierto' : absorbedPartial ? `se cubre ${formatCentsCompact(absorbedCents ?? 0)}` : 'se cubre'
+            Icon = Check
+          } else if (owed) {
+            stateLabel = 'queda debiendo'
+            Icon = AlertCircle
+          } else {
+            stateLabel = preCurrent ? 'este mes' : toneLabel(option, tone)
+            Icon = preCurrent ? CircleDot : TONE_ICON[tone]
+          }
           // El pliegue ya dice "antes del sistema": en cada celda previa queda mes, año e ícono (el texto completo, para lectores de pantalla).
-          const stateLabel = isPartialCover
-            ? `cubre ${formatCentsCompact(coverage!.partial!.cents)} de ${formatCentsCompact(option.pendingCents)}`
-            : covered && isMarked
-              ? 'se cubre'
-              : owed
-                ? 'queda debiendo'
-                : preCurrent
-                ? 'este mes'
-                : toneLabel(option, tone)
           const spokenState = preCurrent && stateLabel === 'este mes' ? 'este mes, antes del sistema' : stateLabel
-          const fullLabel = `${formatPeriod(option.period)}: ${spokenState}${isMarked ? ', marcado' : ''}${selectable ? '' : ', no se puede marcar'}`
+          const fullLabel = `${formatPeriod(option.period)}: ${spokenState}${isMarked ? ', marcado' : ''}${locked ? ', se habilita al marcar los meses que debe' : selectable || isMarked ? '' : ', no se puede marcar'}`
+          // Marcar es tocable si lleva algo pendiente, o si ya está marcada (para poder desmarcarla).
+          const inert = !selectable && !isMarked
 
           return (
             <li key={`${option.period}-${option.kind}`} data-month-index={index} className="min-w-0">
               <button
                 type="button"
-                disabled={disabled || !selectable}
-                aria-pressed={selectable ? isMarked : undefined}
+                disabled={disabled || inert}
+                aria-pressed={inert ? undefined : isMarked}
+                aria-disabled={locked || undefined}
                 onClick={() => {
                   // La cola de un arrastre no es un toque: la selección ya quedó como la dejó el dedo.
                   if (consumeClick()) return
+                  if (locked) {
+                    setHintKey(selectionKey)
+                    return
+                  }
                   onTap(index)
                 }}
                 className={cn(
@@ -199,15 +246,17 @@ export function MonthStrip({
                   compact ? 'min-h-11 py-1' : 'min-h-16 py-1.5',
                   dragEnabled && 'touch-pan-y',
                   tone === 'pre_system' && 'border-dashed',
-                  isMarked && !isPartialCover && 'border-primary bg-primary/10',
-                  isPartialCover && 'border-dashed border-primary bg-primary/5',
-                  !isMarked && selectable && 'border-border bg-card hover:bg-muted',
-                  !selectable && 'border-transparent bg-muted',
-                  (disabled || !selectable) && 'cursor-default',
+                  isMarked && partialCents === null && 'border-primary bg-primary/10',
+                  partialCents !== null && 'border-dashed border-primary bg-primary/5',
+                  absorbed && 'border-dashed border-primary bg-primary/5',
+                  !isMarked && !absorbed && selectable && 'border-border bg-card hover:bg-muted',
+                  inert && 'border-transparent bg-muted',
+                  locked && 'opacity-60',
+                  (disabled || inert || locked) && 'cursor-default',
                 )}
               >
                 <span aria-hidden className="flex w-full flex-wrap items-baseline gap-x-1 pr-4 leading-tight">
-                  <span className={cn('text-sm font-semibold capitalize', selectable ? 'text-foreground' : 'text-muted-foreground')}>
+                  <span className={cn('text-sm font-semibold capitalize', selectable || isMarked ? 'text-foreground' : 'text-muted-foreground')}>
                     {shortMonth(option.period)}
                   </span>
                   {showYear ? <span className="text-xs text-muted-foreground">{option.period.slice(0, 4)}</span> : null}
@@ -227,14 +276,36 @@ export function MonthStrip({
         })}
       </ul>
 
-      {dragEnabled && hasPre && preOpen ? (
+      <p role="status" className="text-sm text-muted-foreground empty:hidden">
+        {hintKey === selectionKey ? ADVANCE_HINT : null}
+      </p>
+
+      {dragEnabled ? (
         <p className="text-xs text-muted-foreground">
-          <span className="pointer-coarse:hidden">Tocá el primer y el último mes, o arrastrá.</span>
-          <span className="hidden pointer-coarse:inline">Tocá el primer y el último mes, o mantené apretado y arrastrá.</span>
+          <span className="pointer-coarse:hidden">Tocá cada mes que pagó, o arrastrá.</span>
+          <span className="hidden pointer-coarse:inline">Tocá cada mes que pagó, o mantené apretado y arrastrá.</span>
         </p>
       ) : null}
 
       {showsAdvanceNote ? <p className="text-xs text-muted-foreground">Los meses de adelanto se cobran al valor de hoy.</p> : null}
+
+      {joinedWarning ? (
+        <div className="flex items-start gap-2 text-sm">
+          <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-status-in-debt" />
+          <div className="flex min-w-0 flex-col">
+            <p>
+              Marcaste meses anteriores a la fecha de alta{joinedWarning.joinedPeriod ? ` (${formatPeriod(joinedWarning.joinedPeriod)})` : ''}. Si pagó esos meses, la fecha
+              de alta está mal: corregila desde la ficha.
+            </p>
+            <Link
+              href={`/socios/${joinedWarning.memberId}/editar`}
+              className="inline-flex min-h-11 w-fit items-center font-medium text-primary underline underline-offset-2 hover:text-primary-hover"
+            >
+              Corregir fecha de alta
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {preSystem && preOpen && preSystem.scope ? (
         <OpeningTotalField

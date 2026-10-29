@@ -18,10 +18,20 @@ import { accountLineText, categoriesLabel, currentFeeLabel } from '@/views/payme
 import { METHOD_ERROR_ID, PAYMENT_MIN_DATE, amountCentsSchema, methodSchema, notesSchema, paidOnSchema } from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import { MonthEntry, creditOf, debtLine, entryDebtAfter, entryDerivedCents, entryEffectiveOptions, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
+import {
+  MonthEntry,
+  creditOf,
+  debtLine,
+  entryDebtAfter,
+  entryDerivedCents,
+  entryMarkedPeriods,
+  entryOpeningMonths,
+  initialEntry,
+  type EntryState,
+} from '@/views/payments/month-entry'
 import { coverLabel, coverageForAmount } from '@/views/payments/month-selection'
 import { AlertCircle } from 'lucide-react'
-import type { ISODate, MemberAccount, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
+import type { ISODate, MemberAccount, OpeningMonth, PaymentMonthOption } from '@/models/types'
 
 const schema = z.object({
   amountCents: amountCentsSchema,
@@ -40,9 +50,10 @@ function isKnownField(field: string | undefined): field is (typeof KNOWN_FIELDS)
 }
 
 /** "Pago registrado" + cómo queda la cuenta, para el toast al volver (route-caja.md). */
-function resultingAccountMessage(member: MemberAccount, amountCents: number, openingBalance: OpeningBalanceMonths | null): string {
-  // El saldo anterior que se crea en el mismo envío suma deuda antes de que el pago la cubra.
-  const newBalance = member.balanceCents + (openingBalance?.amountCents ?? 0) - amountCents
+function resultingAccountMessage(member: MemberAccount, amountCents: number, openingMonths: OpeningMonth[] | null): string {
+  // Los meses de saldo anterior que se crean en el mismo envío suman deuda antes de que el pago la cubra.
+  const openingCents = (openingMonths ?? []).reduce((total, m) => total + m.amountCents, 0)
+  const newBalance = member.balanceCents + openingCents - amountCents
   if (newBalance < 0) return `Pago registrado. Queda saldo a favor de ${formatCentsCompact(-newBalance)}.`
   if (newBalance === 0) return 'Pago registrado. La cuenta quedó al día.'
   return `Pago registrado. Todavía debe ${formatCentsCompact(newBalance)}.`
@@ -119,7 +130,8 @@ export function PaymentForm({
     const left = coverageForAmount(options, entry.selection, amountCents ?? 0, { openingBalanceOverrideCents: entry.overrideCents, creditCents }).leftoverCents
     footerLine = left > 0 ? `Pago a cuenta · queda saldo a favor de ${formatCentsCompact(left)}` : 'Pago a cuenta'
   }
-  const debtAfter = hasStrip ? entryDebtAfter(options, entry, creditCents) : { months: 0, cents: 0 }
+  const debtAfter = hasStrip ? entryDebtAfter(options, entry, creditCents, amountCents) : { months: 0, cents: 0 }
+  // Un derivado de $0 en modo meses es saldo a favor que ya cubre todo lo marcado: no hay pago que registrar (la ficha tiene el resto).
   const blocked = hasStrip && (entry.overrideInvalid || (!entry.custom && entryDerivedCents(options, entry, creditCents) <= 0))
 
   async function onValid(values: FormValues) {
@@ -143,12 +155,14 @@ export function PaymentForm({
       receiptPath = uploaded.path
     }
 
-    const openingBalance = hasStrip ? entryOpeningBalance(options, entry) : null
+    // Los meses marcados van también en "Otro monto": la base aplica primero a esos.
+    const openingMonths = hasStrip ? entryOpeningMonths(options, entry) : null
+    const markedPeriods = hasStrip ? entryMarkedPeriods(options, entry) : null
     const result = await registerPayment({
       batchId,
       paidOn: values.paidOn,
       method: values.method,
-      items: [{ memberId: member.memberId, amountCents: cents, openingBalance }],
+      items: [{ memberId: member.memberId, amountCents: cents, markedPeriods, openingMonths }],
       notes: values.notes.trim() || null,
       receiptPath,
       familyGroupId: null,
@@ -173,14 +187,22 @@ export function PaymentForm({
     if (result.data.alreadyRegistered) {
       // Un reintento no toca nada: lo que vale es lo que quedó registrado la primera vez, no lo que tiene el formulario ahora.
       toast.success('El pago ya estaba registrado')
-      if (openingBalance && result.data.openingBalanceFeeIds.length === 0) {
+      if (openingMonths && result.data.openingBalanceFeeIds.length === 0) {
         toast.warning('El saldo anterior no se cargó. Indicá desde cuándo debía desde la ficha del socio.')
       }
       onSuccess?.(result.data.totalCents)
     } else {
-      toast.success(resultingAccountMessage(member, cents, openingBalance))
-      const months = hasStrip && !entry.custom ? coverLabel(entryEffectiveOptions(options, entry, creditCents), entry.selection) : ''
-      onSuccess?.(cents, hasStrip ? (months ? `Cubre ${months}` : 'Pago a cuenta') : undefined)
+      toast.success(resultingAccountMessage(member, cents, openingMonths))
+      // "Otro monto" con meses marcados también cubre esos meses; sin marcas es un pago a cuenta.
+      // En "Otro monto" solo se dicen los meses marcados que el monto cubrió completos.
+      const coveredSelection = !hasStrip
+        ? []
+        : entry.custom
+          ? coverageForAmount(options, entry.selection, cents, { openingBalanceOverrideCents: entry.overrideCents, creditCents }).marked.map((e) => e.index)
+          : entry.selection
+      const months = hasStrip ? coverLabel(options, coveredSelection) : ''
+      const label = !hasStrip ? undefined : months ? `Cubre ${months}` : openingMonths ? 'Saldo anterior cargado · pago a cuenta' : 'Pago a cuenta'
+      onSuccess?.(cents, label)
     }
     onDone()
   }
@@ -224,6 +246,7 @@ export function PaymentForm({
               disabled={pending}
               showTotal={false}
               showDebtLine={false}
+              memberId={member.memberId}
               startPeriod={startPeriod}
             />
           ) : (

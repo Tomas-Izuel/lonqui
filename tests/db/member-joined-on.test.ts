@@ -357,6 +357,34 @@ describe.skipIf(!dbAvailable)('correct_member_joined_on: rechazos', () => {
     })
   })
 
+  // Desde 20261029120000 el saldo anterior es una fila por mes y puede quedar DESPUÉS de la fecha de alta
+  // corregida (el club carga "debía desde marzo" y el alta real era en enero): no es una cuota mensual,
+  // no debe bloquear la corrección (la regla solo mira baja/reactivación, inscripciones y cuotas mensuales).
+  it('saldo anterior por mes POSTERIOR a la nueva fecha de alta NO bloquea y queda intacto', async () => {
+    await withRollback(async (client) => {
+      const { memberId } = await baseMember(client, '2026-09-10')
+      const start = (await client.query<{ s: string }>(`select to_char(billing_start_period, 'YYYY-MM-DD') as s from public.settings where id = 1`)).rows[0].s
+      const fees = await client.query<{ id: string; period: string }>(
+        `insert into public.fees (member_id, kind, period, amount_cents)
+         select $1, 'opening_balance', ($2::date - make_interval(months => k))::date, 1000000 from generate_series(1, 2) k
+         returning id, to_char(period, 'YYYY-MM-DD') as period`,
+        [memberId, start],
+      )
+      expect(fees.rows.length).toBeGreaterThan(0)
+      const { userId } = await createUserWithRole(client, 'editor')
+      await actAs(client, userId)
+      // Nueva alta ANTERIOR a todos los meses del saldo.
+      await client.query(CALL, [memberId, '2026-01-03'])
+      await actAsSuperuser(client)
+      expect(await joinedOn(client, memberId)).toBe('2026-01-03')
+      for (const f of fees.rows) {
+        expect(f.period > '2026-01-03').toBe(true)
+        const after = await client.query(`select voided_at from public.fees where id = $1`, [f.id])
+        expect(after.rows[0].voided_at).toBeNull()
+      }
+    })
+  })
+
   it('§9: un pago NO anulado anterior a la nueva fecha NO bloquea (la deuda sale de las cuotas); el pago queda intacto', async () => {
     await withRollback(async (client) => {
       const { memberId } = await baseMember(client, '2026-09-01')

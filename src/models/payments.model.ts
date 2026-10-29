@@ -5,10 +5,19 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError, PermissionError } from '@/lib/errors'
 import { isRawPostgresMessage } from '@/models/pg-errors'
-import { openingBalanceDescription, openingBalanceMonthsSchema } from '@/models/fees.model'
+import { openingMonthsSchema, periodSchema } from '@/models/fees.model'
 import { toClubDate, lastDayOfPeriod } from '@/lib/dates'
 import { sumCents } from '@/lib/money'
-import type { Page, Payment, PaymentListItem, PaymentMethod, RegisterPaymentResult } from '@/models/types'
+import type {
+  FeeKind,
+  Page,
+  Payment,
+  PaymentAllocation,
+  PaymentAllocationSource,
+  PaymentListItem,
+  PaymentMethod,
+  RegisterPaymentResult,
+} from '@/models/types'
 
 /**
  * Pagos (`payments`, S2). Un pago suelto es un lote de uno: `batchId` lo
@@ -64,6 +73,8 @@ export const MIN_PAYMENT_DATE = '2020-01-01'
 const PAYMENT_DATE_TOO_OLD_MESSAGE = 'La fecha del pago no puede ser anterior a 2020. Revisá el año'
 const PAYMENT_DATE_FUTURE_MESSAGE = 'La fecha del pago no puede ser futura'
 
+const MARKED_PERIODS_INVALID_MESSAGE = 'Los meses marcados no son válidos'
+
 const paymentItemSchema = z
   .object({
     memberId: z.number('Elegí el socio').int('Elegí el socio').positive('Elegí el socio'),
@@ -72,11 +83,21 @@ const paymentItemSchema = z
       .int('El monto no es válido')
       .positive('El monto tiene que ser mayor a cero'),
     /**
-     * Deuda previa al sistema que se crea en la MISMA transacción que el pago
-     * (saldo anterior por meses). Que `toPeriod` quede antes del inicio de la
-     * facturación y que no haya ya un saldo vigente lo valida la base.
+     * Meses que el operador marcó en la grilla (cuotas vigentes o proyectadas).
+     * La plata de cada uno la reparte el motor de la base; el resto del monto
+     * va a la cuota adeudada más vieja. Sin marcar = todo al más viejo.
      */
-    openingBalance: openingBalanceMonthsSchema.nullish(),
+    markedPeriods: z
+      .array(periodSchema)
+      .max(60, MARKED_PERIODS_INVALID_MESSAGE)
+      .refine((periods) => new Set(periods).size === periods.length, { message: MARKED_PERIODS_INVALID_MESSAGE })
+      .nullish(),
+    /**
+     * Deuda previa al sistema, mes por mes, que se crea en la MISMA transacción
+     * que el pago. Que cada mes quede antes del inicio de la facturación y que
+     * no haya ya un saldo en ese mes lo valida la base.
+     */
+    openingMonths: openingMonthsSchema.nullish(),
   })
   .strict()
 
@@ -185,9 +206,7 @@ function translateRegisterError(error: PostgrestError): unknown {
     return new PermissionError('No tenés permiso para registrar pagos')
   }
   if (error.code === '23505' && error.message.includes(ONE_OPENING_BALANCE_INDEX)) {
-    return new DomainError('Ya tiene un saldo anterior vigente. Actualizá la pantalla y volvé a intentar.', {
-      field: 'openingBalance',
-    })
+    return new DomainError('Ya hay un saldo anterior cargado para uno de esos meses', { field: 'items' })
   }
   if (error.code === '23505' && error.message.includes(BATCH_MEMBER_UNIQUE_INDEX)) {
     return new DomainError('El mismo socio aparece dos veces en el lote', { field: 'items' })
@@ -202,8 +221,13 @@ function translateRegisterError(error: PostgrestError): unknown {
     return new DomainError('El monto tiene que ser mayor a cero', { field: 'amountCents' })
   }
   if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
+    // Los mensajes de la base de la imputación ("Los meses marcados no son
+    // válidos", "La cuota de MM/YYYY ya está paga…", "Lo imputado supera el
+    // monto del pago", los del saldo anterior) caen en el campo `items`.
     return new DomainError(error.message, {
-      field: error.message.includes('mayor a cero') ? 'amountCents' : undefined,
+      // Solo el texto exacto del monto va a `amountCents`: el del saldo anterior
+      // ("… y cada mes tiene que ser mayor a cero") es del campo `items`.
+      field: error.message === 'El monto tiene que ser mayor a cero' ? 'amountCents' : 'items',
     })
   }
   if (error.code === '23503') {
@@ -261,7 +285,37 @@ type PaymentRow = {
   void_reason: string | null
 }
 
-function mapPaymentRow(row: PaymentRow, createdByName: string | null): Payment {
+type AllocationRow = {
+  fee_id: number
+  amount_cents: number
+  source: string
+  fee: { period: string; kind: string; voided_at: string | null } | null
+}
+
+type PaymentRowWithAllocations = PaymentRow & { payment_allocations?: AllocationRow[] | null }
+
+/**
+ * Imputaciones VIGENTES de un pago, por período. Las de una cuota anulada no
+ * se listan (la base ya reimputó esa plata) y un pago anulado no muestra
+ * ninguna: su plata dejó de cubrir cuotas.
+ */
+function mapAllocations(row: PaymentRowWithAllocations): PaymentAllocation[] {
+  if (row.voided_at !== null) return []
+  const allocations: PaymentAllocation[] = []
+  for (const a of row.payment_allocations ?? []) {
+    if (a.fee === null || a.fee.voided_at !== null) continue
+    allocations.push({
+      feeId: a.fee_id,
+      period: a.fee.period,
+      kind: a.fee.kind as FeeKind,
+      amountCents: a.amount_cents,
+      source: a.source as PaymentAllocationSource,
+    })
+  }
+  return allocations.sort((x, y) => x.period.localeCompare(y.period) || x.feeId - y.feeId)
+}
+
+function mapPaymentRow(row: PaymentRowWithAllocations, createdByName: string | null): Payment {
   return {
     id: row.id,
     memberId: row.member_id,
@@ -276,6 +330,7 @@ function mapPaymentRow(row: PaymentRow, createdByName: string | null): Payment {
     createdAt: row.created_at,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
+    allocations: mapAllocations(row),
   }
 }
 
@@ -296,6 +351,21 @@ async function resolveCreatedByNames(
 const PAYMENT_SELECT =
   'id, member_id, amount_cents, paid_on, method, receipt_storage_path, receipt_filename, notes, batch_id, created_by, created_at, voided_at, voided_by, void_reason'
 
+/**
+ * Embed de las imputaciones (FK `payment_allocations.payment_id`) con la cuota
+ * a la que fueron (FK `fee_id`, to-one): período y tipo para mostrarlas, y
+ * `voided_at` para descartar las de cuotas anuladas.
+ */
+/**
+ * Ventana de despliegue (código nuevo antes que la migración): sin la tabla
+ * `payment_allocations` PostgREST responde PGRST200 al embeber. Antes que tirar
+ * la ficha y /caja/pagos enteras, se reintenta sin el embed y los pagos salen
+ * con `allocations: []`.
+ */
+const NO_RELATIONSHIP_CODE = 'PGRST200'
+
+const ALLOCATIONS_EMBED = 'payment_allocations(fee_id, amount_cents, source, fee:fees(period, kind, voided_at))'
+
 // -----------------------------------------------------------------------------
 // Escrituras
 // -----------------------------------------------------------------------------
@@ -312,8 +382,9 @@ type RegisterBatchRow = {
  * Registra un pago o un cobro a varios integrantes de un grupo (mismo
  * `batchId`, `paidOn`, `method`, `receiptPath`, `notes`; cambia `memberId` /
  * `amountCents` por ítem) llamando a `register_payment_batch`: UN solo
- * camino de escritura, una transacción. Si un ítem trae `openingBalance`, el
- * saldo anterior se crea en esa misma transacción (todo o nada).
+ * camino de escritura, una transacción. Si un ítem trae `openingMonths`, los
+ * meses de saldo anterior se crean en esa misma transacción (todo o nada); si
+ * trae `markedPeriods`, el motor de la base imputa primero a esas cuotas.
  *
  * La RPC es SECURITY INVOKER: corre con la sesión del usuario, así que las
  * RLS, los grants por columna y el actor de la auditoría (`auth.uid()`) valen
@@ -328,14 +399,12 @@ export async function registerPayment(input: RegisterPaymentInput): Promise<Regi
   const items = input.items.map((item) => ({
     member_id: item.memberId,
     amount_cents: item.amountCents,
-    opening_balance: item.openingBalance
-      ? {
-          from_period: item.openingBalance.fromPeriod,
-          to_period: item.openingBalance.toPeriod,
-          amount_cents: item.openingBalance.amountCents,
-          description: openingBalanceDescription(item.openingBalance.fromPeriod, item.openingBalance.toPeriod),
-        }
-      : null,
+    // Sin marcar / sin saldo anterior viaja `null` (no `[]`): la base lo trata como "nada".
+    marked_periods: item.markedPeriods && item.markedPeriods.length > 0 ? item.markedPeriods : null,
+    opening_months:
+      item.openingMonths && item.openingMonths.length > 0
+        ? item.openingMonths.map((month) => ({ period: month.period, amount_cents: month.amountCents }))
+        : null,
   }))
 
   // Los tipos generados marcan `notes` y `receipt_storage_path` como `string`
@@ -419,15 +488,19 @@ export async function getReceiptPath(paymentId: number): Promise<string | null> 
 export async function listPaymentsForMember(memberId: number): Promise<Payment[]> {
   const supabase = await createClient()
 
-  const { data, error } = await supabase
-    .from('payments')
-    .select(`${PAYMENT_SELECT}`)
-    .eq('member_id', memberId)
-    .order('paid_on', { ascending: false })
-    .order('id', { ascending: false })
+  const run = (select: string) =>
+    supabase
+      .from('payments')
+      .select(select)
+      .eq('member_id', memberId)
+      .order('paid_on', { ascending: false })
+      .order('id', { ascending: false })
+
+  let { data, error } = await run(`${PAYMENT_SELECT}, ${ALLOCATIONS_EMBED}`)
+  if (error?.code === NO_RELATIONSHIP_CODE) ({ data, error } = await run(PAYMENT_SELECT))
   if (error) throw error
 
-  const rows = (data ?? []) as PaymentRow[]
+  const rows = (data ?? []) as unknown as PaymentRowWithAllocations[]
   const createdByNames = await resolveCreatedByNames(
     supabase,
     rows.map((row) => row.created_by),
@@ -465,7 +538,7 @@ function pgQuote(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
-type PaymentWithMemberRow = PaymentRow & { members: { first_name: string; last_name: string } | null }
+type PaymentWithMemberRow = PaymentRowWithAllocations & { members: { first_name: string; last_name: string } | null }
 
 /**
  * Página de pagos de un período (mes calendario), keyset por
@@ -478,24 +551,23 @@ export async function getMonthPaymentsPage(period: string, cursor?: string | nul
   const limit = MONTH_PAGE_DEFAULT_LIMIT
   const periodEnd = lastDayOfPeriod(period)
 
-  let query = supabase
-    .from('payments')
-    .select(`${PAYMENT_SELECT}, members(first_name, last_name)`)
-    .gte('paid_on', period)
-    .lte('paid_on', periodEnd)
-
   const decoded = cursor ? decodeMonthCursor(cursor) : null
-  if (decoded) {
-    query = query.or(
-      `paid_on.lt.${pgQuote(decoded.paidOn)},and(paid_on.eq.${pgQuote(decoded.paidOn)},id.lt.${decoded.id})`,
-    )
+  const run = (select: string) => {
+    let query = supabase.from('payments').select(select).gte('paid_on', period).lte('paid_on', periodEnd)
+    if (decoded) {
+      query = query.or(
+        `paid_on.lt.${pgQuote(decoded.paidOn)},and(paid_on.eq.${pgQuote(decoded.paidOn)},id.lt.${decoded.id})`,
+      )
+    }
+    return query
+      .order('paid_on', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(Math.min(limit, MONTH_PAGE_MAX_LIMIT) + 1)
   }
 
-  const { data, error } = await query
-    .order('paid_on', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(Math.min(limit, MONTH_PAGE_MAX_LIMIT) + 1)
-
+  const base = `${PAYMENT_SELECT}, members(first_name, last_name)`
+  let { data, error } = await run(`${base}, ${ALLOCATIONS_EMBED}`)
+  if (error?.code === NO_RELATIONSHIP_CODE) ({ data, error } = await run(base))
   if (error) throw error
 
   const rows = (data ?? []) as unknown as PaymentWithMemberRow[]

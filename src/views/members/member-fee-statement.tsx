@@ -14,14 +14,13 @@ import { voidFee } from '@/controllers/payments.actions'
 import type { FeeStatementLine } from '@/models/types'
 
 /**
- * "Fútbol masculino · 5ta" / "Cuota social" / "Saldo anterior · hasta agosto
- * 2026". Defensivo con `disciplineName` null (hoy `accounts.model.ts`
+ * "Fútbol masculino · 5ta" / "Cuota social" / "Saldo anterior · agosto 2026". Defensivo con `disciplineName` null (hoy `accounts.model.ts`
  * siempre lo devuelve así en el statement, aunque haya `categoryId` — B2, a
  * reportar: §13.5 pide que la línea traiga el nombre de la disciplina del
  * cargo): sin él, se muestra solo la categoría en vez de imprimir "null".
  */
 function lineLabel(line: FeeStatementLine): string {
-  if (line.kind === 'opening_balance') return `Saldo anterior · hasta ${formatPeriod(line.period)}`
+  if (line.kind === 'opening_balance') return `Saldo anterior · ${formatPeriod(line.period)}`
   if (line.categoryId != null) return line.disciplineName ? `${line.disciplineName} · ${line.categoryName}` : (line.categoryName ?? 'Cuota')
   if (line.kind === 'adjustment') return line.description ?? 'Ajuste'
   return 'Cuota social'

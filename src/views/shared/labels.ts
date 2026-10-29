@@ -14,6 +14,7 @@ import type {
   MemberStatus,
   MemberStatusEventType,
   MemberType,
+  PaymentAllocationSource,
   PaymentMethod,
 } from '@/models/types'
 
@@ -82,6 +83,14 @@ export const feeKindLabels: Record<FeeKind, string> = {
   monthly: 'Cuota',
   opening_balance: 'Saldo anterior',
   adjustment: 'Ajuste',
+}
+
+/** De dónde salió una imputación de un pago a una cuota. */
+export const paymentAllocationSourceLabels: Record<PaymentAllocationSource, string> = {
+  marked: 'Marcado',
+  oldest_first: 'Al más viejo',
+  credit: 'Saldo a favor',
+  backfill: 'Historial',
 }
 
 export const feeStatementStatusLabels: Record<FeeStatementStatus, string> = {

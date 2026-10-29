@@ -21,6 +21,7 @@ export const AUDITED_TABLE_OPTIONS: { value: AuditedTable; label: string }[] = [
   { value: 'fee_prices', label: 'Valores de cuota' },
   { value: 'fees', label: 'Cargos' },
   { value: 'payments', label: 'Pagos' },
+  { value: 'payment_allocations', label: 'Imputaciones' },
   { value: 'cash_movements', label: 'Otros ingresos' },
   { value: 'sponsors', label: 'Sponsors' },
   { value: 'cash_concepts', label: 'Conceptos de ingreso' },
@@ -40,6 +41,7 @@ const ENTITY_LABELS: Record<AuditedTable, string> = {
   fee_prices: 'un valor de cuota',
   fees: 'un cargo',
   payments: 'un pago',
+  payment_allocations: 'una imputación',
   cash_movements: 'un ingreso',
   sponsors: 'un sponsor',
   cash_concepts: 'un concepto de ingreso',
@@ -66,6 +68,8 @@ const RECORD_PHRASE: Partial<Record<AuditedTable, (label: string) => string>> = 
   categories: (label) => `la categoría ${label}`,
   app_users: (label) => `al usuario ${label}`,
   cash_movements: (label) => `el ingreso ${label}`,
+  // Sin el nombre del registro: igual que `payments`, la imputación no muestra de quién es el socio.
+  payment_allocations: () => 'una imputación de un pago',
   sponsors: (label) => `el sponsor ${label}`,
   cash_concepts: (label) => `el concepto ${label}`,
 }
@@ -170,6 +174,13 @@ const FIELD_LABELS: Partial<Record<AuditedTable, Record<string, string>>> = {
     notes: 'notas',
     voided_at: 'anulación',
     void_reason: 'motivo de anulación',
+  },
+  // Las imputaciones nacen una vez y no se editan ni se borran: solo INSERT.
+  payment_allocations: {
+    payment_id: 'pago',
+    fee_id: 'cuota',
+    amount_cents: 'monto',
+    source: 'origen',
   },
   // Otros ingresos (pipeline 2026-10-13): mismo texto que `AUDIT_FIELD_LABELS`
   // de `audit.model.ts` (duplicado a propósito, igual que arriba). Sin

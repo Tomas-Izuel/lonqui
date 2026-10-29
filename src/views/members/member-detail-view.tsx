@@ -93,7 +93,8 @@ export function MemberDetailView({
           familyGroupId={member.familyGroupId}
           joinedOn={member.joinedOn}
           account={account.account}
-          openingBalance={account.openingBalance}
+          openingBalances={account.openingBalances}
+          statement={account.statement}
           billing={billing}
           canRegister={canRegisterPayments}
           canActivateBilling={permissions.includes('billing.configure') && permissions.includes('settings.manage')}

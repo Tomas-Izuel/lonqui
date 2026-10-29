@@ -905,3 +905,52 @@ describe.skipIf(!dbAvailable)('Caja de otros ingresos: tablas y RPC nuevas dentr
     })
   })
 })
+
+describe.skipIf(!dbAvailable)('Imputación por cuota (20261029120000): payment_allocations dentro del cierre', () => {
+  it('RLS prendida y forzada; una sola policy (SELECT, por permiso payments.read); sin policy de INSERT/UPDATE/DELETE/ALL', async () => {
+    await withRollback(async (client) => {
+      const t = await client.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `select relrowsecurity, relforcerowsecurity from pg_class where oid = 'public.payment_allocations'::regclass`,
+      )
+      expect(t.rows[0]).toEqual({ relrowsecurity: true, relforcerowsecurity: true })
+      const pol = await client.query<{ cmd: string; qual: string }>(
+        `select cmd, qual from pg_policies where schemaname = 'public' and tablename = 'payment_allocations'`,
+      )
+      expect(pol.rows.map((r) => r.cmd)).toEqual(['SELECT'])
+      // Permisos, no roles (convención desde el slice de cuotas).
+      expect(pol.rows[0].qual).toContain("can('payments.read'")
+      expect(pol.rows[0].qual).not.toMatch(/has_role|is_admin/)
+    })
+  })
+
+  it('auditada: la tabla tiene el trigger de auditoría', async () => {
+    await withRollback(async (client) => {
+      const r = await client.query(`select 1 from pg_trigger where tgrelid = 'public.payment_allocations'::regclass and tgname = 'audit_row_change'`)
+      expect(r.rowCount).toBe(1)
+    })
+  })
+
+  it('fees: period tiene grant de INSERT (el saldo anterior se carga por mes) pero from_period/to_period NO; ninguna de las tres se actualiza', async () => {
+    await withRollback(async (client) => {
+      const can = async (priv: string, col: string) =>
+        (await client.query<{ ok: boolean }>(`select has_column_privilege('authenticated', 'public.fees', $1, $2) as ok`, [col, priv])).rows[0].ok
+      expect(await can('INSERT', 'period')).toBe(true)
+      expect(await can('INSERT', 'from_period')).toBe(false)
+      expect(await can('INSERT', 'to_period')).toBe(false)
+      for (const col of ['period', 'from_period', 'to_period', 'amount_cents']) expect(await can('UPDATE', col), `update ${col}`).toBe(false)
+    })
+  })
+
+  it('anon no ejecuta payment_month_options ni register_payment_batch; las vistas nuevas no se leen sin sesión', async () => {
+    await withRollback(async (client) => {
+      for (const fn of ['public.payment_month_options(bigint[])', 'public.register_payment_batch(uuid, date, text, text, text, jsonb)']) {
+        const r = await client.query<{ ok: boolean }>(`select has_function_privilege('anon', $1, 'execute') as ok`, [fn])
+        expect(r.rows[0].ok, fn).toBe(false)
+      }
+      for (const v of ['fee_status', 'payment_credit', 'payment_allocations']) {
+        const r = await client.query<{ ok: boolean }>(`select has_table_privilege('anon', $1, 'select') as ok`, [`public.${v}`])
+        expect(r.rows[0].ok, v).toBe(false)
+      }
+    })
+  })
+})

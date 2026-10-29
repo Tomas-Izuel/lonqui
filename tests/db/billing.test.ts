@@ -525,19 +525,33 @@ describe.skipIf(!dbAvailable)('fees: saldo de arranque (opening_balance) por el 
     })
   })
 
-  it('mandar period explícito en el insert (aunque sea el valor correcto) sigue dando 42501: el grant ausente es intencional, no un descuido a corregir de nuevo', async () => {
+  // Desde 20261029120000 el saldo anterior es una fila por mes y `period` SÍ tiene grant de INSERT
+  // (lo manda el lote y la ficha). La regla ahora vive en el guard: solo meses anteriores al inicio.
+  it('mandar period explícito: un mes anterior al inicio entra tal cual; el mes de inicio (o uno posterior) lo rechaza el guard con texto legible (23514, no 42501)', async () => {
     await withRollback(async (client) => {
       const { userId } = await createUserWithRole(client, 'editor')
       await actAs(client, userId)
       const memberId = await createMember(client, { firstName: 'Saldo', lastName: 'Con Period Test' })
 
+      const start = (await client.query<{ s: string; prev: string }>(
+        `select to_char(billing_start_period, 'YYYY-MM-DD') as s,
+                to_char(billing_start_period - interval '2 months', 'YYYY-MM-DD') as prev
+         from public.settings where id = 1`,
+      )).rows[0]
+
+      const ok = await client.query(
+        `insert into public.fees (member_id, kind, amount_cents, period) values ($1, 'opening_balance', 2000000, $2) returning to_char(period, 'YYYY-MM-DD') as period`,
+        [memberId, start.prev],
+      )
+      expect(ok.rows[0].period).toBe(start.prev)
+
       const err = await expectQueryError(
         client,
-        `insert into public.fees (member_id, kind, amount_cents, description, period)
-         values ($1, 'opening_balance', 2000000, 'Saldo anterior al sistema', date_trunc('month', private.club_today()))`,
-        [memberId],
+        `insert into public.fees (member_id, kind, amount_cents, period) values ($1, 'opening_balance', 2000000, $2)`,
+        [memberId, start.s],
       )
-      expect(err.code).toBe('42501')
+      expect(err.code).toBe('23514')
+      expect(err.message).toMatch(/solo cubre meses anteriores a/)
     })
   })
 })
@@ -596,7 +610,12 @@ describe.skipIf(!dbAvailable)('settings: activación de la facturación (D18, §
       // (armar el estado antes de probar la activación), no la escritura bajo
       // prueba: `admin` no tiene grant de DELETE sobre `fees` (nadie lo
       // tiene), así que corre como superusuario y vuelve a `admin` después.
+      // Desde 20261029120000 las cuotas del seed pueden tener imputaciones (FK restrict, y la tabla
+      // es append-only): se apaga su trigger con DDL transaccional (se deshace con el rollback)
+      // para despejar el fixture. Es armado de estado, no lo que se prueba.
       await actAsSuperuser(client)
+      await client.query(`alter table public.payment_allocations disable trigger payment_allocations_no_change`)
+      await client.query(`delete from public.payment_allocations`)
       await client.query(`delete from public.fees where kind = 'monthly'`)
       await actAs(client, adminId)
 

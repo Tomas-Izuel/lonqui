@@ -318,6 +318,7 @@ export type AuditedTable =
   | 'fee_prices'
   | 'fees'
   | 'payments'
+  | 'payment_allocations'
   | 'cash_concepts'
   | 'sponsors'
   | 'cash_movements'
@@ -450,6 +451,23 @@ export type FeeStatementLine = {
 
 export type PaymentMethod = 'cash' | 'transfer'
 
+/**
+ * De dónde salió una imputación (pipeline 2026-10-29-imputacion-libre-meses):
+ * `marked` = un mes que marcó el operador; `oldest_first` = el resto del monto,
+ * a la cuota adeudada más vieja; `credit` = saldo a favor que la base aplicó a
+ * una cuota nueva o liberada; `backfill` = historia migrada.
+ */
+export type PaymentAllocationSource = 'marked' | 'oldest_first' | 'credit' | 'backfill'
+
+/** Una imputación de un pago a una cuota VIGENTE (las de cuotas anuladas no se listan). */
+export type PaymentAllocation = {
+  feeId: number
+  period: ISODate
+  kind: FeeKind
+  amountCents: number
+  source: PaymentAllocationSource
+}
+
 export type Payment = {
   id: number
   memberId: number
@@ -465,6 +483,8 @@ export type Payment = {
   createdAt: ISODateTime
   voidedAt: ISODateTime | null
   voidReason: string | null
+  /** Qué cuotas cubrió, por período. Vacío si el pago está anulado o es todo saldo a favor. */
+  allocations: PaymentAllocation[]
 }
 
 export type PaymentListItem = Payment & {
@@ -517,7 +537,8 @@ export type MemberAccountDetail = {
   account: MemberAccount
   statement: FeeStatementLine[]
   payments: Payment[]
-  openingBalance: Fee | null
+  /** Filas de saldo anterior VIGENTES (una por mes), por mes ascendente. Vacío si no tiene. */
+  openingBalances: Fee[]
 }
 
 export type BillingRunStatus = 'ok' | 'error' | 'skipped'
@@ -669,8 +690,8 @@ export type AccountListFilters = {
 
 /**
  * Clase de celda de la tira de meses (pipeline 2026-10-24-pago-por-meses):
- * `pre_system` = mes anterior al inicio de la facturación, sin cargo (se elige
- * para crear el saldo anterior); `opening_balance` = el saldo anterior vigente;
+ * `pre_system` = mes anterior al inicio de la facturación sin fila de saldo
+ * anterior (se elige para crearla); `opening_balance` = un mes de saldo anterior;
  * `monthly` = mes con cuotas generadas; `projected` = mes sin generar todavía,
  * valuado con el precio que le tocaría.
  */
@@ -679,10 +700,7 @@ export type PaymentMonthKind = 'pre_system' | 'opening_balance' | 'monthly' | 'p
 /** Una fila de `payment_month_options`: una celda de la tira de meses del formulario de pago. */
 export type PaymentMonthOption = {
   memberId: number
-  /**
-   * Mes. En 'opening_balance' con tramo (`openingFrom`) es un mes real del saldo
-   * anterior; sin tramo, la celda única del saldo viejo (el mes anterior al inicio).
-   */
+  /** Mes (`YYYY-MM-01`). */
   period: ISODate
   kind: PaymentMonthKind
   /** Total del período: saldo anterior, suma de cuotas no anuladas, o precio proyectado / de hoy. */
@@ -694,16 +712,12 @@ export type PaymentMonthOption = {
   isCurrent: boolean
   /** 'projected'/'pre_system' valuados con la cuota de hoy (sin valor programado distinto). */
   pricedAtToday: boolean
-  /**
-   * Primer mes del saldo anterior en las celdas 'opening_balance' con tramo
-   * (una celda por mes, el total repartido). null en todo lo demás; null en una
-   * celda 'opening_balance' = saldo viejo sin tramo, que sigue siendo una sola celda.
-   */
-  openingFrom: ISODate | null
+  /** Solo 'pre_system': el mes es anterior al mes de la fecha de alta. false en el resto. */
+  beforeJoined: boolean
 }
 
-/** Los meses anteriores al sistema que se vuelven saldo anterior. Períodos `YYYY-MM-01`. */
-export type OpeningBalanceMonths = { fromPeriod: ISODate; toPeriod: ISODate; amountCents: number }
+/** Un mes de saldo anterior a crear: `period` `YYYY-MM-01`, anterior al inicio de la facturación. */
+export type OpeningMonth = { period: ISODate; amountCents: number }
 
 /** Lo que necesita el formulario de pago (un socio o varios de su grupo). */
 export type PaymentFormData = {

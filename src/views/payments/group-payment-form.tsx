@@ -27,7 +27,7 @@ import {
 } from '@/views/payments/payment-schema'
 import { ReceiptPicker } from '@/views/payments/receipt-picker'
 import { uploadReceipt } from '@/views/payments/receipt-upload'
-import { MonthEntry, creditOf, entryDerivedCents, entryOpeningBalance, initialEntry, type EntryState } from '@/views/payments/month-entry'
+import { MonthEntry, creditOf, entryDerivedCents, entryMarkedPeriods, entryOpeningMonths, initialEntry, type EntryState } from '@/views/payments/month-entry'
 import { BeforeStartNote } from '@/views/payments/month-strip'
 import { isBeforeStart } from '@/views/payments/month-selection'
 import type { FamilyGroupSummary, ISODate, MemberAccount, PaymentMonthOption } from '@/models/types'
@@ -177,7 +177,8 @@ export function GroupPaymentForm({
       return {
         memberId: row.memberId,
         amountCents: row.amountCents as number,
-        openingBalance: options.length > 0 && entry ? entryOpeningBalance(options, entry) : null,
+        markedPeriods: options.length > 0 && entry ? entryMarkedPeriods(options, entry) : null,
+        openingMonths: options.length > 0 && entry ? entryOpeningMonths(options, entry) : null,
       }
     })
 
@@ -209,7 +210,7 @@ export function GroupPaymentForm({
 
     if (result.data.alreadyRegistered) {
       toast.success('El pago ya estaba registrado')
-      const withOpening = items.filter((item) => item.openingBalance).length
+      const withOpening = items.filter((item) => item.openingMonths).length
       if (withOpening > result.data.openingBalanceFeeIds.length) {
         toast.warning('Algún saldo anterior no se cargó. Indicá desde cuándo debía desde la ficha del socio.')
       }
@@ -272,6 +273,7 @@ export function GroupPaymentForm({
                         creditCents={creditOf(account?.balanceCents ?? 0)}
                         error={form.formState.errors.rows?.[index]?.amountCents?.message}
                         variant="compact"
+                        memberId={field.memberId}
                         startPeriod={startPeriod}
                         hideBeforeStartNote={startPeriod != null}
                         disabled={pending}

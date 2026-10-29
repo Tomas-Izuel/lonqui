@@ -20,10 +20,8 @@ import {
   voidPaymentSchema,
 } from '@/models/payments.model'
 import {
-  createOpeningBalanceFromMonthsSchema,
-  createOpeningBalanceSchema,
-  createOpeningBalance as insertOpeningBalance,
-  createOpeningBalanceFromMonths as insertOpeningBalanceFromMonths,
+  createOpeningBalanceMonthsSchema,
+  createOpeningBalanceMonths as insertOpeningBalanceMonths,
   voidFeeSchema,
   voidFee as voidFeeRow,
 } from '@/models/fees.model'
@@ -49,8 +47,8 @@ import type { Page, PaymentFormData, PaymentListItem, PaymentMonthOption, Regist
 
 /**
  * Registra un pago (o el cobro de un grupo) vía `register_payment_batch`: una
- * transacción en la base, con el saldo anterior por meses dentro si el ítem lo
- * trae. Un reintento con el mismo `batchId` devuelve `alreadyRegistered: true`.
+ * transacción en la base, con los meses marcados (`markedPeriods`) y el saldo
+ * anterior por meses (`openingMonths`) dentro si el ítem los trae. Un reintento con el mismo `batchId` devuelve `alreadyRegistered: true`.
  */
 export async function registerPayment(
   input: unknown,
@@ -179,28 +177,14 @@ export async function getReceiptUrlAction(input: unknown): Promise<ActionResult<
 // Saldo de arranque y anulación de cargos
 // -----------------------------------------------------------------------------
 
-export async function createOpeningBalance(input: unknown): Promise<ActionResult<{ id: number }>> {
+/**
+ * Saldo anterior por mes, solo (la ficha: "Cargar saldo anterior"). Una fila
+ * por mes, todas en un insert. Devuelve los ids creados.
+ */
+export async function createOpeningBalanceMonths(input: unknown): Promise<ActionResult<{ ids: number[] }>> {
   try {
     await requirePermission('payments.register')
-    const parsed = createOpeningBalanceSchema.safeParse(input)
-    if (!parsed.success) {
-      const { body } = zodToApiError(parsed.error)
-      return invalid(body.error, body.field)
-    }
-
-    const fee = await insertOpeningBalance(parsed.data)
-    revalidatePath('/', 'layout')
-    return success({ id: fee.id })
-  } catch (err) {
-    return failure(err, 'payments.createOpeningBalance')
-  }
-}
-
-/** Saldo anterior por meses, solo (la ficha: "Indicar desde cuándo debía"). La descripción la arma el modelo. */
-export async function createOpeningBalanceFromMonths(input: unknown): Promise<ActionResult<{ id: number }>> {
-  try {
-    await requirePermission('payments.register')
-    const parsed = createOpeningBalanceFromMonthsSchema.safeParse(input)
+    const parsed = createOpeningBalanceMonthsSchema.safeParse(input)
     if (!parsed.success) {
       const { body } = zodToApiError(parsed.error)
       return invalid(body.error, body.field)
@@ -212,16 +196,17 @@ export async function createOpeningBalanceFromMonths(input: unknown): Promise<Ac
     if (!billing.active || !billing.startPeriod) {
       throw new DomainError('Primero activá las cuotas en Ajustes')
     }
-    if (parsed.data.toPeriod >= billing.startPeriod) {
-      const [year, month] = billing.startPeriod.split('-')
-      throw new DomainError(`El saldo anterior solo cubre meses anteriores a ${month}/${year}`, { field: 'toPeriod' })
+    const startPeriod = billing.startPeriod
+    if (parsed.data.months.some((month) => month.period >= startPeriod)) {
+      const [year, month] = startPeriod.split('-')
+      throw new DomainError(`El saldo anterior solo cubre meses anteriores a ${month}/${year}`, { field: 'months' })
     }
 
-    const fee = await insertOpeningBalanceFromMonths(parsed.data)
+    const fees = await insertOpeningBalanceMonths(parsed.data)
     revalidatePath('/', 'layout')
-    return success({ id: fee.id })
+    return success({ ids: fees.map((fee) => fee.id) })
   } catch (err) {
-    return failure(err, 'payments.createOpeningBalanceFromMonths')
+    return failure(err, 'payments.createOpeningBalanceMonths')
   }
 }
 

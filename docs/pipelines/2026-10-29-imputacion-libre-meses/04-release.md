@@ -1,0 +1,78 @@
+# 04 — Release: ensayo contra producción y merge
+
+Hilo principal, 2026-10-29. Es el §7.1 de `00-architecture.md` con dos ajustes: en esta máquina no
+hay `psql` instalado (se usa el del contenedor de la base local), y se suma el chequeo m7 de
+`03-review.md`.
+
+**Antes de mergear: corre el ensayo quien tenga `SUPABASE_DB_PASSWORD`.** Hay que tener Docker
+abierto y que nadie más esté corriendo tests de base en esa máquina, porque dos corridas
+simultáneas sobre la misma base dan deadlocks espurios.
+
+```bash
+D=/private/tmp/claude-501/-Volumes-SSD-Work-lonqui/01bf675d-b836-44c7-b8ee-c33e4e87cb06/scratchpad/prod-dump
+PSQL="docker exec -i supabase_db_lonqui psql -U postgres -X -v ON_ERROR_STOP=1"
+mkdir -p "$D"
+
+# 1. Dump de datos de producción. Es también EL backup: el plan free no tiene PITR.
+#    Tiene datos personales de menores: no sale del scratchpad y se borra cuando termina el release.
+npx supabase db dump --linked --data-only --use-copy \
+  -x supabase_migrations.schema_migrations,supabase_migrations.seed_files \
+  -f "$D/prod-data.sql" -p "$SUPABASE_DB_PASSWORD"
+
+# 2. Base local con el schema de producción (sin la migración nueva) y sin seed.
+npm run db:start
+npx supabase db reset --no-seed --version 20261024170000
+
+# 3. Restaurar los datos de producción.
+$PSQL < "$D/prod-data.sql"
+
+# 4. Foto independiente, antes de migrar.
+$PSQL -At -c "select m.id, b.charged_cents, b.paid_cents, b.balance_cents
+  from public.members m cross join lateral private.member_balance(m.id) b order by m.id" > "$D/balances-antes.txt"
+
+# 5. Migrar por el mismo camino que el CI. Si la verificación aborta, el error nombra socio/cargo por id.
+npx supabase migration up --local
+
+# 6. Comparar y controlar.
+$PSQL -At -c "select m.id, b.charged_cents, b.paid_cents, b.balance_cents
+  from public.members m cross join lateral private.member_balance(m.id) b order by m.id" \
+  | diff - "$D/balances-antes.txt" && echo "balances idénticos"
+$PSQL -c "
+  select source, count(*), sum(amount_cents) from public.payment_allocations group by 1;
+  select count(*) filter (where voided_at is not null and from_period is not null) as tramos_anulados,
+         count(*) filter (where voided_at is null and from_period is null) as filas_por_mes
+  from public.fees where kind = 'opening_balance';
+  -- Tiene que dar 0: ningún socio con deuda y saldo a favor a la vez.
+  select count(*) from (select member_id from public.fee_status group by 1 having sum(pending_cents) > 0
+    intersect select member_id from public.payment_credit group by 1 having sum(credit_cents) > 0) x;"
+
+# 7. m7 (03-review): saldos viejos SIN tramo ("solo monto"). Con el modelo nuevo esos socios vuelven
+#    a ver meses previos para cargar, y cargarlos duplicaría la deuda. Listar por id y decidir con
+#    la Comisión antes de abrir el sistema (anular y recargar por mes, o dejarlos y avisar).
+$PSQL -c "select f.member_id, f.period, f.amount_cents
+  from public.fees f
+  where f.kind = 'opening_balance' and f.voided_at is null and f.from_period is null
+    and f.description = 'Saldo anterior al sistema'
+  order by f.member_id;"
+
+# 8. Suite completa contra la base migrada con datos reales.
+npm test
+
+# 9. Al terminar: volver la base local al estado de desarrollo y borrar el dump.
+npm run db:reset && rm -rf "$D"
+```
+
+**Merge**: fuera del horario de carga, avisando a la Comisión que no registre pagos durante 15
+minutos. El CI aplica la migración y Vercel despliega en paralelo. El código nuevo llega unos minutos
+antes que el schema, y durante esa ventana:
+- el formulario de pago muestra "El sistema se está actualizando";
+- la ficha y `/caja/pagos` muestran los pagos sin "Cubre…" (fallback ante `PGRST200`).
+
+**Después del release** (SQL Editor del dashboard, solo lectura):
+- las consultas del paso 6;
+- `select count(*) from public.audit_log where table_name = 'payment_allocations'`;
+- abrir la ficha de un socio con saldo convertido y la de uno con saldo a favor;
+- registrar un pago de prueba marcando dos meses sueltos y anularlo, con motivo "prueba de release".
+
+**Rollback**: §7.1 de `00-architecture.md`. Si la migración falla, la transacción se revierte
+entera y la base queda como estaba.

@@ -9,7 +9,8 @@ import { EditInSettingsLink } from '@/views/shared/edit-in-settings-link'
 import { SETTINGS_LINKS } from '@/views/settings/settings-links'
 import { MemberAccountAnswer } from '@/views/members/member-account-answer'
 import { OpeningBalanceMonths } from '@/views/members/opening-balance-months'
-import type { BillingStatus, Fee, ISODate, MemberAccount } from '@/models/types'
+import { periodListLabel } from '@/lib/dates'
+import type { BillingStatus, Fee, FeeStatementLine, ISODate, MemberAccount } from '@/models/types'
 
 /**
  * Sección de cuenta, arriba del todo de la ficha (§13.6) — LA respuesta del
@@ -18,15 +19,16 @@ import type { BillingStatus, Fee, ISODate, MemberAccount } from '@/models/types'
  * ficha, antes de cualquier otro dato. Debajo: "Registrar pago" / "Pago del
  * grupo" (pipeline 2026-09-28-ui-expresiva, D1: abren el overlay de cobranza
  * sobre esta misma página con `useOverlayParam('pagar')`, nunca navegan a
- * `/caja/nuevo`) + "Indicar desde cuándo debía" (meses, no monto) cuando no hay uno vigente y la
- * facturación está activa.
+ * `/caja/nuevo`) + "Indicar desde cuándo debía" / "Agregar meses anteriores" (meses, no monto)
+ * cuando la facturación está activa.
  */
 export function MemberAccountSection({
   memberId,
   familyGroupId,
   joinedOn,
   account,
-  openingBalance,
+  openingBalances,
+  statement,
   billing,
   canRegister,
   canActivateBilling = false,
@@ -36,12 +38,17 @@ export function MemberAccountSection({
   /** Alta del socio: el "desde cuándo" solo tiene sentido si es anterior al inicio de la facturación. */
   joinedOn: ISODate
   account: MemberAccount
-  openingBalance: Fee | null
+  /** Filas vigentes de saldo anterior, por mes ascendente. */
+  openingBalances: Fee[]
+  statement: FeeStatementLine[]
   billing: BillingStatus
   canRegister: boolean
   canActivateBilling?: boolean
 }) {
   const paymentOverlay = useOverlayParam('pagar')
+  const openingTotal = openingBalances.reduce((total, f) => total + f.amountCents, 0)
+  const openingIds = new Set(openingBalances.map((f) => f.id))
+  const paidMonths = statement.filter((l) => openingIds.has(l.feeId) && l.status === 'paid').length
   const [showOpeningForm, setShowOpeningForm] = useState(false)
 
   // También antes del inicio: ahí todo lo que debe, mes actual incluido, es anterior al sistema.
@@ -91,22 +98,34 @@ export function MemberAccountSection({
           </div>
         ) : null}
 
-        {openingBalance != null && canRegister && billing.active ? (
-          <p className="border-t border-border pt-3 text-sm text-muted-foreground">
-            Ya tiene un saldo anterior cargado: <Amount cents={openingBalance.amountCents} />.
+        {openingBalances.length > 0 ? (
+          <p className="border-t border-border pt-3 text-sm">
+            <span className="font-medium">Saldo anterior</span>
+            <span className="text-muted-foreground">
+              {' · '}
+              {periodListLabel(openingBalances.map((f) => f.period))}
+              {' · '}
+            </span>
+            <Amount cents={openingTotal} className="font-medium" />
+            <span className="text-muted-foreground">
+              {' · '}
+              {paidMonths === 1 ? '1 mes pago' : `${paidMonths} meses pagos`}
+            </span>
           </p>
         ) : null}
 
-        {openingBalance == null && canIndicateSince && billing.startPeriod != null ? (
-          <div className="flex flex-col gap-3 border-t border-border pt-3">
+        {canIndicateSince && billing.startPeriod != null ? (
+          <div className={`flex flex-col gap-3 ${openingBalances.length > 0 ? '' : 'border-t border-border pt-3'}`}>
             {!showOpeningForm ? (
               <Button type="button" variant="outline" className="h-11 w-fit" onClick={() => setShowOpeningForm(true)}>
-                Indicar desde cuándo debía
+                {openingBalances.length > 0 ? 'Agregar meses anteriores' : 'Indicar desde cuándo debía'}
               </Button>
             ) : (
               <OpeningBalanceMonths
                 memberId={memberId}
+                joinedOn={joinedOn}
                 startPeriod={billing.startPeriod}
+                hasOpeningBalance={openingBalances.length > 0}
                 creditCents={Math.max(0, -account.balanceCents)}
                 onCancel={() => setShowOpeningForm(false)}
               />

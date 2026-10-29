@@ -1,59 +1,58 @@
 /**
- * Lógica pura de la tira de meses del formulario de pago (00-architecture §10).
- * Sin React, sin fetch, sin `Date`: lo consumen `MonthStrip`, los formularios
- * de pago y la ficha (F2), y lo prueba `test-engineer` sin DOM.
+ * Lógica pura de la grilla de meses del formulario de pago (pipeline
+ * 2026-10-29-imputacion-libre-meses, 00-architecture §6 y §11). Sin React, sin
+ * fetch, sin `Date`: la usan `MonthStrip`, los formularios de pago y la ficha, y
+ * la prueba `test-engineer` sin DOM.
  *
- * Idea central: balance forward. Los meses se cubren en orden, del más viejo
- * al más nuevo; nadie elige meses sueltos. La selección es un RANGO que
- * arranca en el primer mes sin pagar (o en el primer mes "antes del sistema"
- * que se marcó) y termina donde se tocó o arrastró.
+ * Idea central: la selección es un CONJUNTO de meses sueltos (pagar mayo y julio
+ * deja junio adeudado), no un rango. Tocar alterna; arrastrar pinta.
  *
- * Carga inicial (00-architecture §6): el primer mes previo marcado F es
- * "desde cuándo debía"; el saldo anterior abarca F..P (P = último mes previo)
- * pero el PAGO cubre solo lo marcado. Lo que queda sin marcar entre el último
- * marcado y P sigue adeudado.
+ * Convención: todas las funciones reciben las opciones de la RPC (`options`,
+ * "crudas") y la selección; las que dependen de lo que pasa al crear el saldo
+ * anterior (crédito, total corregido) calculan las opciones efectivas adentro
+ * con `effectiveOptions`. Los índices valen igual en las dos (mismo largo y
+ * orden). `MonthStrip` recibe las efectivas para dibujar: por eso existe
+ * `advancesAllowedOn`, que NO vuelve a aplicar el crédito.
+ *
+ * Carga inicial (§6.3): el primer mes previo marcado F es "desde cuándo debía"
+ * (o el alta, si es anterior y entra en la ventana); el saldo anterior abarca
+ * `[from, to]` pero el PAGO cubre solo lo marcado. Lo demás queda adeudado.
  */
 
-import { periodRangeLabel } from '@/lib/dates'
+import { periodListLabel } from '@/lib/dates'
 import { shortMonth } from '@/views/shared/chart-format'
-import type { ISODate, MemberStatus, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
+import type { MemberStatus, OpeningMonth, PaymentMonthOption } from '@/models/types'
 
-export type CellTone = 'pre_system' | 'opening_balance' | 'due' | 'partial' | 'paid' | 'covered' | 'current' | 'advance'
+export type CellTone = 'pre_system' | 'due' | 'partial' | 'paid' | 'covered' | 'current' | 'advance'
 
-/** Rango inclusive sobre el array COMPLETO de opciones (las no elegibles quedan sin marcar aunque caigan adentro). */
-export type Selection = { startIndex: number; endIndex: number } | null
+/** Índices MARCADOS sobre el array COMPLETO de opciones: ascendente, sin repetidos. Vacío = nada marcado. */
+export type Selection = number[]
 
-export type CoverageResult = {
-  fullyCovered: number[]
-  partial: { index: number; cents: number } | null
-  leftoverCents: number
+export type AmountContext = { openingBalanceOverrideCents?: number | null; creditCents: number }
+
+export type PaintOptions = { preSystemOpen: boolean; ctx?: AmountContext }
+
+const NO_CREDIT: AmountContext = { creditCents: 0 }
+
+function sortedUnique(values: Iterable<number>): number[] {
+  return [...new Set(values)].sort((a, b) => a - b)
 }
 
-type AmountContext = { openingBalanceOverrideCents?: number | null; creditCents: number }
-
-/** Saldo anterior viejo (una sola celda sin tramo): conserva su rótulo "Saldo anterior · $X". */
-export function isLegacyOpening(o: PaymentMonthOption): boolean {
-  // `!` y no `=== null`: una fila que viene de una RPC vieja puede no traer la columna.
-  return o.kind === 'opening_balance' && !o.openingFrom
-}
-
-export function cellTone(o: PaymentMonthOption): CellTone {
-  // Una celda previa sin nada pendiente solo aparece en las opciones efectivas: el saldo a favor ya la cubre.
-  if (o.kind === 'pre_system') return o.pendingCents <= 0 ? 'covered' : 'pre_system'
-  if (o.pendingCents <= 0) return o.kind === 'projected' ? 'covered' : 'paid'
-  // Con tramo, el saldo anterior son meses reales: se pintan como cualquier cuota.
-  if (isLegacyOpening(o)) return 'opening_balance'
-  if (o.coveredCents > 0 && o.coveredCents < o.amountCents) return 'partial'
-  if (o.kind === 'projected') return o.isCurrent ? 'current' : 'advance'
-  return o.isCurrent ? 'current' : 'due'
+export function isMarked(selection: Selection, index: number): boolean {
+  return selection.includes(index)
 }
 
 export function isSelectable(o: PaymentMonthOption): boolean {
   return o.pendingCents > 0
 }
 
-function isAdvance(o: PaymentMonthOption): boolean {
-  return o.kind === 'projected' && !o.isCurrent
+export function cellTone(o: PaymentMonthOption): CellTone {
+  // Sin nada pendiente: una cuota paga, o un adelanto / un mes previo que el saldo a favor ya cubre.
+  if (o.pendingCents <= 0) return o.kind === 'projected' || o.kind === 'pre_system' ? 'covered' : 'paid'
+  if (o.kind === 'pre_system') return 'pre_system'
+  if (o.coveredCents > 0 && o.coveredCents < o.amountCents) return 'partial'
+  if (o.kind === 'projected') return o.isCurrent ? 'current' : 'advance'
+  return o.isCurrent ? 'current' : 'due'
 }
 
 /** Primer índice elegible que no sea "antes del sistema". `-1` si no hay. */
@@ -70,132 +69,62 @@ function lastPreSystemIndex(options: PaymentMonthOption[]): number {
 
 /**
  * Antes de que arranque la facturación el mes actual también es "antes del
- * sistema": la RPC lo marca con `isCurrent` en una celda `pre_system`. Después
- * del inicio ninguna celda previa es el mes actual.
+ * sistema": la RPC lo marca con `isCurrent` en una celda `pre_system`.
  */
 export function isBeforeStart(options: PaymentMonthOption[]): boolean {
   return options.some((o) => o.kind === 'pre_system' && o.isCurrent)
 }
 
-/** Índice de la celda previa que es el mes actual (`-1` si no hay: ya empezó la facturación). */
 function currentPreSystemIndex(options: PaymentMonthOption[]): number {
   return options.findIndex((o) => o.kind === 'pre_system' && o.isCurrent)
 }
 
-export function defaultSelection(options: PaymentMonthOption[], memberStatus: MemberStatus): Selection {
-  if (isBeforeStart(options)) {
-    // Lo que se cobra hoy es el mes actual, como saldo anterior de un mes (activo o de baja: sin adelantos).
-    const current = currentPreSystemIndex(options)
-    if (isSelectable(options[current])) return { startIndex: current, endIndex: current }
-  }
-  const first = firstSystemIndex(options)
-  if (first === -1) return null
-  if (memberStatus === 'active') return { startIndex: first, endIndex: first }
-  // Dado de baja con deuda: toda la deuda, sin adelantos (la RPC ya no los trae).
-  let last = first
-  for (let i = first; i < options.length; i++) {
-    if (options[i].kind !== 'pre_system' && isSelectable(options[i])) last = i
-  }
-  return { startIndex: first, endIndex: last }
+// -----------------------------------------------------------------------------
+// El tramo del saldo anterior
+// -----------------------------------------------------------------------------
+
+/** Índice de la primera celda previa que NO es anterior al alta (`-1` si no hay previas). */
+export function firstJoinedIndex(options: PaymentMonthOption[]): number {
+  return options.findIndex((o) => o.kind === 'pre_system' && !o.beforeJoined)
 }
 
-export type TapOptions = {
-  preSystemOpen: boolean
-  /**
-   * 'to_end' (default, la ficha): tocar un mes previo marca hasta el último previo.
-   * 'free' (formularios de pago): el operador decide hasta qué mes se paga.
-   */
-  preMode?: 'to_end' | 'free'
-  /** El operador todavía no tocó nada: la selección por defecto no cuenta como rango. */
-  fresh?: boolean
-}
-
-export function tapCell(options: PaymentMonthOption[], selection: Selection, index: number, opts: TapOptions): Selection {
-  const cell = options[index]
-  if (!cell || !isSelectable(cell)) return selection
-
-  if (cell.kind === 'pre_system') {
-    // Con el pliegue cerrado esas celdas no se ven: tocarlas no puede ocurrir.
-    if (!opts.preSystemOpen) return selection
-
-    if (opts.preMode === 'free') {
-      if (opts.fresh || selection === null) return { startIndex: index, endIndex: index }
-      const { startIndex, endIndex } = selection
-      // Fuera del rango: se extiende hasta incluirla (tocar-tocar da un rango sin arrastrar).
-      if (index < startIndex) return { startIndex: index, endIndex }
-      if (index > endIndex) return { startIndex, endIndex: index }
-      // El final: se achica uno, y si era la única celda se desmarca.
-      if (index === endIndex) return startIndex === endIndex ? null : { startIndex, endIndex: endIndex - 1 }
-      // Marcada pero no es el final: pasa a ser "hasta acá".
-      return { startIndex, endIndex: index }
-    }
-
-    // Antes del inicio el tope de lo previo es el mes actual, no el último previo
-    // devuelto: no se cobran como deuda meses que todavía no vencieron.
-    const currentPre = currentPreSystemIndex(options)
-    const lastPre = currentPre !== -1 ? currentPre : lastPreSystemIndex(options)
-    // Antes del inicio no hay pliegue que cierre la parte previa: volver a tocar
-    // el primer mes marcado la desmarca y deja solo lo del sistema (o nada).
-    if (isBeforeStart(options) && selection && selection.startIndex === index) {
-      const first = firstSystemIndex(options)
-      return first !== -1 && selection.endIndex > lastPre ? { startIndex: first, endIndex: selection.endIndex } : null
-    }
-    const currentEnd = selection?.endIndex
-    const keepEnd = currentEnd !== undefined && currentEnd >= index && !isAdvance(options[currentEnd])
-    return { startIndex: index, endIndex: keepEnd ? currentEnd : lastPre }
-  }
-
-  const first = firstSystemIndex(options)
-  const keepPreStart = selection !== null && options[selection.startIndex]?.kind === 'pre_system'
-  return { startIndex: keepPreStart ? selection.startIndex : first, endIndex: index }
-}
+type Span = { from: number; to: number }
 
 /**
- * Arrastre del ancla `anchor` hasta `over` (en cualquier sentido): REEMPLAZA la
- * selección. Nadie salta meses: si el extremo más viejo es del sistema, arranca
- * en el primer mes elegible del sistema. Solo entran celdas elegibles; `null` si
- * no queda ninguna.
+ * El tramo `[from, to]` de meses previos que crea la selección. `null` sin
+ * ningún previo marcado. `from` = el primer previo marcado, o el primero que no
+ * es anterior al alta si queda antes (la deuda corre desde el alta); `to` = el
+ * último previo (antes del inicio: el mes actual).
  */
-export function dragSelect(options: PaymentMonthOption[], anchor: number, over: number): Selection {
-  let lo = Math.min(anchor, over)
-  let hi = Math.max(anchor, over)
-  if (!options[lo] || !options[hi]) return null
-  if (options[lo].kind !== 'pre_system') {
-    const first = firstSystemIndex(options)
-    if (first === -1) return null
-    lo = first
+export function openingSpan(options: PaymentMonthOption[], selection: Selection): Span | null {
+  let first = -1
+  for (const i of selection) {
+    if (options[i]?.kind === 'pre_system' && (first === -1 || i < first)) first = i
   }
-  while (lo <= hi && !isSelectable(options[lo])) lo++
-  while (hi >= lo && !isSelectable(options[hi])) hi--
-  return lo <= hi ? { startIndex: lo, endIndex: hi } : null
-}
-
-/** Cerrar el pliegue: el inicio vuelve al primer mes del sistema (o no queda nada marcado). */
-export function closePreSystem(options: PaymentMonthOption[], selection: Selection): Selection {
-  const first = firstSystemIndex(options)
   if (first === -1) return null
-  if (selection === null) return null
-  if (options[selection.startIndex]?.kind !== 'pre_system') return selection
-  // Si todo lo marcado era "antes del sistema", queda el primer mes del sistema.
-  return { startIndex: first, endIndex: Math.max(first, selection.endIndex) }
+  const joined = firstJoinedIndex(options)
+  const from = joined !== -1 ? Math.min(first, joined) : first
+  const to = lastPreSystemIndex(options)
+  return to >= from ? { from, to } : null
 }
 
-export function selectedIndexes(options: PaymentMonthOption[], selection: Selection): number[] {
-  if (!selection) return []
+/** Hay un previo marcado anterior a la fecha de alta: la UI avisa (no bloquea). */
+export function beforeJoinedWarning(options: PaymentMonthOption[], selection: Selection): boolean {
+  return selection.some((i) => options[i]?.kind === 'pre_system' && options[i].beforeJoined)
+}
+
+/** Índices de las celdas `pre_system` del tramo (puede haber meses con saldo ya cargado en el medio). */
+function spanIndexes(options: PaymentMonthOption[], span: Span): number[] {
   const out: number[] = []
-  for (let i = selection.startIndex; i <= selection.endIndex; i++) {
-    if (options[i] && isSelectable(options[i])) out.push(i)
+  for (let i = span.from; i <= span.to; i++) {
+    if (options[i]?.kind === 'pre_system') out.push(i)
   }
   return out
 }
 
-export function selectedOptions(options: PaymentMonthOption[], selection: Selection): PaymentMonthOption[] {
-  return selectedIndexes(options, selection).map((i) => options[i])
-}
-
 /**
  * Partes enteras de un total entre `months` meses: el último absorbe el resto.
- * Espejo exacto del reparto de `payment_month_options` (un test de DB lo compara).
+ * Espejo exacto del reparto de la base (un test de DB lo compara).
  */
 export function splitOpeningTotal(totalCents: number, months: number): number[] {
   if (months <= 0) return []
@@ -205,173 +134,302 @@ export function splitOpeningTotal(totalCents: number, months: number): number[] 
   return parts
 }
 
+function spanAmounts(options: PaymentMonthOption[], indexes: number[], overrideCents?: number | null): number[] {
+  if (overrideCents != null) return splitOpeningTotal(overrideCents, indexes.length)
+  return indexes.map((i) => options[i].amountCents)
+}
+
 /**
- * El tramo del saldo anterior que crea la selección: desde el primer mes previo
- * marcado hasta el último mes previo (aunque el pago termine antes). `null` si
- * la selección no arranca en una celda previa. Índices sobre el array completo.
+ * Los meses de saldo anterior que hay que crear: todas las celdas previas de
+ * `[from, to]` con su monto (el precio, o el reparto del total corregido).
+ * Incluye las NO marcadas: quedan debiendo. Vacío sin previos marcados.
  */
-export function openingSpan(options: PaymentMonthOption[], selection: Selection): { from: number; to: number } | null {
-  if (!selection || options[selection.startIndex]?.kind !== 'pre_system') return null
-  const to = lastPreSystemIndex(options)
-  return to >= selection.startIndex ? { from: selection.startIndex, to } : null
-}
-
-function spanAmounts(options: PaymentMonthOption[], span: { from: number; to: number }, overrideCents?: number | null): number[] {
-  const months = span.to - span.from + 1
-  if (overrideCents != null) return splitOpeningTotal(overrideCents, months)
-  return options.slice(span.from, span.to + 1).map((o) => o.amountCents)
-}
-
-/** El saldo anterior que crea la selección (opciones de la RPC): F..P, con el total corregido si lo hay. */
-export function openingBalanceFromSelection(
-  options: PaymentMonthOption[],
-  selection: Selection,
-  overrideCents?: number | null,
-): OpeningBalanceMonths | null {
+export function openingMonthsFromSelection(options: PaymentMonthOption[], selection: Selection, overrideCents?: number | null): OpeningMonth[] {
   const span = openingSpan(options, selection)
-  if (!span) return null
-  const sum = spanAmounts(options, span).reduce((total, a) => total + a, 0)
-  return { fromPeriod: options[span.from].period, toPeriod: options[span.to].period, amountCents: overrideCents ?? sum }
+  if (!span) return []
+  const indexes = spanIndexes(options, span)
+  const amounts = spanAmounts(options, indexes, overrideCents)
+  return indexes.map((i, k) => ({ period: options[i].period, amountCents: amounts[k] }))
 }
 
 /**
- * Pozo de plata ya pagada que balance forward tiene para repartir: lo que la
- * RPC dejó cubierto en cualquier celda de la ventana más el saldo a favor que
- * todavía no cayó en ninguna celda proyectada.
- */
-function paidPoolCents(options: PaymentMonthOption[], creditCents: number): number {
-  let covered = 0
-  let projectedCovered = 0
-  for (const o of options) {
-    if (o.kind === 'pre_system') continue
-    covered += o.coveredCents
-    if (o.kind === 'projected') projectedCovered += o.coveredCents
-  }
-  return covered + Math.max(0, creditCents - projectedCovered)
-}
-
-/**
- * Las opciones tal como van a quedar DESPUÉS de crear el saldo anterior de la
- * selección: el saldo es el cargo más viejo, así que balance forward le da
- * primero todo el pozo ya pagado (mes por mes, del más viejo al más nuevo) y
- * recién después reparte lo que sobre entre los meses del sistema. Un mes que
- * la RPC mostraba cubierto puede perder cobertura y volver a ser elegible.
- * Mismo largo y mismo orden que `options`: los índices valen en las dos. Las
- * celdas previas fuera de F..P no cambian. Sin tramo devuelve `options` tal cual.
+ * Las opciones tal como van a quedar DESPUÉS de crear el saldo anterior: las
+ * previas de `[from, to]` toman su parte del total y el saldo a favor las cubre
+ * del más viejo al más nuevo (la base lo aplica así a las filas nuevas). Nada
+ * más se mueve: por invariante, con crédito no hay cuota pendiente. Sin tramo
+ * devuelve `options` tal cual.
  */
 export function effectiveOptions(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext): PaymentMonthOption[] {
   const span = openingSpan(options, selection)
   if (!span) return options
-  const amounts = spanAmounts(options, span, ctx.openingBalanceOverrideCents)
-  let remaining = paidPoolCents(options, ctx.creditCents)
-  return options.map((o, i) => {
-    const inSpan = i >= span.from && i <= span.to
-    if (o.kind === 'pre_system' && !inSpan) return o
-    const amount = inSpan ? amounts[i - span.from] : o.amountCents
-    const covered = Math.min(amount, remaining)
-    remaining -= covered
-    return { ...o, amountCents: amount, coveredCents: covered, pendingCents: amount - covered }
+  const indexes = spanIndexes(options, span)
+  const amounts = spanAmounts(options, indexes, ctx.openingBalanceOverrideCents)
+  let credit = Math.max(0, ctx.creditCents)
+  const replaced = new Map<number, PaymentMonthOption>()
+  indexes.forEach((i, k) => {
+    const amount = amounts[k]
+    const covered = Math.min(amount, credit)
+    credit -= covered
+    replaced.set(i, { ...options[i], amountCents: amount, coveredCents: covered, pendingCents: amount - covered })
   })
+  return options.map((o, i) => replaced.get(i) ?? o)
 }
 
-/** Las opciones que hay que mirar para la selección actual (las efectivas si hay tramo, si no las de la RPC). */
-export function optionsForSelection(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext): PaymentMonthOption[] {
-  return effectiveOptions(options, selection, ctx)
+// -----------------------------------------------------------------------------
+// Adelantos: solo cuando no queda nada adeudado sin marcar
+// -----------------------------------------------------------------------------
+
+function isChargedAt(o: PaymentMonthOption, index: number, span: Span | null): boolean {
+  if (o.kind === 'monthly' || o.kind === 'opening_balance') return true
+  return o.kind === 'pre_system' && span !== null && index >= span.from && index <= span.to
+}
+
+/** La celda lleva una cuota (existente o que se va a crear con el saldo anterior): no es un adelanto. */
+export function isCharged(options: PaymentMonthOption[], selection: Selection, index: number): boolean {
+  const o = options[index]
+  return o ? isChargedAt(o, index, openingSpan(options, selection)) : false
+}
+
+/** Igual que `advancesAllowed` pero sobre opciones que YA son las efectivas (lo que dibuja `MonthStrip`). */
+export function advancesAllowedOn(effective: PaymentMonthOption[], selection: Selection): boolean {
+  const span = openingSpan(effective, selection)
+  const marked = new Set(selection)
+  return !effective.some((o, i) => isChargedAt(o, i, span) && isSelectable(o) && !marked.has(i))
 }
 
 /**
- * Lo que hay que cobrar por lo marcado: Σ pendiente de las celdas marcadas de
- * las opciones efectivas (el saldo anterior consume el saldo a favor antes que
- * nada). Recibe las opciones de la RPC, no las efectivas.
+ * Regla de UI (§6.2.1): la base mandaría el dinero de un adelanto al mes
+ * adeudado más viejo, así que la grilla no deja marcar adelantos mientras quede
+ * un mes con cuota (previos del tramo incluidos) sin marcar.
+ */
+export function advancesAllowed(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext = NO_CREDIT): boolean {
+  return advancesAllowedOn(effectiveOptions(options, selection, ctx), selection)
+}
+
+/** Si ya no se pueden marcar adelantos, los que estaban marcados salen de la selección. */
+function normalize(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext = NO_CREDIT): Selection {
+  const hasAdvance = selection.some((i) => options[i]?.kind === 'projected')
+  if (!hasAdvance || advancesAllowed(options, selection, ctx)) return selection
+  return selection.filter((i) => options[i]?.kind !== 'projected')
+}
+
+// -----------------------------------------------------------------------------
+// Tocar y arrastrar
+// -----------------------------------------------------------------------------
+
+/**
+ * Tocar alterna. No elegible → igual; previo con el pliegue cerrado → igual;
+ * adelanto sin `advancesAllowed` → `blocked`. Desmarcar un mes con cargo con
+ * adelantos marcados desmarca los adelantos. Un mes marcado siempre se puede
+ * desmarcar, aunque el saldo a favor ya lo cubra.
+ */
+export function toggleCell(
+  options: PaymentMonthOption[],
+  selection: Selection,
+  index: number,
+  opts: PaintOptions,
+): { selection: Selection; blocked?: 'advance' } {
+  const cell = options[index]
+  if (!cell) return { selection }
+  if (cell.kind === 'pre_system' && !opts.preSystemOpen) return { selection }
+  if (selection.includes(index)) return { selection: normalize(options, selection.filter((i) => i !== index), opts.ctx) }
+  if (!isSelectable(cell)) return { selection }
+  if (cell.kind === 'projected' && !advancesAllowed(options, selection, opts.ctx)) return { selection, blocked: 'advance' }
+  return { selection: normalize(options, sortedUnique([...selection, index]), opts.ctx) }
+}
+
+/**
+ * Arrastre del ancla `anchor` hasta `over` (en cualquier sentido) sobre la
+ * selección `base` que había al empezar. La celda de partida decide: sin marcar
+ * → marca; marcada → desmarca. Solo toca `[min, max]`, solo celdas elegibles, los
+ * previos solo con el pliegue abierto y los adelantos solo si al terminar
+ * `advancesAllowed`.
+ */
+export function paintRange(options: PaymentMonthOption[], base: Selection, anchor: number, over: number, opts: PaintOptions): Selection {
+  const lo = Math.min(anchor, over)
+  const hi = Math.max(anchor, over)
+  const unmark = base.includes(anchor)
+  const next = new Set(base)
+  const advances: number[] = []
+  for (let i = lo; i <= hi; i++) {
+    const cell = options[i]
+    if (!cell) continue
+    if (cell.kind === 'pre_system' && !opts.preSystemOpen) continue
+    if (unmark) {
+      next.delete(i)
+      continue
+    }
+    if (!isSelectable(cell)) continue
+    if (cell.kind === 'projected') advances.push(i)
+    else next.add(i)
+  }
+  if (!unmark && advances.length > 0 && advancesAllowed(options, sortedUnique(next), opts.ctx)) {
+    for (const i of advances) next.add(i)
+  }
+  return normalize(options, sortedUnique(next), opts.ctx)
+}
+
+/** Cerrar el pliegue de meses previos: salen de la selección (y con ellos, el total corregido). */
+export function unmarkPreSystem(options: PaymentMonthOption[], selection: Selection, ctx?: AmountContext): Selection {
+  return normalize(
+    options,
+    selection.filter((i) => options[i]?.kind !== 'pre_system'),
+    ctx,
+  )
+}
+
+/**
+ * Selección inicial: activo → el mes adeudado más viejo con cuota (sin previos) o
+ * nada; de baja → toda la deuda con cuota; antes del inicio → el mes actual.
+ */
+export function defaultSelection(options: PaymentMonthOption[], memberStatus: MemberStatus): Selection {
+  if (isBeforeStart(options)) {
+    const current = currentPreSystemIndex(options)
+    if (isSelectable(options[current])) return [current]
+  }
+  const charged: number[] = []
+  options.forEach((o, i) => {
+    if ((o.kind === 'monthly' || o.kind === 'opening_balance') && isSelectable(o)) charged.push(i)
+  })
+  if (charged.length === 0) return []
+  return memberStatus === 'active' ? [charged[0]] : charged
+}
+
+export function selectedOptions(options: PaymentMonthOption[], selection: Selection): PaymentMonthOption[] {
+  return selection.map((i) => options[i]).filter((o): o is PaymentMonthOption => Boolean(o))
+}
+
+// -----------------------------------------------------------------------------
+// Qué se manda y cuánto
+// -----------------------------------------------------------------------------
+
+/**
+ * Los períodos que se mandan como `markedPeriods`: lo marcado que lleva cuota
+ * (mensual, saldo anterior, o previo dentro del tramo). Los adelantos NO van:
+ * son crédito. Ascendente.
+ */
+export function markedPeriodsFromSelection(options: PaymentMonthOption[], selection: Selection) {
+  const span = openingSpan(options, selection)
+  return selection.filter((i) => options[i] && isChargedAt(options[i], i, span)).map((i) => options[i].period)
+}
+
+/**
+ * Lo que hay que cobrar por lo marcado: Σ pendiente efectivo (los previos
+ * toman su parte y el crédito; los adelantos, su precio).
  */
 export function derivedAmountCents(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext): number {
   const eff = effectiveOptions(options, selection, ctx)
   return selectedOptions(eff, selection).reduce((total, o) => total + o.pendingCents, 0)
 }
 
-/**
- * Qué cubre un monto cualquiera ("Otro monto"): las celdas efectivas en orden
- * desde F (o desde el primer mes del sistema), marcadas o no, porque balance
- * forward sigue más allá de lo elegido. Las previas solo entran dentro de F..P.
- */
-export function coverageForAmount(
-  rawOptions: PaymentMonthOption[],
-  selection: Selection,
-  amountCents: number,
-  ctx: AmountContext,
-): CoverageResult {
-  // Recibe las opciones de la RPC; los índices devueltos valen también para las efectivas.
-  const options = effectiveOptions(rawOptions, selection, ctx)
-  const span = openingSpan(rawOptions, selection)
-  const start = span ? span.from : firstSystemIndex(options)
-  let pool = Math.max(0, amountCents)
-  const fullyCovered: number[] = []
-  let partial: CoverageResult['partial'] = null
-  if (start === -1) return { fullyCovered, partial, leftoverCents: pool }
+export type CoverageEntry = { index: number; cents: number }
 
-  for (let i = start; i < options.length; i++) {
-    const o = options[i]
-    if (o.kind === 'pre_system' && !(span && i <= span.to)) continue
-    if (!isSelectable(o)) continue
-    if (pool <= 0) break
-    if (o.pendingCents <= pool) {
-      pool -= o.pendingCents
-      fullyCovered.push(i)
-    } else {
-      partial = { index: i, cents: pool }
-      pool = 0
-      break
-    }
-  }
-
-  return { fullyCovered, partial, leftoverCents: pool }
+export type CoverageResult = {
+  /** Marcados con cargo cubiertos del todo, en orden. */
+  marked: CoverageEntry[]
+  /** El último marcado, si el monto no alcanza para completarlo. */
+  partial: CoverageEntry | null
+  /** No marcados con cargo que absorbe el remanente (el último puede ser parcial: `cents` < pendiente). */
+  unmarked: CoverageEntry[]
+  /** Adelantos (marcados o no) que cubre lo que sobra después de toda la deuda. */
+  advances: CoverageEntry[]
+  leftoverCents: number
 }
 
 /**
- * Papel de una celda previa con tramo: `marked` entra en el pago; `owed` está
- * dentro de F..P, no se marca y queda adeudada. `null` fuera del tramo o si ya
- * no debe nada. Recibe las opciones efectivas.
+ * Qué cubre un monto cualquiera ("Otro monto"), la misma regla que aplica la
+ * base (§6.2.1): los marcados con cargo en orden hasta donde alcanza (el último
+ * puede quedar parcial) → el remanente a los no marcados con cargo, del más
+ * viejo al más nuevo → después los adelantos → lo que sobra es saldo a favor.
+ */
+export function coverageForAmount(options: PaymentMonthOption[], selection: Selection, amountCents: number, ctx: AmountContext): CoverageResult {
+  const eff = effectiveOptions(options, selection, ctx)
+  const span = openingSpan(options, selection)
+  const marked = new Set(selection)
+  let pool = Math.max(0, amountCents)
+  const result: CoverageResult = { marked: [], partial: null, unmarked: [], advances: [], leftoverCents: 0 }
+
+  const take = (index: number): CoverageEntry | null => {
+    const pending = eff[index].pendingCents
+    if (pool <= 0) return null
+    const cents = Math.min(pool, pending)
+    pool -= cents
+    return { index, cents }
+  }
+
+  for (let i = 0; i < eff.length; i++) {
+    if (!marked.has(i) || !isChargedAt(eff[i], i, span) || !isSelectable(eff[i])) continue
+    const entry = take(i)
+    if (!entry) break
+    if (entry.cents < eff[i].pendingCents) result.partial = entry
+    else result.marked.push(entry)
+  }
+  for (let i = 0; i < eff.length && pool > 0; i++) {
+    if (marked.has(i) || !isChargedAt(eff[i], i, span) || !isSelectable(eff[i])) continue
+    const entry = take(i)
+    if (entry) result.unmarked.push(entry)
+  }
+  for (let i = 0; i < eff.length && pool > 0; i++) {
+    if (eff[i].kind !== 'projected' || !isSelectable(eff[i])) continue
+    const entry = take(i)
+    if (entry) result.advances.push(entry)
+  }
+  result.leftoverCents = pool
+  return result
+}
+
+/**
+ * Lo que sigue adeudado después del pago: cuotas (previos del tramo incluidos,
+ * adelantos no) que el pago no cubre. En modo meses lo marcado queda pago; con
+ * `otherAmountCents` ("Otro monto") sale de `coverageForAmount`.
+ */
+export function debtAfterPayment(
+  options: PaymentMonthOption[],
+  selection: Selection,
+  ctx: AmountContext,
+  otherAmountCents?: number | null,
+): { months: number; cents: number } {
+  const eff = effectiveOptions(options, selection, ctx)
+  const span = openingSpan(options, selection)
+  const marked = new Set(selection)
+  const covered = new Map<number, number>()
+  if (otherAmountCents != null) {
+    const coverage = coverageForAmount(options, selection, otherAmountCents, ctx)
+    for (const e of [...coverage.marked, ...(coverage.partial ? [coverage.partial] : []), ...coverage.unmarked]) covered.set(e.index, e.cents)
+  }
+  let months = 0
+  let cents = 0
+  eff.forEach((o, i) => {
+    if (!isChargedAt(o, i, span) || !isSelectable(o)) return
+    const paid = otherAmountCents != null ? (covered.get(i) ?? 0) : marked.has(i) ? o.pendingCents : 0
+    const left = o.pendingCents - paid
+    if (left <= 0) return
+    months += 1
+    cents += left
+  })
+  return { months, cents }
+}
+
+/**
+ * Papel de una celda previa del tramo: `marked` entra en el pago; `owed` está
+ * dentro de `[from, to]`, no se marca y queda adeudada. `null` fuera del tramo.
+ * Recibe las opciones efectivas.
  */
 export function preCellRole(options: PaymentMonthOption[], selection: Selection, index: number): 'marked' | 'owed' | null {
   const span = openingSpan(options, selection)
   const o = options[index]
   if (!span || !o || o.kind !== 'pre_system' || index < span.from || index > span.to) return null
-  if (!isSelectable(o)) return null
-  return selection && index <= selection.endIndex ? 'marked' : 'owed'
+  if (selection.includes(index)) return 'marked'
+  return isSelectable(o) ? 'owed' : null
 }
 
-/**
- * Lo que sigue adeudado después del pago (opciones efectivas de la misma
- * selección): las celdas no marcadas que son deuda. Los adelantos no cuentan;
- * el mes actual proyectado sí.
- */
-export function debtAfterPayment(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext): { months: number; cents: number } {
-  const eff = effectiveOptions(options, selection, ctx)
-  const span = openingSpan(options, selection)
-  const marked = new Set(selectedIndexes(eff, selection))
-  let months = 0
-  let cents = 0
-  eff.forEach((o, i) => {
-    if (marked.has(i) || o.pendingCents <= 0) return
-    const isDebt =
-      o.kind === 'opening_balance' ||
-      o.kind === 'monthly' ||
-      (o.kind === 'pre_system' && span !== null && i >= span.from && i <= span.to) ||
-      (o.kind === 'projected' && o.isCurrent)
-    if (!isDebt) return
-    months += 1
-    cents += o.pendingCents
-  })
-  return { months, cents }
-}
-
-/** Alcance del saldo anterior que crea la selección (F..P), para rotular el total corregible. */
+/** Alcance del saldo anterior que crea la selección (`[from, to]`), para rotular el total corregible. */
 export type OpeningScope = {
-  /** Primer mes previo marcado: "desde cuándo debía". */
-  fromPeriod: ISODate
-  /** Meses de F a P. */
+  /** Primer mes del tramo: "desde cuándo debía". */
+  fromPeriod: string
+  /** Meses que se crean. */
   months: number
-  /** Total de F..P con el valor de cada celda (sin corregir a mano). */
+  /** Total del tramo con el valor de cada celda (sin corregir a mano). */
   sumCents: number
   /** false en la ficha: ahí no hay pago, solo la deuda. */
   payment: boolean
@@ -381,27 +439,23 @@ export type OpeningScope = {
   owedCents: number
 }
 
-/** `null` si la selección no arranca en una celda previa. Recibe las opciones de la RPC. */
-export function openingScope(
-  options: PaymentMonthOption[],
-  selection: Selection,
-  ctx: AmountContext,
-  opts: { payment: boolean },
-): OpeningScope | null {
+/** `null` sin previos marcados. Recibe las opciones de la RPC. */
+export function openingScope(options: PaymentMonthOption[], selection: Selection, ctx: AmountContext, opts: { payment: boolean }): OpeningScope | null {
   const span = openingSpan(options, selection)
   if (!span) return null
+  const indexes = spanIndexes(options, span)
   const eff = effectiveOptions(options, selection, ctx)
   const scope: OpeningScope = {
-    fromPeriod: options[span.from].period,
-    months: span.to - span.from + 1,
-    sumCents: spanAmounts(options, span).reduce((total, a) => total + a, 0),
+    fromPeriod: options[indexes[0]].period,
+    months: indexes.length,
+    sumCents: indexes.reduce((total, i) => total + options[i].amountCents, 0),
     payment: opts.payment,
     paidMonths: 0,
     paidCents: 0,
     owedMonths: 0,
     owedCents: 0,
   }
-  for (let i = span.from; i <= span.to; i++) {
+  for (const i of indexes) {
     const role = preCellRole(eff, selection, i)
     if (role === 'marked') {
       scope.paidMonths += 1
@@ -414,41 +468,47 @@ export function openingScope(
   return scope
 }
 
+// -----------------------------------------------------------------------------
+// Rótulos
+// -----------------------------------------------------------------------------
+
 export type SelectionSummary = {
   monthsCount: number
-  /** "agosto a octubre", "saldo anterior" o "saldo anterior y agosto a octubre". Vacío si no hay nada marcado. */
+  /** "mayo, julio y septiembre 2026" / "mayo a julio 2026". Vacío si no hay nada marcado. */
   rangeLabel: string
-  hasOpeningBalance: boolean
+  /** Hay meses previos marcados (se carga saldo anterior). */
+  hasOpeningMonths: boolean
 }
 
 export function selectionSummary(options: PaymentMonthOption[], selection: Selection): SelectionSummary {
   const picked = selectedOptions(options, selection)
-  const months = picked.filter((o) => !isLegacyOpening(o))
-  const hasOpeningBalance = picked.some(isLegacyOpening)
-  const range = months.length > 0 ? periodRangeLabel(months[0].period, months[months.length - 1].period) : ''
-  let rangeLabel = range
-  if (hasOpeningBalance) rangeLabel = range ? `saldo anterior y ${range}` : 'saldo anterior'
-  return { monthsCount: months.length, rangeLabel, hasOpeningBalance }
+  return {
+    monthsCount: picked.length,
+    rangeLabel: periodListLabel(picked.map((o) => o.period)),
+    hasOpeningMonths: picked.some((o) => o.kind === 'pre_system'),
+  }
 }
 
-/** "3 meses · agosto a octubre" / "1 mes · octubre". */
+/** "3 meses · mayo, julio y septiembre 2026" / "1 mes · octubre 2026". */
 export function summaryText(summary: SelectionSummary): string {
   if (summary.monthsCount === 0) return summary.rangeLabel
   const count = summary.monthsCount === 1 ? '1 mes' : `${summary.monthsCount} meses`
   return `${count} · ${summary.rangeLabel}`
 }
 
-function shortWithYear(period: ISODate, withYear: boolean): string {
-  return withYear ? `${shortMonth(period)} ${period.slice(2, 4)}` : shortMonth(period)
-}
-
-/** Para el momento de éxito: "ago–oct", "oct", "nov 25–feb 26". Vacío si no hay meses marcados. */
+/**
+ * Para el momento de éxito: "may, jul y sept", "may–jul" si son contiguos,
+ * "nov 25, feb 26" si cruza de año. Vacío si no hay meses marcados.
+ */
 export function coverLabel(options: PaymentMonthOption[], selection: Selection): string {
-  const months = selectedOptions(options, selection).filter((o) => !isLegacyOpening(o))
-  if (months.length === 0) return ''
-  const first = months[0].period
-  const last = months[months.length - 1].period
-  if (first === last) return shortMonth(first)
-  const sameYear = first.slice(0, 4) === last.slice(0, 4)
-  return `${shortWithYear(first, !sameYear)}–${shortWithYear(last, !sameYear)}`
+  const periods = [...new Set(selectedOptions(options, selection).map((o) => o.period.slice(0, 7)))].sort()
+  if (periods.length === 0) return ''
+  const monthIndex = (p: string) => Number(p.slice(0, 4)) * 12 + Number(p.slice(5, 7))
+  const crossesYears = periods[0].slice(0, 4) !== periods[periods.length - 1].slice(0, 4)
+  const label = (p: string) => (crossesYears ? `${shortMonth(`${p}-01`)} ${p.slice(2, 4)}` : shortMonth(`${p}-01`))
+  if (periods.length === 1) return label(periods[0])
+  const contiguous = periods.every((p, i) => i === 0 || monthIndex(p) === monthIndex(periods[i - 1]) + 1)
+  if (contiguous) return `${label(periods[0])}–${label(periods[periods.length - 1])}`
+  const names = periods.map(label)
+  return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
 }

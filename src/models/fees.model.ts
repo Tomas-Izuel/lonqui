@@ -4,16 +4,15 @@ import { z } from 'zod'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { DomainError } from '@/lib/errors'
-import { periodRangeLabel } from '@/lib/dates'
 import { isRawPostgresMessage } from '@/models/pg-errors'
 import type { TablesInsert } from '@/lib/supabase/database.types'
-import type { Fee, FeeKind } from '@/models/types'
+import type { Fee, FeeKind, OpeningMonth } from '@/models/types'
 
 /**
  * Cargos (`fees`, S1/§13.3). Las cuotas mensuales las genera SOLO la base
  * (`private.generate_monthly_fees`, pg_cron): desde acá nunca se inserta un
  * `kind = 'monthly'`. Lo único que la app carga es el saldo de arranque
- * (`createOpeningBalance`) y lo único que modifica es la anulación
+ * (`createOpeningBalanceMonths`, una fila por mes) y lo único que modifica es la anulación
  * (`voidFee`), y ambos vía triggers que ya son la fuente de verdad del
  * mensaje de error — este modelo solo lo envuelve en `DomainError`.
  */
@@ -22,59 +21,47 @@ import type { Fee, FeeKind } from '@/models/types'
 // Schemas
 // -----------------------------------------------------------------------------
 
-export const createOpeningBalanceSchema = z
+/** `YYYY-MM-01`: los períodos son siempre el primer día del mes. */
+export const periodSchema = z
+  .iso.date('El mes no es válido')
+  .refine((value) => value.endsWith('-01'), 'El mes no es válido')
+
+/** Máximo de meses de saldo anterior por carga (igual al guard de la base: 36 meses atrás). */
+export const MAX_OPENING_MONTHS = 36
+
+/** Un mes de saldo anterior: monto en centavos enteros, > 0. Que el mes quede antes del inicio de la facturación lo valida la base (y la action). */
+export const openingMonthSchema = z
   .object({
-    memberId: z.number().int().positive(),
-    // El trigger `fees_opening_balance_guard` vuelve a exigir > 0 (defensa en
-    // profundidad); acá se valida temprano para el mensaje de campo.
+    period: periodSchema,
     amountCents: z
       .number('Ingresá el monto del saldo anterior')
       .int('El monto no es válido')
       .positive('El saldo anterior tiene que ser mayor a cero'),
-    description: z.string().trim().max(500, 'La descripción no puede tener más de 500 caracteres').nullish(),
   })
   .strict()
-export type CreateOpeningBalanceInput = z.infer<typeof createOpeningBalanceSchema>
 
-/** `YYYY-MM-01`: los períodos son siempre el primer día del mes. */
-const periodSchema = z
-  .iso.date('El mes no es válido')
-  .refine((value) => value.endsWith('-01'), 'El mes no es válido')
-
-const openingBalanceMonthsBase = z.object({
-  fromPeriod: periodSchema,
-  toPeriod: periodSchema,
-  amountCents: z
-    .number('Ingresá el monto del saldo anterior')
-    .int('El monto no es válido')
-    .positive('El saldo anterior tiene que ser mayor a cero'),
-})
-
-const fromNotAfterTo = {
-  check: (data: { fromPeriod: string; toPeriod: string }) => data.fromPeriod <= data.toPeriod,
-  params: { message: 'El mes de inicio no puede ser posterior al último', path: ['fromPeriod'] },
-}
+const OPENING_MONTHS_INVALID_MESSAGE = 'Los meses del saldo anterior no son válidos'
 
 /**
- * Meses de un saldo anterior (de `fromPeriod` a `toPeriod`, ambos incluidos).
- * Compartido con `payments.model` (el saldo anterior que viaja dentro de un pago).
- * Que `toPeriod` quede antes del inicio de la facturación lo valida la base
- * (lote) y la action (ficha).
+ * Meses de saldo anterior de una carga: únicos y a lo sumo 36. Compartido con
+ * `payments.model` (el saldo que viaja dentro de un pago).
  */
-export const openingBalanceMonthsSchema = openingBalanceMonthsBase
-  .strict()
-  .refine(fromNotAfterTo.check, fromNotAfterTo.params)
+export const openingMonthsSchema = z
+  .array(openingMonthSchema)
+  .max(MAX_OPENING_MONTHS, OPENING_MONTHS_INVALID_MESSAGE)
+  .refine((months) => new Set(months.map((m) => m.period)).size === months.length, {
+    message: OPENING_MONTHS_INVALID_MESSAGE,
+  })
 
-export const createOpeningBalanceFromMonthsSchema = openingBalanceMonthsBase
-  .extend({ memberId: z.number().int().positive() })
+export const createOpeningBalanceMonthsSchema = z
+  .object({
+    memberId: z.number().int().positive(),
+    months: openingMonthsSchema.refine((months) => months.length > 0, {
+      message: 'Marcá al menos un mes del saldo anterior',
+    }),
+  })
   .strict()
-  .refine(fromNotAfterTo.check, fromNotAfterTo.params)
-export type CreateOpeningBalanceFromMonthsInput = z.infer<typeof createOpeningBalanceFromMonthsSchema>
-
-/** Un solo formato de descripción: la RPC de lote recibe esta misma cadena armada acá. */
-export function openingBalanceDescription(fromPeriod: string, toPeriod: string): string {
-  return `Saldo anterior · ${periodRangeLabel(fromPeriod, toPeriod)}`
-}
+export type CreateOpeningBalanceMonthsInput = z.infer<typeof createOpeningBalanceMonthsSchema>
 
 export const voidFeeSchema = z
   .object({
@@ -100,21 +87,21 @@ const ONE_OPENING_BALANCE_INDEX = 'fees_one_opening_balance'
 
 function translateOpeningBalanceError(error: PostgrestError): unknown {
   if (error.code === '23505' && error.message.includes(ONE_OPENING_BALANCE_INDEX)) {
-    return new DomainError('Ya tiene un saldo anterior vigente. Anulalo antes de cargar uno nuevo.')
+    return new DomainError('Ya hay un saldo anterior cargado para uno de esos meses', { field: 'months' })
   }
   // check_violation (23514): mensajes ya redactados por el trigger
   // (`fees_opening_balance_guard`) — "Primero activá las cuotas en Ajustes"
   // o "El saldo anterior tiene que ser mayor a cero".
   if (error.code === '23514' && error.message.includes('fees_amount_cents_check')) {
-    return new DomainError('El saldo anterior tiene que ser mayor a cero', { field: 'amountCents' })
+    return new DomainError('El saldo anterior tiene que ser mayor a cero', { field: 'months' })
   }
   // Red de seguridad: el guard ya valida los meses con mensaje propio; si igual
   // salta un CHECK del tramo, el usuario ve lo mismo.
   if (error.code === '23514' && error.message.includes('fees_opening_span_')) {
-    return new DomainError('Los meses del saldo anterior no son válidos')
+    return new DomainError(OPENING_MONTHS_INVALID_MESSAGE, { field: 'months' })
   }
   if (error.code === '23514' && !isRawPostgresMessage(error.message)) {
-    return new DomainError(error.message, { field: error.message.includes('mayor a cero') ? 'amountCents' : undefined })
+    return new DomainError(error.message, { field: 'months' })
   }
   return error
 }
@@ -184,59 +171,33 @@ export const FEE_SELECT =
   'id, member_id, period, kind, amount_cents, description, category_id, created_at, voided_at, void_reason'
 
 /**
- * Insert de `fees` sin `period`: el trigger `fees_opening_balance_guard`
- * (BEFORE INSERT) la fija él mismo (mes anterior al inicio de la facturación)
- * antes de que se evalúe el `not null`, así que ni hace falta mandarla. Pero
- * además NO SE PUEDE mandarla: `authenticated` no tiene grant de INSERT sobre
- * `fees.period` (a propósito, `20260927130000_billing.sql`, `grant insert
- * (member_id, kind, amount_cents, description) on public.fees`) — un `insert`
- * que la incluya, aunque el valor termine descartado por el trigger, dispara
- * `42501 permission denied for column period` porque el grant es por columna,
- * no por tabla completa. El tipo generado de `supabase-js` sí la marca
- * `required` (no sabe de triggers ni de grants), de ahí el `Omit` + cast acá.
+ * Saldo anterior por mes: UN insert de N filas (una transacción: o entran
+ * todas o ninguna). Sin `description` (la pone `fees_opening_balance_guard`:
+ * "Saldo anterior · MM/YYYY") y sin tramo (`from_period`/`to_period` ya no
+ * tienen grant de INSERT). `period` sí se manda: el grant de columna se abrió
+ * en la migración 20261029120000. Que cada mes quede antes del inicio de la
+ * facturación y que no haya ya un saldo vigente en ese mes lo decide la base.
+ * Devuelve las filas creadas, por mes ascendente.
  */
-type OpeningBalanceInsert = Omit<TablesInsert<'fees'>, 'period'>
-
-/** Carga la deuda previa al sistema (contrato: "la deuda previa entra como un cargo inicial"). */
-export async function createOpeningBalance(input: CreateOpeningBalanceInput): Promise<Fee> {
-  return insertOpeningBalance(input)
-}
-
-/** Tramo opcional: sin él el saldo es un monto suelto (comportamiento histórico). */
-async function insertOpeningBalance(
-  input: CreateOpeningBalanceInput,
-  span?: { fromPeriod: string; toPeriod: string },
-): Promise<Fee> {
+export async function createOpeningBalanceMonths(input: CreateOpeningBalanceMonthsInput): Promise<Fee[]> {
   const supabase = await createClient()
 
-  const payload: OpeningBalanceInsert = {
+  const months: OpeningMonth[] = input.months
+  const payload = months.map((month) => ({
     member_id: input.memberId,
-    kind: 'opening_balance',
-    amount_cents: input.amountCents,
-    description: input.description ?? null,
-    ...(span ? { from_period: span.fromPeriod, to_period: span.toPeriod } : {}),
-  }
+    kind: 'opening_balance' as const,
+    period: month.period,
+    amount_cents: month.amountCents,
+  }))
 
   const { data, error } = await supabase
     .from('fees')
-    .insert(payload as TablesInsert<'fees'>)
+    .insert(payload as TablesInsert<'fees'>[])
     .select(FEE_SELECT)
-    .single()
+    .order('period', { ascending: true })
 
   if (error) throw translateOpeningBalanceError(error)
-  return mapFeeRow(data)
-}
-
-/** Saldo anterior expresado en meses ("julio a septiembre 2026"): el monto lo decide el llamador. */
-export async function createOpeningBalanceFromMonths(input: CreateOpeningBalanceFromMonthsInput): Promise<Fee> {
-  return insertOpeningBalance(
-    {
-      memberId: input.memberId,
-      amountCents: input.amountCents,
-      description: openingBalanceDescription(input.fromPeriod, input.toPeriod),
-    },
-    { fromPeriod: input.fromPeriod, toPeriod: input.toPeriod },
-  )
+  return ((data ?? []) as FeeRow[]).map(mapFeeRow)
 }
 
 /**

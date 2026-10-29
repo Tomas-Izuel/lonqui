@@ -46,6 +46,10 @@ export async function withRollback<T>(fn: (client: ClientBase) => Promise<T>): P
   try {
     await client.query('begin')
     try {
+      // Serializa los tests de base entre PROCESOS: dos corridas de vitest a la vez sobre la misma base
+      // (otro agente, otra terminal) se pisan con los `alter table ... disable trigger` de los fixtures
+      // (ShareRowExclusive) y dan deadlocks espurios. Primer lock de toda transacción: el orden es único.
+      await client.query('select pg_advisory_xact_lock(7_261_029)')
       return await fn(client)
     } finally {
       await client.query('rollback')
