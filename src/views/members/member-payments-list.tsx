@@ -11,7 +11,31 @@ import { Amount } from '@/views/shared/money'
 import { ReasonDialog, type ReasonDialogResult, type ReasonDialogValues } from '@/views/shared/reason-dialog'
 import { paymentMethodLabels } from '@/views/shared/labels'
 import { getReceiptUrlAction, voidPayment } from '@/controllers/payments.actions'
+import { periodListLabel, periodRangeLabel } from '@/lib/dates'
 import type { Payment } from '@/models/types'
+
+const monthIndex = (period: string) => Number(period.slice(0, 4)) * 12 + Number(period.slice(5, 7))
+
+/**
+ * "Cubre may y jul 2026" (hasta 3 meses); con más, un resumen que no esconde
+ * los huecos: "Cubre 5 meses · enero a mayo 2026" si son corridos, "entre
+ * enero y mayo 2026" si no. Sin imputaciones (todo saldo a favor) no hay línea.
+ */
+function coverText(payment: Payment): string | null {
+  const periods = [...new Set(payment.allocations.map((a) => a.period.slice(0, 7) + '-01'))].sort()
+  if (periods.length === 0) return null
+  if (periods.length <= 3) return `Cubre ${periodListLabel(periods)}`
+  const first = periods[0]
+  const last = periods[periods.length - 1]
+  const contiguous = monthIndex(last) - monthIndex(first) === periods.length - 1
+  const span = periodRangeLabel(first, last)
+  return contiguous ? `Cubre ${periods.length} meses · ${span}` : `Cubre ${periods.length} meses · entre ${span.replace(' a ', ' y ')}`
+}
+
+/** Lo que el pago no imputó a ninguna cuota: queda a favor del socio. */
+function creditCents(payment: Payment): number {
+  return payment.amountCents - payment.allocations.reduce((total, a) => total + a.amountCents, 0)
+}
 
 /**
  * Panel "Pagos" de la ficha (§13.6): fecha, monto, medio, quién los cargó,
@@ -96,6 +120,7 @@ export function MemberPaymentsList({ payments, canVoid }: { payments: Payment[];
                     ) : null}
                   </div>
                 </div>
+                {!payment.voidedAt ? <PaymentCoverage payment={payment} /> : null}
                 <p className="text-xs text-muted-foreground">{payment.createdByName ?? 'Sistema'}</p>
                 {payment.voidedAt ? (
                   <p className="text-sm text-status-in-debt">Anulado{payment.voidReason ? ` · ${payment.voidReason}` : ''}</p>
@@ -122,5 +147,22 @@ export function MemberPaymentsList({ payments, canVoid }: { payments: Payment[];
         />
       ) : null}
     </Panel>
+  )
+}
+
+function PaymentCoverage({ payment }: { payment: Payment }) {
+  const cover = coverText(payment)
+  const credit = creditCents(payment)
+  if (!cover && credit <= 0) return null
+  return (
+    <p className="text-sm text-muted-foreground">
+      {cover}
+      {cover && credit > 0 ? ' · ' : null}
+      {credit > 0 ? (
+        <span>
+          Saldo a favor <Amount cents={credit} />
+        </span>
+      ) : null}
+    </p>
   )
 }

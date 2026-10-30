@@ -1,32 +1,35 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import { useWatch, type Control, type FieldValues, type Path } from 'react-hook-form'
 import { AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AmountField } from '@/views/shared/form-fields'
-import { addMonths, formatPeriod } from '@/lib/dates'
+import { addMonths } from '@/lib/dates'
 import { formatCentsCompact } from '@/lib/money'
 import { MonthStrip } from '@/views/payments/month-strip'
 import {
-  closePreSystem,
-  isBeforeStart,
+  beforeJoinedWarning,
   coverageForAmount,
-  optionsForSelection,
-  defaultSelection,
   debtAfterPayment,
+  defaultSelection,
   derivedAmountCents,
-  dragSelect,
-  isLegacyOpening,
-  openingBalanceFromSelection,
+  effectiveOptions,
+  firstJoinedIndex,
+  isBeforeStart,
+  isSelectable,
+  markedPeriodsFromSelection,
+  openingMonthsFromSelection,
   openingScope,
   openingSpan,
+  paintRange,
   selectionSummary,
   summaryText,
-  tapCell,
+  toggleCell,
+  unmarkPreSystem,
   type Selection,
 } from '@/views/payments/month-selection'
-import type { ISODate, MemberStatus, OpeningBalanceMonths, PaymentMonthOption } from '@/models/types'
+import type { ISODate, MemberStatus, OpeningMonth, PaymentMonthOption } from '@/models/types'
 
 /**
  * Estado de la entrada por meses de UN socio. Lo guarda el formulario (uno en
@@ -43,8 +46,6 @@ export type EntryState = {
   custom: boolean
   /** La grilla está abierta. Cerrada, queda el resumen de lo marcado y "Cambiar". */
   expanded: boolean
-  /** El operador ya tocó o arrastró algo: la selección por defecto deja de ser "fresca" (ver `tapCell`). */
-  picked: boolean
 }
 
 export function initialEntry(options: PaymentMonthOption[], status: MemberStatus, opts: { expanded: boolean }): EntryState {
@@ -55,10 +56,10 @@ export function initialEntry(options: PaymentMonthOption[], status: MemberStatus
     preOpen: isBeforeStart(options),
     overrideCents: null,
     overrideInvalid: false,
-    custom: selection === null,
+    // Sin ningún mes elegible la grilla no sirve: queda el monto.
+    custom: !options.some(isSelectable),
     // Sin nada marcado por defecto hay que elegir: la grilla abre sola.
-    expanded: opts.expanded || selection === null,
-    picked: false,
+    expanded: opts.expanded || selection.length === 0,
   }
 }
 
@@ -72,13 +73,21 @@ export function entryDerivedCents(options: PaymentMonthOption[], entry: EntrySta
 
 /** Opciones tal como quedan al crear el saldo anterior elegido (ver `effectiveOptions`); las de la RPC si no hay. */
 export function entryEffectiveOptions(options: PaymentMonthOption[], entry: EntryState, creditCents: number): PaymentMonthOption[] {
-  return optionsForSelection(options, entry.selection, { openingBalanceOverrideCents: entry.overrideCents, creditCents })
+  return effectiveOptions(options, entry.selection, { openingBalanceOverrideCents: entry.overrideCents, creditCents })
 }
 
-/** Lo que sigue adeudado tras este pago (0 en "Otro monto": ahí depende de lo que se tipee). */
-export function entryDebtAfter(options: PaymentMonthOption[], entry: EntryState, creditCents: number): { months: number; cents: number } {
-  if (entry.custom) return { months: 0, cents: 0 }
-  return debtAfterPayment(options, entry.selection, { openingBalanceOverrideCents: entry.overrideCents, creditCents })
+/**
+ * Lo que sigue adeudado tras este pago. En "Otro monto" depende de lo que se
+ * tipee (`typedCents`): marcados primero, el resto al más viejo (regla de la base).
+ */
+export function entryDebtAfter(
+  options: PaymentMonthOption[],
+  entry: EntryState,
+  creditCents: number,
+  typedCents?: number | null,
+): { months: number; cents: number } {
+  const ctx = { openingBalanceOverrideCents: entry.overrideCents, creditCents }
+  return debtAfterPayment(options, entry.selection, ctx, entry.custom ? (typedCents ?? 0) : undefined)
 }
 
 /** "Queda debiendo 4 meses · $40.000". */
@@ -86,8 +95,16 @@ export function debtLine(debt: { months: number; cents: number }): string {
   return `Queda debiendo ${debt.months === 1 ? '1 mes' : `${debt.months} meses`} · ${formatCentsCompact(debt.cents)}`
 }
 
-export function entryOpeningBalance(options: PaymentMonthOption[], entry: EntryState): OpeningBalanceMonths | null {
-  return openingBalanceFromSelection(options, entry.selection, entry.overrideCents)
+/** Los meses de saldo anterior que hay que crear con este pago (incluye los no marcados del tramo). `null` si no hay. */
+export function entryOpeningMonths(options: PaymentMonthOption[], entry: EntryState): OpeningMonth[] | null {
+  const months = openingMonthsFromSelection(options, entry.selection, entry.overrideCents)
+  return months.length > 0 ? months : null
+}
+
+/** Los meses que el operador marcó y llevan cuota: la base los imputa primero. `null` si no hay. */
+export function entryMarkedPeriods(options: PaymentMonthOption[], entry: EntryState): ISODate[] | null {
+  const periods = markedPeriodsFromSelection(options, entry.selection)
+  return periods.length > 0 ? periods : null
 }
 
 type Props<T extends FieldValues> = {
@@ -102,6 +119,8 @@ type Props<T extends FieldValues> = {
   error?: string
   variant?: 'default' | 'compact'
   disabled?: boolean
+  /** Para el link "Corregir fecha de alta" del aviso de meses anteriores al alta. */
+  memberId?: number
   /** Etiqueta accesible del campo de "Otro monto" (en grupo lleva el nombre del integrante). */
   amountLabel?: string
   /** false = el monto y el resumen viven en el pie fijo del formulario (pago individual). */
@@ -129,6 +148,7 @@ export function MonthEntry<T extends FieldValues>({
   error,
   variant = 'default',
   disabled,
+  memberId,
   amountLabel = 'Otro monto',
   showTotal = true,
   startPeriod,
@@ -144,6 +164,9 @@ export function MonthEntry<T extends FieldValues>({
   const hasPreSystem = options.some((o) => o.kind === 'pre_system')
   // El mes de inicio de la facturación es el siguiente al último "antes del sistema".
   const lastPre = [...options].reverse().find((o) => o.kind === 'pre_system')
+  // Selección que había al armarse el arrastre: `paintRange` pinta siempre sobre esta, no sobre la que va saliendo.
+  const dragBaseRef = useRef<Selection>([])
+  const paintOpts = { preSystemOpen: entry.preOpen, ctx }
 
   function update(next: EntryState) {
     onEntryChange(next)
@@ -155,31 +178,34 @@ export function MonthEntry<T extends FieldValues>({
     const before = openingSpan(options, entry.selection)
     const after = openingSpan(options, selection)
     const keeps = before !== null && after !== null && before.from === after.from
+    // En "Otro monto" marcar meses sigue siendo "Otro monto": la base aplica primero a los marcados.
     update({
       ...entry,
       selection,
-      picked: true,
-      custom: false,
       overrideCents: keeps ? entry.overrideCents : null,
       overrideInvalid: keeps ? entry.overrideInvalid : false,
     })
   }
 
   const coverage = entry.custom ? coverageForAmount(options, entry.selection, typed ?? 0, ctx) : null
-  const effective = optionsForSelection(options, entry.selection, ctx)
+  const effective = effectiveOptions(options, entry.selection, ctx)
   const summary = selectionSummary(effective, entry.selection)
   const summaryLabel = summaryText(summary)
-  const debt = entryDebtAfter(options, entry, creditCents)
+  const debt = entryDebtAfter(options, entry, creditCents, typed)
   const scope = openingScope(options, entry.selection, ctx, { payment: true })
-  const withSpan = options.find((o) => o.kind === 'opening_balance' && Boolean(o.openingFrom))
-  const hasLegacy = options.some(isLegacyOpening)
+  // El mes del alta solo se conoce si cae dentro de la ventana de previos; si no, el aviso va sin mes.
+  const joinedIndex = firstJoinedIndex(options)
+  const joinedWarning =
+    memberId !== undefined && beforeJoinedWarning(options, entry.selection)
+      ? { memberId, joinedPeriod: joinedIndex !== -1 ? options[joinedIndex].period : null }
+      : null
 
   return (
     <div className="flex flex-col gap-3">
       {!entry.custom ? (
         <div className="flex items-center justify-between gap-3">
           <p role="status" className="min-w-0 text-sm font-medium first-letter:uppercase">
-            {summaryLabel}
+            {summaryLabel || <span className="font-normal text-muted-foreground">Ningún mes marcado</span>}
           </p>
           <Button
             type="button"
@@ -197,51 +223,51 @@ export function MonthEntry<T extends FieldValues>({
 
       <div id={gridId} className="flex flex-col gap-2">
         {entry.expanded ? (
-          <>
-            <MonthStrip
-              options={effective}
-              selection={entry.selection}
-              variant={variant}
-              disabled={disabled}
-              coverage={coverage}
-              onTap={(index) => pick(tapCell(effective, entry.selection, index, { preSystemOpen: entry.preOpen, preMode: 'free', fresh: !entry.picked }))}
-              onRange={(anchor, over) => pick(dragSelect(effective, anchor, over))}
-              preSystem={
-                hasPreSystem && lastPre
-                  ? {
-                      open: entry.preOpen,
-                      scope,
-                      startPeriod: startPeriod ?? addMonths(lastPre.period, 1),
-                      hideBeforeStartNote,
-                      overrideCents: entry.overrideCents,
-                      // Siempre por `onChange`: total y validez en un solo cambio de estado.
-                      onOverrideChange: () => {},
-                      onChange: (cents, valid) => update({ ...entry, overrideCents: cents, overrideInvalid: !valid }),
-                      beforeStart,
-                      onToggle: beforeStart
-                        ? undefined
-                        : () => {
-                            if (entry.preOpen) update({ ...entry, preOpen: false, overrideCents: null, overrideInvalid: false, selection: closePreSystem(options, entry.selection) })
-                            else update({ ...entry, preOpen: true })
-                          },
-                    }
-                  : null
-              }
-            />
-            {withSpan?.openingFrom ? (
-              <p className="text-xs text-muted-foreground">
-                El saldo anterior de este socio arranca en {formatPeriod(withSpan.openingFrom)}. Para indicar meses anteriores, un administrador tiene que anularlo desde la ficha y volver a cargarlo.
-              </p>
-            ) : hasLegacy ? (
-              <p className="text-xs text-muted-foreground">
-                Este socio ya tiene un saldo anterior cargado. Para cambiar desde cuándo debía, un administrador tiene que anularlo desde la ficha.
-              </p>
-            ) : null}
-          </>
+          <MonthStrip
+            options={effective}
+            selection={entry.selection}
+            variant={variant}
+            disabled={disabled}
+            coverage={coverage}
+            joinedWarning={joinedWarning}
+            onTap={(index) => {
+              const result = toggleCell(options, entry.selection, index, paintOpts)
+              // `blocked` ('advance'): la grilla ya muestra el aviso; la selección no cambia.
+              if (!result.blocked) pick(result.selection)
+            }}
+            onDragStart={() => {
+              dragBaseRef.current = entry.selection
+            }}
+            onRange={(anchor, over) => pick(paintRange(options, dragBaseRef.current, anchor, over, paintOpts))}
+            preSystem={
+              hasPreSystem && lastPre
+                ? {
+                    open: entry.preOpen,
+                    scope,
+                    startPeriod: startPeriod ?? addMonths(lastPre.period, 1),
+                    hideBeforeStartNote,
+                    overrideCents: entry.overrideCents,
+                    // Siempre por `onChange`: total y validez en un solo cambio de estado.
+                    onOverrideChange: () => {},
+                    onChange: (cents, valid) => update({ ...entry, overrideCents: cents, overrideInvalid: !valid }),
+                    beforeStart,
+                    onToggle: beforeStart
+                      ? undefined
+                      : () => {
+                          if (entry.preOpen) {
+                            update({ ...entry, preOpen: false, overrideCents: null, overrideInvalid: false, selection: unmarkPreSystem(options, entry.selection, ctx) })
+                          } else {
+                            update({ ...entry, preOpen: true })
+                          }
+                        },
+                  }
+                : null
+            }
+          />
         ) : null}
       </div>
 
-      {showDebtLine && !entry.custom && debt.months > 0 ? (
+      {showDebtLine && debt.months > 0 ? (
         <p className="flex items-start gap-1.5 text-sm font-medium tabular-nums">
           <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-status-in-debt" />
           {debtLine(debt)}
@@ -256,7 +282,7 @@ export function MonthEntry<T extends FieldValues>({
               Queda saldo a favor de <span className="font-medium text-foreground tabular-nums">{formatCentsCompact(coverage.leftoverCents)}</span>.
             </p>
           ) : null}
-          {entry.selection !== null ? (
+          {options.some(isSelectable) ? (
             <Button
               type="button"
               variant="ghost"
@@ -293,7 +319,7 @@ export function MonthEntry<T extends FieldValues>({
 
       {!entry.custom && derived === 0 ? (
         <p role="status" className="text-sm text-muted-foreground">
-          {openingBalanceFromSelection(options, entry.selection)
+          {openingSpan(options, entry.selection)
             ? 'El saldo a favor ya cubre esos meses. Indicá desde cuándo debía desde la ficha.'
             : 'Marcá al menos un mes.'}
         </p>

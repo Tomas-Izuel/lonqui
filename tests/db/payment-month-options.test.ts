@@ -245,7 +245,9 @@ describe.skipIf(!dbAvailable)('payment_month_options: pre_system (meses antes de
     })
   })
 
-  it('con saldo anterior vigente: ninguna fila pre_system; el saldo aparece primero con su pendiente', async () => {
+  // Reemplaza "con saldo anterior vigente: ninguna pre_system" (decisión del usuario, 2026-10-29: el saldo
+  // es una fila POR MES). Ahora el mes con fila de saldo deja de ser pre_system y los otros 11 siguen ofrecidos.
+  it('con saldo anterior de un mes (inicio-1): esa celda es opening_balance con su pendiente y las otras 11 previas siguen siendo pre_system', async () => {
     await withRollback(async (client) => {
       const start = await setBillingStartOffset(client, 0)
       const memberId = await createFakeMember(client, { joinedOn: '2025-01-15' })
@@ -255,30 +257,36 @@ describe.skipIf(!dbAvailable)('payment_month_options: pre_system (meses antes de
       await asEditor(client)
 
       const rows = await monthOptions(client, [memberId])
-      expect(kinds(rows)).not.toContain('pre_system')
-      expect(rows[0]).toMatchObject({
-        kind: 'opening_balance',
+      const ob = rows.filter((r) => r.kind === 'opening_balance')
+      expect(ob).toHaveLength(1)
+      expect(ob[0]).toMatchObject({
         period: await monthAt(client, -1),
         amount: price * 3,
         covered: Math.floor(price * 1.2),
         pending: price * 3 - Math.floor(price * 1.2),
       })
-      expect(rows[0].period < start).toBe(true)
+      expect(ob[0].period < start).toBe(true)
+      const pre = rows.filter((r) => r.kind === 'pre_system')
+      expect(pre).toHaveLength(11)
+      expect(pre.map((r) => r.period)).not.toContain(ob[0].period)
     })
   })
 
-  it('saldo anterior cubierto del todo: no aparece (y tampoco vuelven los pre_system)', async () => {
+  it('saldo anterior cubierto del todo: su celda no aparece y el mes no vuelve como pre_system (tiene fila); las otras 11 sí', async () => {
     await withRollback(async (client) => {
       await setBillingStartOffset(client, 0)
       const memberId = await createFakeMember(client, { joinedOn: '2025-01-15' })
       const price = await priceToday(client, memberId)
+      const feePeriod = await monthAt(client, -1)
       await insertOpeningBalanceFee(client, memberId, price * 3)
       await insertPayment(client, { memberId, amountCents: price * 3 })
       await asEditor(client)
 
       const rows = await monthOptions(client, [memberId])
       expect(kinds(rows)).not.toContain('opening_balance')
-      expect(kinds(rows)).not.toContain('pre_system')
+      const pre = rows.filter((r) => r.kind === 'pre_system')
+      expect(pre).toHaveLength(11)
+      expect(pre.map((r) => r.period)).not.toContain(feePeriod)
     })
   })
 

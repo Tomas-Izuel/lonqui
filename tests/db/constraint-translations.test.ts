@@ -405,12 +405,13 @@ describe.skipIf(!dbAvailable)('fees: saldo de arranque y anulación -> DomainErr
         [memberId],
       )
       expect(err.code).toBe('23514')
-      const { createOpeningBalance } = await import('@/models/fees.model')
+      const { createOpeningBalanceMonths } = await import('@/models/fees.model')
       const { thrown, DomainError } = await translated(err, () =>
-        createOpeningBalance({ memberId, amountCents: 100 } as never),
+        createOpeningBalanceMonths({ memberId, months: [{ period: '2026-01-01', amountCents: 100 }] } as never),
       )
       expect(thrown).toBeInstanceOf(DomainError)
-      expect(thrown.field).toBe('amountCents')
+      // El saldo anterior ahora son meses: el error se ata al campo `months` de la grilla (no `amountCents`).
+      expect(thrown.field).toBe('months')
       expect(thrown.message).not.toMatch(NOT_RAW)
     })
   })

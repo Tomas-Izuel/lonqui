@@ -6,6 +6,7 @@ import {
   formatDateTime,
   formatPeriod,
   lastDayOfPeriod,
+  periodListLabel,
   periodRange,
   periodRangeLabel,
   previousPeriod,
@@ -76,6 +77,37 @@ describe('formatPeriod', () => {
     // con offset negativo mal manejado.
     expect(formatPeriod('2026-01-01')).toBe('enero 2026')
     expect(formatPeriod('2026-12-01')).toBe('diciembre 2026')
+  })
+})
+
+describe('periodListLabel', () => {
+  it('vacío → cadena vacía', () => {
+    expect(periodListLabel([])).toBe('')
+  })
+
+  it('un mes → "julio 2026"', () => {
+    expect(periodListLabel(['2026-07-01'])).toBe('julio 2026')
+  })
+
+  it('contiguos → rango "mayo a julio 2026"; el año va una sola vez', () => {
+    expect(periodListLabel(['2026-05-01', '2026-06-01', '2026-07-01'])).toBe('mayo a julio 2026')
+  })
+
+  it('con huecos del mismo año → "mayo, julio y septiembre 2026"; dos sueltos → "mayo y julio 2026"', () => {
+    expect(periodListLabel(['2026-05-01', '2026-07-01', '2026-09-01'])).toBe('mayo, julio y septiembre 2026')
+    expect(periodListLabel(['2026-05-01', '2026-07-01'])).toBe('mayo y julio 2026')
+  })
+
+  it('cambio de año: cada tramo con su año ("noviembre y diciembre 2025, febrero 2026")', () => {
+    expect(periodListLabel(['2025-11-01', '2025-12-01', '2026-02-01'])).toBe('noviembre y diciembre 2025, febrero 2026')
+  })
+
+  it('contiguos que cruzan el año: rango con ambos años ("noviembre 2025 a febrero 2026")', () => {
+    expect(periodListLabel(['2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01'])).toBe('noviembre 2025 a febrero 2026')
+  })
+
+  it('ordena, descarta repetidos y acepta días distintos de 1 sin correrse de mes', () => {
+    expect(periodListLabel(['2026-07-01', '2026-05-01', '2026-07-01', '2026-06-15'])).toBe('mayo a julio 2026')
   })
 })
 

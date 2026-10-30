@@ -27,7 +27,16 @@ function kindOf(pointerType: string): PointerKind {
  * el navegador scrollea normal (y manda `pointercancel`). Al armar, un listener
  * NATIVO `touchmove` no pasivo hace `preventDefault`: el de React es pasivo.
  */
-export function useMonthDrag({ onRange, enabled }: { onRange: (anchor: number, over: number) => void; enabled: boolean }) {
+export function useMonthDrag({
+  onRange,
+  onDragStart,
+  enabled,
+}: {
+  onRange: (anchor: number, over: number) => void
+  /** Se arma el arrastre: es el momento de guardar la selección base sobre la que se va a pintar. */
+  onDragStart?: (anchor: number) => void
+  enabled: boolean
+}) {
   const [list, setList] = useState<HTMLUListElement | null>(null)
   const captureElRef = useRef<HTMLUListElement | null>(null)
   const stateRef = useRef<DragState>(IDLE)
@@ -35,11 +44,13 @@ export function useMonthDrag({ onRange, enabled }: { onRange: (anchor: number, o
   const suppressUntilRef = useRef(0)
   const lastIndexRef = useRef<number | null>(null)
   const onRangeRef = useRef(onRange)
+  const onDragStartRef = useRef(onDragStart)
   const pointerIdRef = useRef<number | undefined>(undefined)
   const dispatchRef = useRef<(event: DragEvent) => void>(() => {})
 
   useEffect(() => {
     onRangeRef.current = onRange
+    onDragStartRef.current = onDragStart
   })
 
   const run = useCallback((effects: DragEffect[], pointerId?: number) => {
@@ -51,6 +62,9 @@ export function useMonthDrag({ onRange, enabled }: { onRange: (anchor: number, o
         timerRef.current = undefined
         if (effect.on) timerRef.current = window.setTimeout(() => dispatchRef.current({ type: 'armed' }), TOUCH_ARM_MS)
       } else if (effect.type === 'arm') {
+        // El reductor ya pasó a `dragging`: el ancla es la celda donde empezó el gesto.
+        const current = stateRef.current
+        if (current.phase === 'dragging') onDragStartRef.current?.(current.anchor)
         navigator.vibrate?.(10)
         if (pointerId !== undefined) {
           try {

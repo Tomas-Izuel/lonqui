@@ -199,65 +199,92 @@ describe('getMemberAccountDetail: composición cuenta + statement + pagos + sald
     expect(listPaymentsForMemberMock).not.toHaveBeenCalled()
   })
 
-  it('socio existente: compone las 4 partes, openingBalance null si no hay ninguno vigente', async () => {
+  /** `from('fees').select().eq().eq().is().order().order()`: la consulta de getOpeningBalances con su resultado. */
+  const feesClient = (result: { data: unknown; error: unknown }, orders?: unknown[][]) => ({
+    rpc: (name: string) => {
+      if (name === 'member_accounts') return Promise.resolve({ data: [RAW_ACCOUNT_ROW], error: null })
+      if (name === 'member_fee_statement') return Promise.resolve({ data: [], error: null })
+      throw new Error(`rpc inesperada: ${name}`)
+    },
+    from: (table: string) => {
+      if (table !== 'fees') throw new Error(`tabla inesperada: ${table}`)
+      let orderCalls = 0
+      const chain: Record<string, unknown> = {}
+      chain.select = () => chain
+      chain.eq = () => chain
+      chain.is = () => chain
+      chain.order = (...args: unknown[]) => {
+        orders?.push(args)
+        // dos .order() encadenados: la segunda devuelve el resultado
+        return ++orderCalls < 2 ? chain : Promise.resolve(result)
+      }
+      return chain
+    },
+  })
+
+  const openingRow = (id: number, period: string, amount = 1_000_000) => ({
+    id, member_id: 5, period, kind: 'opening_balance', amount_cents: amount,
+    description: `Saldo anterior · ${period.slice(5, 7)}/${period.slice(0, 4)}`, category_id: null,
+    created_at: '2026-09-01T00:00:00Z', voided_at: null, void_reason: null,
+  })
+
+  it('socio existente: compone las 4 partes; openingBalances es [] si no hay ninguno vigente', async () => {
     listPaymentsForMemberMock.mockResolvedValue([{ id: 1, memberId: 5, amountCents: 1_000_000 }])
-    createClientMock.mockResolvedValue({
-      rpc: (name: string) => {
-        if (name === 'member_accounts') return Promise.resolve({ data: [RAW_ACCOUNT_ROW], error: null })
-        if (name === 'member_fee_statement') return Promise.resolve({ data: [], error: null })
-        throw new Error(`rpc inesperada: ${name}`)
-      },
-      from: (table: string) => {
-        if (table !== 'fees') throw new Error(`tabla inesperada: ${table}`)
-        return { select: () => ({ eq: () => ({ eq: () => ({ is: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) }) }
-      },
-    })
+    createClientMock.mockResolvedValue(feesClient({ data: [], error: null }))
 
     const { getMemberAccountDetail } = await importModel()
     const detail = await getMemberAccountDetail(5)
     expect(detail.account.memberId).toBe(5)
     expect(detail.payments).toHaveLength(1)
-    expect(detail.openingBalance).toBeNull()
+    expect(detail.openingBalances).toEqual([])
   })
 
-  it('con saldo de arranque vigente, lo mapea con Fee (mismo mapFeeRow que fees.model.ts)', async () => {
+  it('con saldos anteriores vigentes: una fila por mes, mapeadas con Fee (mismo mapFeeRow que fees.model.ts)', async () => {
     listPaymentsForMemberMock.mockResolvedValue([])
-    createClientMock.mockResolvedValue({
-      rpc: (name: string) => {
-        if (name === 'member_accounts') return Promise.resolve({ data: [RAW_ACCOUNT_ROW], error: null })
-        if (name === 'member_fee_statement') return Promise.resolve({ data: [], error: null })
-        throw new Error(`rpc inesperada: ${name}`)
-      },
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              is: () => ({
-                maybeSingle: async () => ({
-                  data: {
-                    id: 20,
-                    member_id: 5,
-                    period: '2026-08-01',
-                    kind: 'opening_balance',
-                    amount_cents: 2_000_000,
-                    description: 'Saldo anterior al sistema',
-                    category_id: null,
-                    created_at: '2026-09-01T00:00:00Z',
-                    voided_at: null,
-                    void_reason: null,
-                  },
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    })
+    createClientMock.mockResolvedValue(feesClient({ data: [openingRow(20, '2026-07-01'), openingRow(21, '2026-08-01', 2_000_000)], error: null }))
 
     const { getMemberAccountDetail } = await importModel()
     const detail = await getMemberAccountDetail(5)
-    expect(detail.openingBalance).toMatchObject({ id: 20, kind: 'opening_balance', amountCents: 2_000_000 })
+    expect(detail.openingBalances.map((f) => [f.id, f.period, f.amountCents])).toEqual([[20, '2026-07-01', 1_000_000], [21, '2026-08-01', 2_000_000]])
+    expect(detail.openingBalances.every((f) => f.kind === 'opening_balance')).toBe(true)
+  })
+})
+
+describe('getOpeningBalances', () => {
+  it('pide solo los vigentes del socio, ordenados por mes y después por id (estable), y mapea', async () => {
+    const calls: Record<string, unknown[][]> = { eq: [], is: [], order: [] }
+    const chain: Record<string, unknown> = {}
+    chain.select = () => chain
+    chain.eq = (...a: unknown[]) => (calls.eq.push(a), chain)
+    chain.is = (...a: unknown[]) => (calls.is.push(a), chain)
+    chain.order = (...a: unknown[]) => {
+      calls.order.push(a)
+      return calls.order.length < 2 ? chain : Promise.resolve({ data: [{ id: 9, member_id: 5, period: '2026-03-01', kind: 'opening_balance', amount_cents: 500, description: 'x', category_id: null, created_at: '2026-09-01T00:00:00Z', voided_at: null, void_reason: null }], error: null })
+    }
+    createClientMock.mockResolvedValue({ from: () => chain })
+    const { getOpeningBalances } = await importModel()
+    const result = await getOpeningBalances(5)
+    expect(calls.eq).toEqual([['member_id', 5], ['kind', 'opening_balance']])
+    expect(calls.is).toEqual([['voided_at', null]]) // los anulados NO cuentan
+    expect(calls.order).toEqual([['period', { ascending: true }], ['id', { ascending: true }]])
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ id: 9, amountCents: 500, period: '2026-03-01' })
+  })
+
+  it('un error de la consulta se relanza (no se traga como "sin saldo")', async () => {
+    const error = { code: '42501', message: 'permission denied' }
+    const chain: Record<string, unknown> = {}
+    chain.select = () => chain
+    chain.eq = () => chain
+    chain.is = () => chain
+    chain.order = () => chain
+    ;(chain as { order: () => unknown }).order = (() => {
+      let n = 0
+      return () => (++n < 2 ? chain : Promise.resolve({ data: null, error }))
+    })()
+    createClientMock.mockResolvedValue({ from: () => chain })
+    const { getOpeningBalances } = await importModel()
+    await expect(getOpeningBalances(5)).rejects.toEqual(error)
   })
 })
 
@@ -271,6 +298,7 @@ describe('getPaymentMonthOptions', () => {
     pending_cents: 600_000,
     is_current: true,
     priced_at_today: false,
+    before_joined: false,
   }
 
   it('una sola RPC con todos los ids y mapeo snake -> camel', async () => {
@@ -292,21 +320,38 @@ describe('getPaymentMonthOptions', () => {
         pendingCents: 600_000,
         isCurrent: true,
         pricedAtToday: false,
-        openingFrom: null,
+        beforeJoined: false,
       },
     ])
   })
 
-  it('opening_from se mapea a openingFrom; ausente (RPC vieja) o null da null, nunca undefined', async () => {
+  it('before_joined (solo pre_system) se mapea a beforeJoined; la RPC ya no manda opening_from y el modelo no lo inventa', async () => {
     const rows = [
-      { ...RAW_CELL, kind: 'opening_balance', opening_from: '2026-01-01' },
-      { ...RAW_CELL, kind: 'opening_balance', opening_from: null },
-      { ...RAW_CELL },
+      { ...RAW_CELL, kind: 'pre_system', before_joined: true },
+      { ...RAW_CELL, kind: 'pre_system', before_joined: false },
+      { ...RAW_CELL, kind: 'opening_balance', before_joined: false },
     ]
     createClientMock.mockResolvedValue({ rpc: async () => ({ data: rows, error: null }) })
     const { getPaymentMonthOptions } = await importModel()
     const result = await getPaymentMonthOptions([5])
-    expect(result.map((o) => o.openingFrom)).toEqual(['2026-01-01', null, null])
+    expect(result.map((o) => o.beforeJoined)).toEqual([true, false, false])
+    for (const o of result) expect(o).not.toHaveProperty('openingFrom')
+  })
+
+  it('gate de schema: si ALGUNA fila no trae before_joined (la base todavía no migró) -> DomainError "se está actualizando", no una grilla mal armada', async () => {
+    const { before_joined: _omit, ...legacy } = RAW_CELL
+    void _omit
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: [RAW_CELL, legacy], error: null }) })
+    const { getPaymentMonthOptions } = await importModel()
+    await expect(getPaymentMonthOptions([5])).rejects.toMatchObject({ message: 'El sistema se está actualizando. Probá de nuevo en unos minutos' })
+  })
+
+  it('el gate NO se dispara con before_joined null/false ni con la lista vacía (socio sin tira): solo con undefined', async () => {
+    const { getPaymentMonthOptions } = await importModel()
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: [], error: null }) })
+    await expect(getPaymentMonthOptions([5])).resolves.toEqual([])
+    createClientMock.mockResolvedValue({ rpc: async () => ({ data: [{ ...RAW_CELL, before_joined: null }], error: null }) })
+    await expect(getPaymentMonthOptions([5])).resolves.toHaveLength(1)
   })
 
   it('sin ids: [] y NO llama a la base', async () => {

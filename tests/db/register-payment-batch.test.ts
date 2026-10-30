@@ -67,7 +67,7 @@ async function scenario(client: ClientBase, members = 1) {
 }
 
 describe.skipIf(!dbAvailable)('register_payment_batch: camino feliz', () => {
-  it('editor: saldo anterior + pagos del lote; el período lo fija la base, created_by es el editor, la descripción la que vino', async () => {
+  it('editor, forma VIEJA (tramo): se expande a una fila por mes, created_by es el editor, la descripción la que vino y Σ = el total', async () => {
     await withRollback(async (client) => {
       const { ids, price, from, to, start } = await scenario(client, 2)
       const editorId = await asRole(client, 'editor')
@@ -91,16 +91,21 @@ describe.skipIf(!dbAvailable)('register_payment_batch: camino feliz', () => {
 
       await actAsSuperuser(client)
       const fees = await client.query(
-        `select kind, to_char(period, 'YYYY-MM-DD') as period, amount_cents, description, created_by, voided_at
-         from public.fees where member_id = any($1::bigint[])`,
+        `select kind, to_char(period, 'YYYY-MM-DD') as period, amount_cents, description, created_by, voided_at, from_period
+         from public.fees where member_id = any($1::bigint[]) order by period`,
         [ids],
       )
-      expect(fees.rows).toHaveLength(1)
-      expect(fees.rows[0]).toMatchObject({ kind: 'opening_balance', description, created_by: editorId, voided_at: null })
-      expect(Number(fees.rows[0].amount_cents)).toBe(price * 3)
-      // Un mes antes del inicio, puesto por el trigger (no por quien llama).
-      expect(fees.rows[0].period).toBe(await monthAt(client, -1))
-      expect(fees.rows[0].period < start).toBe(true)
+      // Una fila por mes (jul..sep del escenario), todas del socio con saldo, ninguna con tramo.
+      expect(fees.rows).toHaveLength(3)
+      expect(fees.rows.every((f) => f.kind === 'opening_balance' && f.created_by === editorId && f.voided_at === null && f.from_period === null)).toBe(true)
+      // La forma vieja expandida NO copia la descripción del tramo: cada mes queda con la del guard.
+      for (const f of fees.rows) {
+        const [y, mm] = String(f.period).split('-')
+        expect(f.description).toBe(`Saldo anterior · ${mm}/${y}`)
+      }
+      expect(fees.rows.map((f) => f.period)).toEqual([from, await monthAt(client, -2), to])
+      expect(fees.rows.reduce((a, f) => a + Number(f.amount_cents), 0)).toBe(price * 3)
+      expect(fees.rows.every((f) => f.period < start)).toBe(true)
 
       const payments = await client.query(
         `select member_id, amount_cents, batch_id, created_by from public.payments where batch_id = $1 order by member_id`,
@@ -125,9 +130,14 @@ describe.skipIf(!dbAvailable)('register_payment_batch: camino feliz', () => {
       })
 
       await actAsSuperuser(client)
-      const fees = await client.query(`select id, member_id, amount_cents from public.fees where member_id = any($1::bigint[]) order by member_id`, [ids])
-      expect(fees.rows).toHaveLength(2)
-      const feeOf = new Map(fees.rows.map((f) => [Number(f.member_id), { id: Number(f.id), amount: Number(f.amount_cents) }]))
+      const fees = await client.query(`select id, member_id, amount_cents from public.fees where member_id = any($1::bigint[]) order by member_id, id`, [ids])
+      // ids[0]: tramo de 3 meses -> 3 filas; ids[1]: un solo mes -> 1 fila. opening_balance_fee_id = la PRIMERA de cada socio.
+      expect(fees.rows).toHaveLength(4)
+      const feeOf = new Map<number, { id: number; amount: number }>()
+      for (const f of fees.rows) {
+        const prev = feeOf.get(Number(f.member_id))
+        feeOf.set(Number(f.member_id), { id: prev?.id ?? Number(f.id), amount: (prev?.amount ?? 0) + Number(f.amount_cents) })
+      }
       expect(feeOf.get(ids[0])!.amount).toBe(price * 3)
       expect(feeOf.get(ids[1])!.amount).toBe(price)
       for (const row of result) {
@@ -218,7 +228,7 @@ describe.skipIf(!dbAvailable)('register_payment_batch: idempotente por batch_id'
       const first = await callBatch(client, { batchId, items })
       const feesAfterFirst = await countRows(client, 'fees', ids)
       const paymentsAfterFirst = await countRows(client, 'payments', ids)
-      expect(feesAfterFirst).toBe(1)
+      expect(feesAfterFirst).toBe(3) // el tramo de 3 meses -> 3 filas
       expect(paymentsAfterFirst).toBe(2)
 
       const retry = await callBatch(client, { batchId, items })
@@ -248,7 +258,7 @@ describe.skipIf(!dbAvailable)('register_payment_batch: idempotente por batch_id'
     })
   })
 
-  it('dos lotes DISTINTOS con saldo anterior para el mismo socio: el segundo choca con fees_one_opening_balance y no inserta nada', async () => {
+  it('dos lotes DISTINTOS con saldo anterior para el mismo socio y los mismos meses (un saldo vigente por mes): el segundo choca con fees_one_opening_balance y no inserta nada', async () => {
     await withRollback(async (client) => {
       const { ids, price, from, to } = await scenario(client, 1)
       await asRole(client, 'editor')
@@ -549,7 +559,7 @@ describe.skipIf(!dbAvailable)('deuda derivada tras crear el saldo anterior (bala
     })
   })
 
-  it('después del lote, la tira del socio ya no ofrece pre_system y no hay saldo a favor aplicado a proyectados de más', async () => {
+  it('después del lote, la tira del socio no ofrece como pre_system los meses que el lote cargó (solo los otros 9) y no hay saldo a favor aplicado a proyectados de más', async () => {
     await withRollback(async (client) => {
       const { ids, price, from, to } = await scenario(client, 1)
       const current = await monthAt(client, 0)
@@ -559,7 +569,10 @@ describe.skipIf(!dbAvailable)('deuda derivada tras crear el saldo anterior (bala
         items: [{ member_id: ids[0], amount_cents: price * 4, opening_balance: { from_period: from, to_period: to, amount_cents: price * 3 } }] satisfies BatchItem[],
       })
       const rows = await monthOptions(client, [ids[0]])
-      expect(rows.some((r) => r.kind === 'pre_system')).toBe(false)
+      const pre = rows.filter((r) => r.kind === 'pre_system').map((r) => r.period)
+      expect(pre).toHaveLength(9) // 12 previos - los 3 meses (jul..sep) que ahora tienen fila de saldo
+      expect(pre).not.toContain(from)
+      expect(pre).not.toContain(to)
       // 4P pagadas contra 3P de saldo + P del mes: todo cubierto, nada de crédito.
       expect(rows.find((r) => r.period === current)).toMatchObject({ kind: 'monthly', pending: 0 })
       expect(rows.filter((r) => r.kind === 'projected').every((r) => r.covered === 0)).toBe(true)
@@ -577,7 +590,10 @@ describe.skipIf(!dbAvailable)('deuda derivada tras crear el saldo anterior (bala
       await insertOpeningBalanceFee(client, a, price * 2)
       await asRole(client, 'editor')
       const rows = await monthOptions(client, [a, b])
-      expect(rows.filter((r) => r.memberId === a).some((r) => r.kind === 'pre_system')).toBe(false)
+      // a tiene saldo SOLO en inicio-1: ese mes ya no se ofrece como pre_system, los otros 11 sí.
+      const preA = rows.filter((r) => r.memberId === a && r.kind === 'pre_system').map((r) => r.period)
+      expect(preA).toHaveLength(11)
+      expect(preA).not.toContain(await monthAt(client, -1))
       expect(rows.filter((r) => r.memberId === b).filter((r) => r.kind === 'pre_system')).toHaveLength(12)
     })
   })

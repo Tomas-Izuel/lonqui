@@ -109,14 +109,16 @@ describe.skipIf(!dbAvailable)('payment_month_options: inicio de la facturacion e
     })
   })
 
-  it('socio con saldo anterior vigente y inicio futuro: no recibe pre_system', async () => {
+  it('socio con saldo anterior de un mes (inicio-1) y inicio futuro: ese mes no es pre_system (tiene fila) y los otros 11 sí', async () => {
     await withRollback(async (client) => {
       await setBillingStartOffset(client, 1)
       const memberId = await createFakeMember(client, { joinedOn: '2025-01-15' })
       const price = await priceToday(client, memberId)
       await insertOpeningBalanceFee(client, memberId, price * 2)
       await asEditor(client)
-      expect((await monthOptions(client, [memberId])).filter((r) => r.kind === 'pre_system')).toHaveLength(0)
+      const pre = (await monthOptions(client, [memberId])).filter((r) => r.kind === 'pre_system')
+      expect(pre).toHaveLength(11)
+      expect(pre.map((r) => r.period)).not.toContain(await monthAt(client, 0))
     })
   })
 

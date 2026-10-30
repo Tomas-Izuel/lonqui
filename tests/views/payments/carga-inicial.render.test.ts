@@ -26,7 +26,7 @@ const P = 1_000_000
 function opt(partial: Partial<PaymentMonthOption> & Pick<PaymentMonthOption, 'period' | 'kind'>): PaymentMonthOption {
   const amountCents = partial.amountCents ?? P
   const coveredCents = partial.coveredCents ?? 0
-  return { memberId: 1, amountCents, coveredCents, pendingCents: amountCents - coveredCents, isCurrent: false, pricedAtToday: true, openingFrom: null, ...partial }
+  return { memberId: 1, amountCents, coveredCents, pendingCents: amountCents - coveredCents, isCurrent: false, pricedAtToday: true, beforeJoined: false, ...partial }
 }
 
 const MEMBER: MemberAccount = {
@@ -124,52 +124,36 @@ describe('PaymentForm: grilla colapsada vs abierta', () => {
   })
 })
 
-describe('avisos de saldo anterior existente (solo con la grilla abierta)', () => {
-  const withSpan = [
-    opt({ period: '2026-03-01', kind: 'opening_balance', openingFrom: '2026-01-01' as ISODate }),
-    opt({ period: '2026-04-01', kind: 'opening_balance', openingFrom: '2026-01-01' as ISODate }),
-    opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
-  ]
-  const legacy = [opt({ period: '2026-09-01', kind: 'opening_balance', amountCents: 3 * P }), opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true })]
+// Reemplaza "avisos de saldo anterior existente": con el saldo por MES ya no hay un tramo único que avisar
+// ("arranca en enero", "anulalo y volvé a cargarlo") ni un aviso de "ya tiene saldo". Cada mes de saldo es una
+// celda de su mes; los previos sin fila siguen ofreciéndose y se pueden agregar.
+describe('saldo anterior por mes en el formulario de pago', () => {
   const render = (options: PaymentMonthOption[], billingStarted: boolean) =>
     normalize(renderToStaticMarkup(createElement(PaymentForm, { member: MEMBER, options, billingStarted, onDone: () => {} })))
+  const perMonth = [
+    opt({ period: '2026-03-01', kind: 'opening_balance' }),
+    opt({ period: '2026-04-01', kind: 'opening_balance' }),
+    opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
+  ]
 
-  it('con tramo: dice desde qué mes arranca y que hay que anularlo para indicar meses anteriores', () => {
-    const html = render(withSpan, false)
-    expect(html).toContain('El saldo anterior de este socio arranca en enero 2026.')
-    expect(html).toContain('un administrador tiene que anularlo desde la ficha y volver a cargarlo')
-    expect(html).not.toContain('ya tiene un saldo anterior cargado')
+  it('cada mes de saldo se ve como un mes adeudado ("debe"), sin avisos de tramo ni de "ya tiene un saldo"', () => {
+    const html = render(perMonth, false)
+    const c = cells(html)
+    expect(c[0].html).toMatch(/debe/)
+    expect(c[1].html).toMatch(/debe/)
+    for (const gone of ['arranca en', 'anularlo desde la ficha', 'ya tiene un saldo anterior', 'Saldo anterior ·']) expect(html).not.toContain(gone)
   })
 
-  it('legacy (sin tramo): el aviso de siempre, sin mes de arranque', () => {
-    const html = render(legacy, false)
-    expect(html).toContain('Este socio ya tiene un saldo anterior cargado.')
-    expect(html).not.toContain('arranca en')
-  })
-
-  it('colapsada no se muestra ningún aviso', () => {
-    for (const options of [withSpan, legacy]) {
-      const html = render(options, true)
-      expect(html).not.toContain('saldo anterior de este socio')
-      expect(html).not.toContain('ya tiene un saldo anterior')
-    }
-  })
-
-  it('sin saldo existente no hay aviso', () => {
-    expect(render(DUE_TWO, false)).not.toContain('saldo anterior')
-  })
-
-  it('las celdas del saldo con tramo se ven como meses ("debe"), la legacy como "Saldo anterior · $X"', () => {
-    const spanCells = cells(render(withSpan, false))
-    expect(spanCells[0].html).toMatch(/debe/)
-    expect(spanCells[0].html).not.toContain('Saldo anterior')
-    const legacyCells = cells(render(legacy, false))
-    expect(legacyCells[0].html).toMatch(/Saldo anterior · \$\s?30\.000/)
+  it('un mes de saldo suelto se marca solo (conjunto), sin arrastrar a los otros', () => {
+    const html = normalize(
+      renderToStaticMarkup(createElement(MonthStrip, { options: perMonth, selection: [1], onTap: () => {}, preSystem: null, coverage: null })),
+    )
+    expect(cells(html).map((x) => x.attrs.includes('aria-pressed="true"'))).toEqual([false, true, false])
   })
 })
 
 describe('MonthStrip con tramo: "queda debiendo", total rotulado y ayuda de arrastre', () => {
-  const selection = { startIndex: 0, endIndex: 5 }
+  const selection = [0, 1, 2, 3, 4, 5]
   const ctx = { creditCents: 0 }
   const eff = effectiveOptions(CARGA, selection, ctx)
   const pre = (extra: Record<string, unknown> = {}) => ({
@@ -222,7 +206,7 @@ describe('MonthStrip con tramo: "queda debiendo", total rotulado y ayuda de arra
   })
 
   it('todo el tramo marcado: la pista no dice "Queda debiendo"', () => {
-    const all = { startIndex: 0, endIndex: 9 }
+    const all = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     const scope = openingScope(CARGA, all, ctx, { payment: true })
     const html = normalize(
       renderToStaticMarkup(
@@ -250,8 +234,9 @@ describe('MonthStrip con tramo: "queda debiendo", total rotulado y ayuda de arra
 
   it('ayuda de arrastre: con onRange y celdas previas abiertas aparece, en las dos variantes (mouse y dedo)', () => {
     const html = render({ onRange: () => {} })
-    expect(html).toContain('Tocá el primer y el último mes, o arrastrá.')
-    expect(html).toContain('Tocá el primer y el último mes, o mantené apretado y arrastrá.')
+    expect(html).toContain('Tocá cada mes que pagó, o arrastrá.')
+    expect(html).toContain('Tocá cada mes que pagó, o mantené apretado y arrastrá.')
+    expect(html).not.toContain('primer y el último mes')
     expect(html).toContain('pointer-coarse:hidden')
   })
 
@@ -275,24 +260,30 @@ describe('MonthStrip con tramo: "queda debiendo", total rotulado y ayuda de arra
     expect(html).not.toContain('arrastr')
   })
 
-  it('sin celdas previas no hay ayuda de arrastre', () => {
+  it('la ayuda de arrastre ya no depende de que haya celdas previas: con onRange aparece siempre (la grilla es de meses sueltos)', () => {
     const html = renderToStaticMarkup(
-      createElement(MonthStrip, { options: DUE_TWO, selection: { startIndex: 0, endIndex: 0 }, onTap: () => {}, onRange: () => {}, preSystem: null, coverage: null }),
+      createElement(MonthStrip, { options: DUE_TWO, selection: [0], onTap: () => {}, onRange: () => {}, preSystem: null, coverage: null }),
     )
-    expect(html).not.toContain('arrastr')
+    expect(html).toContain('Tocá cada mes que pagó, o arrastrá.')
   })
 
-  it('con un saldo a favor que cubre ene y feb, esas celdas ya no se marcan: van como "cubierto" y deshabilitadas', () => {
+  it('con un saldo a favor que cubre ene y feb: marcadas se pueden desmarcar (tocables, "cubierto"); sin marcar quedan deshabilitadas', () => {
     const credit = { creditCents: 2 * P }
     const effCredit = effectiveOptions(CARGA, selection, credit)
-    const html = normalize(
-      renderToStaticMarkup(createElement(MonthStrip, { options: effCredit, selection, onTap: () => {}, preSystem: pre({ scope: openingScope(CARGA, selection, credit, { payment: true }) }), coverage: null })),
-    )
-    const c = cells(html)
-    expect(c[0].attrs).toContain('disabled')
-    expect(c[0].html).toContain('cubierto')
-    expect(c[1].attrs).toContain('disabled')
-    expect(c[2].attrs).toContain('aria-pressed="true"')
+    const mk = (sel: number[]) =>
+      cells(
+        normalize(
+          renderToStaticMarkup(createElement(MonthStrip, { options: effCredit, selection: sel, onTap: () => {}, preSystem: pre({ scope: openingScope(CARGA, selection, credit, { payment: true }) }), coverage: null })),
+        ),
+      )
+    const marked = mk(selection)
+    expect(marked[0].html).toContain('cubierto')
+    expect(marked[0].attrs).not.toContain('disabled')
+    expect(marked[0].attrs).toContain('aria-pressed="true"')
+    const unmarked = mk([2, 3, 4, 5])
+    expect(unmarked[0].attrs).toContain('disabled')
+    expect(unmarked[0].attrs).not.toContain('aria-pressed')
+    expect(unmarked[2].attrs).toContain('aria-pressed="true"')
   })
 })
 

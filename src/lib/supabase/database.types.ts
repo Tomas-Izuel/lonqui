@@ -265,6 +265,43 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"payment_allocations": {
+                  Row: {
+                    "amount_cents": number,"created_at": string,"created_by": string | null,"fee_id": number,"id": number,"payment_id": number,"source": string
+                  }
+                  Insert: {
+                    "amount_cents": number,"created_at"?: string,"created_by"?: string | null,"fee_id": number,"id"?: never,"payment_id": number,"source": string
+                  }
+                  Update: {
+                    "amount_cents"?: number,"created_at"?: string,"created_by"?: string | null,"fee_id"?: number,"id"?: never,"payment_id"?: number,"source"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "payment_allocations_fee_id_fkey"
+      columns: ["fee_id"]
+isOneToOne: false
+      referencedRelation: "fee_status"
+      referencedColumns: ["fee_id"]
+    },{
+      foreignKeyName: "payment_allocations_fee_id_fkey"
+      columns: ["fee_id"]
+isOneToOne: false
+      referencedRelation: "fees"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "payment_allocations_payment_id_fkey"
+      columns: ["payment_id"]
+isOneToOne: false
+      referencedRelation: "payment_credit"
+      referencedColumns: ["payment_id"]
+    },{
+      foreignKeyName: "payment_allocations_payment_id_fkey"
+      columns: ["payment_id"]
+isOneToOne: false
+      referencedRelation: "payments"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"payments": {
                   Row: {
                     "amount_cents": number,"batch_id": string,"created_at": string,"created_by": string | null,"id": number,"member_id": number,"method": string,"notes": string | null,"paid_on": string,"receipt_filename": string | null,"receipt_storage_path": string | null,"void_reason": string | null,"voided_at": string | null,"voided_by": string | null
@@ -313,7 +350,45 @@ isOneToOne: false
                 }
           }
           Views: {
-            [_ in never]: never
+            "fee_status": {
+                  Row: {
+                    "amount_cents": number | null,"category_id": number | null,"discipline_id": number | null,"fee_id": number | null,"kind": string | null,"member_id": number | null,"paid_cents": number | null,"pending_cents": number | null,"period": string | null,"status": string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "fees_category_id_fkey"
+      columns: ["category_id"]
+isOneToOne: false
+      referencedRelation: "categories"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fees_discipline_id_fkey"
+      columns: ["discipline_id"]
+isOneToOne: false
+      referencedRelation: "disciplines"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "fees_member_id_fkey"
+      columns: ["member_id"]
+isOneToOne: false
+      referencedRelation: "members"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"payment_credit": {
+                  Row: {
+                    "allocated_cents": number | null,"amount_cents": number | null,"credit_cents": number | null,"member_id": number | null,"paid_on": string | null,"payment_id": number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "payments_member_id_fkey"
+      columns: ["member_id"]
+isOneToOne: false
+      referencedRelation: "members"
+      referencedColumns: ["id"]
+    }
+                  ]
+                }
           }
           Functions: {
             "cash_month_summary":
@@ -390,7 +465,7 @@ isOneToOne: false
                            },
 "payment_month_options":
 { Args: { "member_ids": (number)[] }; Returns: {
-              "amount_cents": number,"covered_cents": number,"is_current": boolean,"kind": string,"member_id": number,"opening_from": string,"pending_cents": number,"period": string,"priced_at_today": boolean
+              "amount_cents": number,"before_joined": boolean,"covered_cents": number,"is_current": boolean,"kind": string,"member_id": number,"pending_cents": number,"period": string,"priced_at_today": boolean
             }[]
                            },
 "register_payment_batch":

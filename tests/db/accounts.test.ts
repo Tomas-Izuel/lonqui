@@ -168,6 +168,46 @@ describe.skipIf(!dbAvailable)('member_balance / member_fee_statement: cobertura 
     })
   })
 
+  // Desde 20261029120000: "meses adeudados" sale de fee_status (cuotas con pendiente), así que un saldo
+  // por meses cuenta CADA mes adeudado y el saldo viejo sin tramo sigue contando como un ítem.
+  it('saldo anterior por mes: cada mes adeudado cuenta; uno parcialmente pago sigue contando; el pago del más viejo baja el contador', async () => {
+    await withRollback(async (client) => {
+      await actAsSuperuser(client)
+      const memberId = await createMember(client, { firstName: 'M', lastName: 'Meses', joinedOn: '2025-01-01' })
+      const start = (await client.query<{ s: string }>(`select to_char(billing_start_period, 'YYYY-MM-DD') as s from public.settings where id = 1`)).rows[0].s
+      const months = (await client.query<{ p: string }>(
+        `select to_char(($1::date - make_interval(months => k))::date, 'YYYY-MM-DD') as p from generate_series(3, 1, -1) k`,
+        [start],
+      )).rows.map((r) => r.p)
+      for (const period of months) await insertOpeningBalance(client, { memberId, period, amountCents: 1_000_000 })
+
+      const { userId: consultaId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, consultaId)
+      const q = () => client.query(`select months_due, balance_cents, to_char(oldest_due_period, 'YYYY-MM-DD') as oldest from public.member_accounts(array[$1]::bigint[], 'all')`, [memberId])
+      let acc = await q()
+      expect(acc.rows[0]).toMatchObject({ months_due: 3, balance_cents: '3000000', oldest: months[0] })
+
+      await actAsSuperuser(client)
+      await insertPayment(client, { memberId, amountCents: 1_500_000, paidOn: '2026-01-10' })
+      await actAs(client, consultaId)
+      acc = await q()
+      // El pago cubre el mes más viejo entero y la mitad del siguiente: el siguiente sigue adeudado.
+      expect(acc.rows[0]).toMatchObject({ months_due: 2, balance_cents: '1500000', oldest: months[1] })
+    })
+  })
+
+  it('saldo viejo sin tramo (una fila) sigue contando como UN mes adeudado', async () => {
+    await withRollback(async (client) => {
+      await actAsSuperuser(client)
+      const memberId = await createMember(client, { firstName: 'S', lastName: 'SinTramo', joinedOn: '2025-01-01' })
+      await client.query(`insert into public.fees (member_id, kind, amount_cents, description) values ($1, 'opening_balance', 5000000, 'fixture arranque')`, [memberId])
+      const { userId: consultaId } = await createUserWithRole(client, 'consulta')
+      await actAs(client, consultaId)
+      const acc = await client.query(`select months_due, balance_cents from public.member_accounts(array[$1]::bigint[], 'all')`, [memberId])
+      expect(acc.rows[0]).toMatchObject({ months_due: 1, balance_cents: '5000000' })
+    })
+  })
+
   it('pago que excede la deuda: saldo a favor (credit), balance negativo, nunca se muestra como deuda de otro', async () => {
     await withRollback(async (client) => {
       await actAsSuperuser(client)

@@ -111,14 +111,16 @@ npm run db:types       # regenerar src/lib/supabase/database.types.ts
 npm run db:stop
 ```
 
-**Solo hay stack local por ahora.** El proyecto hosted de Supabase (región
-`sa-east-1`, inmutable) se crea cuando haya un entregable para el ambiente de
-prueba de la Comisión. Hasta entonces el CI no aplica migraciones a ningún lado,
-y `.mcp.json` apunta al **MCP del stack local** (`http://127.0.0.1:54321/mcp`,
-necesita `npm run db:start`). A propósito no apunta al MCP hosted sin
-`project_ref`: ese ve todos los proyectos de la cuenta, incluido el de Burger
-Shop en producción. Cuando exista el proyecto hosted, se decide si se agrega
-como un segundo server con su `project_ref` y `read_only=true`.
+**Hay producción.** El proyecto hosted (plan free, `sa-east-1`) tiene datos reales del club.
+El CI (`.github/workflows/ci.yml`, job `deploy-migrations`) aplica las migraciones con
+`supabase db push --linked` en cada push a `main`, después de `build` y `db`; Vercel despliega
+en paralelo, así que **el código nuevo llega unos minutos antes que el schema**: toda migración
+tolera convivir con el código anterior y con el nuevo, y toda migración con datos se ensaya
+antes contra un dump de producción (procedimiento en
+`docs/pipelines/2026-10-29-imputacion-libre-meses/00-architecture.md` §7.1). `.mcp.json`
+apunta al MCP del stack local (`http://127.0.0.1:54321/mcp`, necesita `npm run db:start`); a
+propósito no apunta al MCP hosted sin `project_ref`. El plan free no tiene PITR: el dump previo
+al release es el backup.
 
 ## Variables de entorno
 
@@ -335,20 +337,34 @@ Lo que muestran los Excel reales y el modelo tiene que soportar:
 - Hoy la cuota es **$10.000 plana** para todas las categorías, pero el contrato
   exige que se pueda diferenciar por categoría o tipo de socio.
 
-**Imputación: balance forward** (2026-10-24). Un pago cubre los meses del más
-viejo al más nuevo; nadie elige meses sueltos. El formulario de pago marca meses
-en una grilla (se pliega, se toca o se arrastra) y el monto sale de lo marcado.
-El grupo familiar usa la misma grilla por integrante.
+**Imputación explícita por cuota** (2026-10-29, pipeline `2026-10-29-imputacion-libre-meses`).
+`payment_allocations (payment_id, fee_id, amount_cents, source)` dice qué cuota cubrió cada pago.
+Append-only (sin UPDATE/DELETE/TRUNCATE para nadie, `enable always`), auditada, **sin INSERT para
+`authenticated`**: escriben solo los triggers del motor (`private.apply_credit`,
+`private.allocate_marked`), que son DEFINER en `private`. Reglas: al registrar, los meses
+marcados en orden (social antes que deporte) hasta donde alcanza, el resto al adeudado más
+viejo, el resto queda como saldo a favor del pago (`source` marked / oldest_first); el
+generador, la anulación de una cuota y la anulación de un pago reimputan el crédito
+(`credit`); anular un pago deja sus imputaciones inertes. Los triggers de anulación son
+`after update ... when (old.voided_at is null and new.voided_at is not null)`, **nunca**
+`update of voided_at`: la app anula con `set void_reason` y el guard BEFORE pone `voided_at`,
+que no está en el SET, y un trigger `of voided_at` no dispara. `fee_status` (pagada/parcial/adeudada por cuota) y `payment_credit`
+(saldo a favor por pago) son LA definición; `member_fee_coverage`, `member_balance`,
+`payment_month_options` y todo lo demás salen de ahí. Invariante: nunca conviven deuda y saldo a
+favor en un socio. Sin índice único `(payment_id, fee_id)`: un pago puede imputarse dos veces a
+la misma cuota en momentos distintos. Una imputación equivocada se corrige anulando el pago y
+cargando otro: nunca se mueve. La grilla marca meses sueltos (tocar alterna, arrastrar pinta);
+los adelantos solo cuando no queda nada adeudado sin marcar.
 
-**Saldo anterior con tramo** (2026-10-24, pipeline
-`2026-10-24-carga-inicial-meses`). En la carga inicial, el primer mes previo
-marcado es "desde cuándo debía": el saldo anterior va de ahí hasta el último mes
-previo, y el pago cubre solo lo marcado. El resto queda adeudado. El saldo guarda
-su tramo (`fees.from_period`/`to_period`, inmutables), y `payment_month_options`
-lo devuelve mes por mes, con el total repartido en partes enteras y el resto en
-el último mes. Así se pueden cargar varios pagos históricos seguidos. Un saldo sin
-tramo (los viejos) sigue siendo una sola celda. Para cambiar desde cuándo debía,
-el saldo se anula (admin) y se vuelve a cargar: nunca se edita ni se extiende.
+**Saldo anterior por mes** (2026-10-29). Una fila `opening_balance` por socio y mes
+(`fees_one_opening_balance (member_id, period)`), con `period` real anterior al inicio (hasta 36
+meses atrás). "Desde cuándo debía" = crear filas (desde la fecha de alta si es anterior al primer
+mes marcado; si es posterior, desde el marcado y la UI avisa); "más atrás" = agregar filas;
+equivocarse = anular las filas que sobran (admin, motivo). Los tramos (`from_period`/`to_period`)
+son historia: las filas que los tenían están anuladas con motivo "Convertido a saldo anterior
+por mes (migración 20261029120000)" y reemplazadas por sus meses con el mismo reparto (partes
+enteras, resto en el último: `private.split_opening_total` = `splitOpeningTotal`). Un saldo sin
+tramo (viejo) sigue siendo una fila del mes anterior al inicio.
 
 ### Datos personales (Ley 25.326)
 
@@ -441,7 +457,7 @@ El schema lo diseña el `feature-planner` en el primer pipeline de la Fase 1.
 Los conceptos que tiene que cubrir: socios (con tipo practicante/no
 practicante y estado), disciplinas, categorías, grupos familiares con
 responsable, apto físico con adjunto, valores de cuota (por categoría y por
-tipo), cargos por período, pagos con adjunto y anulación, eventos de
+tipo), cargos por período, pagos con adjunto y anulación, imputaciones de pagos a cuotas (`payment_allocations`), eventos de
 alta/baja/reactivación, usuarios internos con rol, auditoría.
 
 ### Caja: otros ingresos y sponsors (2026-10-13)
@@ -677,3 +693,7 @@ Heredadas de Burger Shop, mismo stack, mismas trampas:
 - **Varias RPC se redefinen en migraciones posteriores**: la vigente es la de la
   migración más nueva. Editar la primera definición no cambia nada.
 - **La región de Supabase es inmutable.** `sa-east-1`.
+- **`supabase db push` corre cada archivo como UNA transacción implícita** (pipeline con un solo
+  `Sync`, la fila de versión adentro). La cortan las sentencias que empiezan con `CREATE/DROP
+  INDEX CONCURRENTLY`, `REINDEX … CONCURRENTLY`, `VACUUM`, `ALTER SYSTEM` o `CLUSTER`: no van en
+  una migración con datos.

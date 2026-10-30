@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { CircleCheck } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { LoadingList, ErrorState } from '@/views/shared/states'
 import { PaymentForm } from '@/views/payments/payment-form'
 import { GroupPaymentForm } from '@/views/payments/group-payment-form'
@@ -78,6 +79,8 @@ export function RegisterPaymentSheetBody({
   const [state, setState] = useState<State>({ status: 'idle' })
   const [success, setSuccess] = useState<{ amountCents: number; label?: string } | null>(null)
   const closeTimeoutRef = useRef<number | undefined>(undefined)
+  // "Reintentar" tras un error (por ejemplo, mientras el sistema se está actualizando).
+  const [attempt, setAttempt] = useState(0)
 
   // Si el overlay se cierra a mano (Esc, backdrop) mientras el check todavía
   // está en pantalla, el cierre "de verdad" que programó `handleSuccess` no
@@ -108,12 +111,14 @@ export function RegisterPaymentSheetBody({
         return
       }
       setState({ status: 'ready', data: result.data })
+    }).catch(() => {
+      if (!cancelled) setState({ status: 'error', error: 'No pudimos conectarnos. Revisá tu conexión y probá de nuevo.' })
     })
 
     return () => {
       cancelled = true
     }
-  }, [memberId, familyGroupId])
+  }, [memberId, familyGroupId, attempt])
 
   function handleSuccess(amountCents: number, label?: string) {
     setSuccess({ amountCents, label })
@@ -134,7 +139,23 @@ export function RegisterPaymentSheetBody({
     <>
       {state.status === 'idle' || state.status === 'loading' ? <LoadingList rows={3} /> : null}
       {state.status === 'error' ? (
-        <ErrorState title="No pudimos abrir el formulario" description={state.error} />
+        <ErrorState
+          title="No pudimos abrir el formulario"
+          description={state.error}
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => {
+                setState({ status: 'loading' })
+                setAttempt((n) => n + 1)
+              }}
+            >
+              Reintentar
+            </Button>
+          }
+        />
       ) : null}
       {state.status === 'ready' ? (
         state.data.familyGroup ? (

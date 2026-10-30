@@ -61,6 +61,33 @@ export function periodRangeLabel(from: string, to: string): string {
   return `${fromLabel} a ${toLabel}`
 }
 
+/**
+ * Lista de períodos que puede tener huecos (los meses que cubre un pago, los
+ * marcados en la tira): "julio 2026", "mayo a julio 2026" si son contiguos,
+ * "mayo, julio y septiembre 2026" si no. El año va una vez por tramo de un
+ * mismo año: "noviembre y diciembre 2025, febrero 2026". Ordena y descarta
+ * repetidos; vacío → ''.
+ */
+export function periodListLabel(periods: string[]): string {
+  const months = [...new Set(periods.map((p) => p.slice(0, 7)))].sort()
+  if (months.length === 0) return ''
+  if (months.length === 1) return formatPeriod(`${months[0]}-01`)
+  const index = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7))
+  const contiguous = months.every((m, i) => i === 0 || index(m) === index(months[i - 1]) + 1)
+  if (contiguous) return periodRangeLabel(`${months[0]}-01`, `${months[months.length - 1]}-01`)
+
+  const byYear = new Map<string, string[]>()
+  for (const m of months) {
+    const name = formatPeriod(`${m}-01`).replace(/ \d{4}$/, '')
+    byYear.set(m.slice(0, 4), [...(byYear.get(m.slice(0, 4)) ?? []), name])
+  }
+  const groups = [...byYear.entries()].map(([year, names]) => {
+    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
+    return `${list} ${year}`
+  })
+  return groups.join(', ')
+}
+
 /** `2026-09-25` (date de Postgres) → "25/09/2026". Sin pasar por `Date`. */
 export function formatDate(isoDate: string): string {
   const [year, month, day] = isoDate.slice(0, 10).split('-')

@@ -39,6 +39,7 @@ export const AUDITED_TABLES = [
   'fee_prices',
   'fees',
   'payments',
+  'payment_allocations',
   'cash_concepts',
   'sponsors',
   'cash_movements',
@@ -88,6 +89,13 @@ export const AUDIT_FIELD_LABELS: Partial<Record<AuditedTable, Record<string, str
     notes: 'notas',
     voided_at: 'anulación',
     void_reason: 'motivo de anulación',
+  },
+  // Imputaciones (pipeline 2026-10-29): fila inmutable, sin created_by (el actor ya es "quién").
+  payment_allocations: {
+    payment_id: 'pago',
+    fee_id: 'cuota',
+    amount_cents: 'monto',
+    source: 'origen',
   },
   // Caja y otros ingresos (pipeline 2026-10-13). Sin created_by / voided_by /
   // deactivated_by: el actor ya es la columna "quién" del registro.
@@ -276,7 +284,9 @@ const LABEL_COLUMNS =
   'new_valid_from:new_data->>valid_from, old_valid_from:old_data->>valid_from, ' +
   'new_concept_id:new_data->>concept_id, old_concept_id:old_data->>concept_id, ' +
   'new_sponsor_id:new_data->>sponsor_id, old_sponsor_id:old_data->>sponsor_id, ' +
-  'new_occurred_on:new_data->>occurred_on, old_occurred_on:old_data->>occurred_on'
+  'new_occurred_on:new_data->>occurred_on, old_occurred_on:old_data->>occurred_on, ' +
+  'new_fee_id:new_data->>fee_id, old_fee_id:old_data->>fee_id, ' +
+  'new_payment_id:new_data->>payment_id, old_payment_id:old_data->>payment_id'
 
 type AuditRow = AuditRowBase & {
   new_first_name: string | null
@@ -313,6 +323,10 @@ type AuditRow = AuditRowBase & {
   old_sponsor_id: string | null
   new_occurred_on: string | null
   old_occurred_on: string | null
+  new_fee_id: string | null
+  old_fee_id: string | null
+  new_payment_id: string | null
+  old_payment_id: string | null
 }
 
 function toEntry(row: AuditRowBase, actorName: string | null, recordLabel: string | null): AuditEntry {
@@ -377,6 +391,11 @@ type RawLabelValues = {
   sponsorIdOld: unknown
   occurredOnNew: unknown
   occurredOnOld: unknown
+  // Imputaciones (2026-10-29): payment_allocations.
+  feeIdNew: unknown
+  feeIdOld: unknown
+  paymentIdNew: unknown
+  paymentIdOld: unknown
 }
 
 function rawValuesFromColumns(row: AuditRow): RawLabelValues {
@@ -415,6 +434,10 @@ function rawValuesFromColumns(row: AuditRow): RawLabelValues {
     sponsorIdOld: row.old_sponsor_id,
     occurredOnNew: row.new_occurred_on,
     occurredOnOld: row.old_occurred_on,
+    feeIdNew: row.new_fee_id,
+    feeIdOld: row.old_fee_id,
+    paymentIdNew: row.new_payment_id,
+    paymentIdOld: row.old_payment_id,
   }
 }
 
@@ -457,6 +480,10 @@ function rawValuesFromJsonb(
     sponsorIdOld: oldData?.sponsor_id,
     occurredOnNew: newData?.occurred_on,
     occurredOnOld: oldData?.occurred_on,
+    feeIdNew: newData?.fee_id,
+    feeIdOld: oldData?.fee_id,
+    paymentIdNew: newData?.payment_id,
+    paymentIdOld: oldData?.payment_id,
   }
 }
 
@@ -523,6 +550,7 @@ type LabelDraft =
       amountCents: number | null
       occurredOn: string | null
     }
+  | { kind: 'needsAllocationLabel'; feeId: number | null; paymentId: number | null; amountCents: number | null }
 
 const FAMILY_GROUP_FALLBACK_LABEL = 'Grupo familiar'
 
@@ -587,6 +615,13 @@ function buildLabelDraft(tableName: string, v: RawLabelValues): LabelDraft {
         amountCents: coalesceId(v.amountCentsNew, v.amountCentsOld),
         occurredOn: coalesceText(v.occurredOnNew, v.occurredOnOld),
       }
+    case 'payment_allocations':
+      return {
+        kind: 'needsAllocationLabel',
+        feeId: coalesceId(v.feeIdNew, v.feeIdOld),
+        paymentId: coalesceId(v.paymentIdNew, v.paymentIdOld),
+        amountCents: coalesceId(v.amountCentsNew, v.amountCentsOld),
+      }
     case 'sponsors':
     case 'cash_concepts':
       return { kind: 'ready', label: coalesceText(v.nameNew, v.nameOld) }
@@ -605,6 +640,7 @@ function finalizeLabel(
   memberLabels: Map<string, string>,
   categoryNames: Map<number, string>,
   cashNames: CashNames,
+  allocationRefs: AllocationRefs,
 ): string | null {
   switch (draft.kind) {
     case 'ready':
@@ -659,6 +695,21 @@ function finalizeLabel(
       const categoryName = draft.categoryId !== null ? categoryNames.get(draft.categoryId) : undefined
       return categoryName ? `${memberLabel} · ${categoryName}` : memberLabel
     }
+    case 'needsAllocationLabel': {
+      // "imputación de $X a <cuota del mes MM/YYYY> del pago del DD/MM/YYYY".
+      // Sin nombre de socio (la etiqueta de `payments` sí lo lleva, esta no: el
+      // vínculo es pago ↔ cuota). Lo que no se resolvió se omite.
+      const fee = draft.feeId !== null ? allocationRefs.fees.get(draft.feeId) : undefined
+      const paidOn = draft.paymentId !== null ? allocationRefs.payments.get(draft.paymentId) : undefined
+      const amount = draft.amountCents !== null ? formatCentsCompact(draft.amountCents) : null
+      let label = amount ? `imputación de ${amount}` : 'imputación'
+      if (fee) {
+        const [year, month] = fee.period.split('-')
+        label += fee.kind === 'opening_balance' ? ` a saldo anterior ${month}/${year}` : ` a cuota del mes ${month}/${year}`
+      }
+      if (paidOn) label += ` del pago del ${formatDate(paidOn)}`
+      return label
+    }
     case 'needsCashMovementLabel': {
       // "<Concepto>[ · <Sponsor>] · $X · dd/mm/aaaa"; lo que no se pudo
       // resolver se omite en vez de mostrar un id crudo.
@@ -669,6 +720,39 @@ function finalizeLabel(
       const parts = [conceptName, sponsorName, amount, date].filter((part): part is string => Boolean(part))
       return parts.length > 0 ? parts.join(' · ') : null
     }
+  }
+}
+
+/** Período/tipo de cada cuota y fecha de cada pago referidos por las imputaciones de la página. */
+type AllocationRefs = { fees: Map<number, { period: string; kind: string }>; payments: Map<number, string> }
+
+/** Una consulta batch por tabla (cuotas, pagos): sin N+1, mismo patrón que `resolveCashNames`. */
+async function resolveAllocationRefs(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  drafts: readonly LabelDraft[],
+): Promise<AllocationRefs> {
+  const feeIds = new Set<number>()
+  const paymentIds = new Set<number>()
+  for (const draft of drafts) {
+    if (draft.kind !== 'needsAllocationLabel') continue
+    if (draft.feeId !== null) feeIds.add(draft.feeId)
+    if (draft.paymentId !== null) paymentIds.add(draft.paymentId)
+  }
+
+  const [fees, payments] = await Promise.all([
+    feeIds.size === 0
+      ? Promise.resolve({ data: [] as { id: number; period: string; kind: string }[], error: null })
+      : supabase.from('fees').select('id, period, kind').in('id', [...feeIds]),
+    paymentIds.size === 0
+      ? Promise.resolve({ data: [] as { id: number; paid_on: string }[], error: null })
+      : supabase.from('payments').select('id, paid_on').in('id', [...paymentIds]),
+  ])
+  if (fees.error) throw fees.error
+  if (payments.error) throw payments.error
+
+  return {
+    fees: new Map((fees.data ?? []).map((row) => [row.id, { period: row.period, kind: row.kind }])),
+    payments: new Map((payments.data ?? []).map((row) => [row.id, row.paid_on])),
   }
 }
 
@@ -823,7 +907,7 @@ export async function getAuditPage(filters: AuditFilters): Promise<Page<AuditEnt
 
   const drafts = pageRows.map((row) => buildLabelDraft(row.table_name, rawValuesFromColumns(row)))
 
-  const [actorNames, disciplineNames, memberLabels, categoryNames, cashNames] = await Promise.all([
+  const [actorNames, disciplineNames, memberLabels, categoryNames, cashNames, allocationRefs] = await Promise.all([
     resolveActorNames(
       supabase,
       pageRows.map((row) => row.actor_id),
@@ -835,13 +919,14 @@ export async function getAuditPage(filters: AuditFilters): Promise<Page<AuditEnt
     resolveMemberLabels(supabase, drafts.map(memberIdOf)),
     resolveCategoryNames(supabase, drafts.map(categoryIdOf)),
     resolveCashNames(supabase, drafts),
+    resolveAllocationRefs(supabase, drafts),
   ])
 
   const items = pageRows.map((row, index) =>
     toEntry(
       row,
       row.actor_id ? (actorNames.get(row.actor_id) ?? null) : null,
-      finalizeLabel(drafts[index], disciplineNames, memberLabels, categoryNames, cashNames),
+      finalizeLabel(drafts[index], disciplineNames, memberLabels, categoryNames, cashNames, allocationRefs),
     ),
   )
   const last = pageRows.at(-1)
@@ -866,18 +951,19 @@ export async function getAuditEntry(id: number): Promise<AuditEntryDetail | null
   const oldData = data.old_data as Record<string, unknown> | null
   const draft = buildLabelDraft(data.table_name, rawValuesFromJsonb(newData, oldData))
 
-  const [actorNames, disciplineNames, memberLabels, categoryNames, cashNames] = await Promise.all([
+  const [actorNames, disciplineNames, memberLabels, categoryNames, cashNames, allocationRefs] = await Promise.all([
     resolveActorNames(supabase, [data.actor_id]),
     resolveDisciplineNames(supabase, [draft.kind === 'needsDiscipline' ? draft.disciplineId : null]),
     resolveMemberLabels(supabase, [memberIdOf(draft)]),
     resolveCategoryNames(supabase, [categoryIdOf(draft)]),
     resolveCashNames(supabase, [draft]),
+    resolveAllocationRefs(supabase, [draft]),
   ])
 
   const entry = toEntry(
     data as AuditRowBase,
     data.actor_id ? (actorNames.get(data.actor_id) ?? null) : null,
-    finalizeLabel(draft, disciplineNames, memberLabels, categoryNames, cashNames),
+    finalizeLabel(draft, disciplineNames, memberLabels, categoryNames, cashNames, allocationRefs),
   )
 
   return {

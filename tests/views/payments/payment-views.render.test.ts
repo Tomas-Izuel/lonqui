@@ -23,7 +23,7 @@ const P = 1_000_000
 function opt(partial: Partial<PaymentMonthOption> & Pick<PaymentMonthOption, 'period' | 'kind'>): PaymentMonthOption {
   const amountCents = partial.amountCents ?? P
   const coveredCents = partial.coveredCents ?? 0
-  return { memberId: 1, amountCents, coveredCents, pendingCents: amountCents - coveredCents, isCurrent: false, pricedAtToday: true, openingFrom: null, ...partial }
+  return { memberId: 1, amountCents, coveredCents, pendingCents: amountCents - coveredCents, isCurrent: false, pricedAtToday: true, beforeJoined: false, ...partial }
 }
 
 /** ago debe · sep pagado · oct actual · nov adelanto al valor de hoy · dic adelanto con valor programado ($15.000) */
@@ -56,7 +56,7 @@ const MEMBER: MemberAccount = {
   currentFeePeriod: '2026-10-01',
 }
 
-function strip(selection: { startIndex: number; endIndex: number } | null, extra?: Record<string, unknown>) {
+function strip(selection: number[], extra?: Record<string, unknown>) {
   return renderToStaticMarkup(
     createElement(MonthStrip, { options: OPTIONS, selection, onTap: () => {}, preSystem: null, coverage: null, ...extra }),
   )
@@ -68,23 +68,77 @@ function cells(html: string) {
 }
 
 describe('MonthStrip', () => {
-  it('aria-pressed="true" solo en las celdas marcadas; las no marcadas elegibles, "false"', () => {
-    const c = cells(strip({ startIndex: 0, endIndex: 2 }))
+  it('aria-pressed="true" solo en las celdas marcadas (un CONJUNTO, no un rango); las no marcadas elegibles, "false"', () => {
+    const c = cells(strip([0, 2]))
     expect(c).toHaveLength(5)
     expect(c[0].attrs).toContain('aria-pressed="true"') // agosto
     expect(c[2].attrs).toContain('aria-pressed="true"') // octubre
     expect(c[3].attrs).toContain('aria-pressed="false"') // noviembre
   })
 
-  it('la celda pagada (pendiente 0) va deshabilitada, sin aria-pressed, aunque caiga dentro del rango', () => {
-    const c = cells(strip({ startIndex: 0, endIndex: 2 }))
+  it('un mes marcado y otro NO marcado entre medio: lo del medio queda sin marcar (meses sueltos)', () => {
+    const options = [
+      opt({ period: '2026-08-01', kind: 'monthly' }),
+      opt({ period: '2026-09-01', kind: 'monthly' }),
+      opt({ period: '2026-10-01', kind: 'monthly', isCurrent: true }),
+    ]
+    const html = renderToStaticMarkup(createElement(MonthStrip, { options, selection: [0, 2], onTap: () => {}, preSystem: null, coverage: null }))
+    const c = cells(html)
+    expect(c.map((x) => x.attrs.includes('aria-pressed="true"'))).toEqual([true, false, true])
+  })
+
+  it('la celda pagada (pendiente 0) va deshabilitada y sin aria-pressed mientras no esté marcada', () => {
+    const c = cells(strip([0, 2]))
     expect(c[1].attrs).toContain('disabled')
     expect(c[1].attrs).not.toContain('aria-pressed')
     expect(c[0].attrs).not.toContain('disabled')
   })
 
+  it('una celda marcada que el saldo a favor ya cubrió sigue tocable para poder desmarcarla', () => {
+    const c = cells(strip([1]))
+    expect(c[1].attrs).not.toContain('disabled')
+    expect(c[1].attrs).toContain('aria-pressed="true"')
+  })
+
+  it('los adelantos con deuda sin marcar quedan aria-disabled (en el orden de tabulación, no disabled) y atenuados; con todo lo adeudado marcado se habilitan', () => {
+    const blocked = cells(strip([0]))
+    for (const i of [3, 4]) {
+      expect(blocked[i].attrs).toContain('aria-disabled="true"')
+      expect(blocked[i].attrs).not.toMatch(/\sdisabled(=|\s|$)/)
+      expect(blocked[i].attrs).toContain('opacity-60')
+      expect(blocked[i].html).toMatch(/se habilita al marcar los meses que debe/)
+    }
+    // El aviso "Para adelantar meses…" es una región role=status vacía hasta que se toca un adelanto bloqueado.
+    expect(strip([0])).toMatch(/<p role="status"[^>]*><\/p>|<p role="status"[^>]*>\s*<\/p>/)
+    expect(strip([0])).not.toContain('Para adelantar meses')
+
+    const open = cells(strip([0, 2]))
+    for (const i of [3, 4]) {
+      expect(open[i].attrs).not.toContain('aria-disabled')
+      expect(open[i].attrs).not.toContain('opacity-60')
+    }
+  })
+
+  it('la ayuda nueva ("Tocá cada mes que pagó") aparece con arrastre y desaparece "Tocá el primer y el último mes"', () => {
+    const html = strip([0], { onRange: () => {} })
+    expect(html).toContain('Tocá cada mes que pagó, o arrastrá.')
+    expect(html).toContain('mantené apretado y arrastrá')
+    expect(html).not.toContain('primer y el último mes')
+    expect(strip([0])).not.toContain('Tocá cada mes que pagó') // sin arrastre no hay ayuda
+  })
+
+  it('aviso de fecha de alta: texto, mes de alta y link "Corregir fecha de alta" a /socios/<id>/editar; sin aviso, no hay link', () => {
+    const html = strip([0], { joinedWarning: { joinedPeriod: '2026-08-01', memberId: 42 } })
+    expect(html).toContain('Marcaste meses anteriores a la fecha de alta (agosto 2026)')
+    expect(html).toMatch(/<a[^>]*href="\/socios\/42\/editar"[^>]*>\s*Corregir fecha de alta\s*<\/a>/)
+    const noMonth = strip([0], { joinedWarning: { joinedPeriod: null, memberId: 7 } })
+    expect(noMonth).toContain('Marcaste meses anteriores a la fecha de alta.')
+    expect(noMonth).toContain('/socios/7/editar')
+    expect(strip([0])).not.toContain('Corregir fecha de alta')
+  })
+
   it('sr-only con mes, año y estado de cada celda', () => {
-    const html = strip({ startIndex: 0, endIndex: 0 })
+    const html = strip([0])
     const sr = [...html.matchAll(/<span class="sr-only">([^<]*)<\/span>/g)].map((m) => m[1])
     expect(sr).toHaveLength(5)
     expect(sr[0]).toMatch(/agosto 2026/i)
@@ -96,40 +150,49 @@ describe('MonthStrip', () => {
   })
 
   it('el estado no depende solo del color: cada celda tiene texto de estado visible', () => {
-    const c = cells(strip(null))
+    const c = cells(strip([]))
     for (const cell of c) expect(cell.html).toMatch(/debe|pagado|este mes|adelanto/)
   })
 
   it('un adelanto con valor programado distinto al de hoy dice su monto; el que está al valor de hoy no', () => {
-    const c = cells(strip(null))
+    const c = cells(strip([]))
     expect(c[4].html).toMatch(/adelanto · \$\s?15\.000/)
     expect(c[3].html).not.toMatch(/adelanto ·/)
     expect(c[3].html).toMatch(/adelanto/)
   })
 
   it('con un adelanto al valor de hoy marcado avisa "se cobran al valor de hoy"; sin adelantos marcados, no', () => {
-    expect(strip({ startIndex: 0, endIndex: 3 })).toContain('Los meses de adelanto se cobran al valor de hoy.')
-    expect(strip({ startIndex: 0, endIndex: 2 })).not.toContain('al valor de hoy')
+    expect(strip([0, 2, 3])).toContain('Los meses de adelanto se cobran al valor de hoy.')
+    expect(strip([0, 2])).not.toContain('al valor de hoy')
   })
 
-  it('"Otro monto": con coverage, las celdas cubiertas quedan marcadas y la parcial dice cuánto cubre', () => {
-    const html = strip({ startIndex: 0, endIndex: 0 }, { coverage: { fullyCovered: [0], partial: { index: 2, cents: 400_000 } } })
+  it('"Otro monto": con coverage, el marcado parcial dice cuánto cubre y las NO marcadas que absorben el remanente dicen "se cubre"', () => {
+    const coverage = { marked: [{ index: 0, cents: P }], partial: { index: 2, cents: 400_000 }, unmarked: [], advances: [], leftoverCents: 0 }
+    const html = strip([0, 2], { coverage })
     const c = cells(html)
     expect(c[0].attrs).toContain('aria-pressed="true"')
     expect(c[2].attrs).toContain('aria-pressed="true"')
     expect(html).toMatch(/cubre \$\s?4\.000 de \$\s?10\.000/)
+
+    const absorbing = strip([0], { coverage: { marked: [{ index: 0, cents: P }], partial: null, unmarked: [{ index: 2, cents: 500_000 }], advances: [], leftoverCents: 0 } })
+    const a = cells(absorbing)
+    expect(a[2].html).toMatch(/se cubre \$\s?5\.000/) // la última no marcada, parcial
+    expect(a[2].attrs).toContain('aria-pressed="false"')
+    expect(a[2].attrs).toContain('border-dashed')
+    const adv = cells(strip([0, 2], { coverage: { marked: [], partial: null, unmarked: [], advances: [{ index: 3, cents: P }], leftoverCents: 0 } }))
+    expect(adv[3].html).toContain('cubierto')
   })
 
   it('el pliegue de "antes del sistema" solo aparece con preSystem y celdas pre_system; cerrado no las muestra', () => {
     const options = [opt({ period: '2026-09-01', kind: 'pre_system' }), ...OPTIONS]
     const pre = { open: false, onToggle: () => {}, startPeriod: '2026-10-01', overrideCents: null, onOverrideChange: () => {} }
-    const closed = renderToStaticMarkup(createElement(MonthStrip, { options, selection: null, onTap: () => {}, preSystem: pre, coverage: null }))
+    const closed = renderToStaticMarkup(createElement(MonthStrip, { options, selection: [], onTap: () => {}, preSystem: pre, coverage: null }))
     expect(closed).toContain('¿Debe meses de antes de octubre 2026?')
     expect(cells(closed)).toHaveLength(5)
-    const open = renderToStaticMarkup(createElement(MonthStrip, { options, selection: null, onTap: () => {}, preSystem: { ...pre, open: true }, coverage: null }))
+    const open = renderToStaticMarkup(createElement(MonthStrip, { options, selection: [], onTap: () => {}, preSystem: { ...pre, open: true }, coverage: null }))
     expect(cells(open)).toHaveLength(6)
     expect(open).toContain('antes del sistema')
-    const noFold = renderToStaticMarkup(createElement(MonthStrip, { options, selection: null, onTap: () => {}, preSystem: null, coverage: null }))
+    const noFold = renderToStaticMarkup(createElement(MonthStrip, { options, selection: [], onTap: () => {}, preSystem: null, coverage: null }))
     expect(noFold).not.toContain('¿Debe meses')
   })
 })
@@ -149,7 +212,7 @@ const BEFORE_START: PaymentMonthOption[] = [
 
 describe('MonthStrip antes del inicio de la facturacion', () => {
   const pre = { open: true, startPeriod: '2026-11-01', overrideCents: null, onOverrideChange: () => {}, beforeStart: true }
-  const render = (selection: { startIndex: number; endIndex: number } | null = { startIndex: 3, endIndex: 3 }) =>
+  const render = (selection: number[] = [3]) =>
     renderToStaticMarkup(createElement(MonthStrip, { options: BEFORE_START, selection, onTap: () => {}, preSystem: pre, coverage: null }))
 
   it('explica que las cuotas arrancan en el mes de inicio y que lo anterior es saldo anterior', () => {
@@ -165,7 +228,7 @@ describe('MonthStrip antes del inicio de la facturacion', () => {
   })
 
   it('las 6 celdas se ven siempre (los previos no estan escondidos)', () => {
-    expect(cells(render(null))).toHaveLength(6)
+    expect(cells(render([]))).toHaveLength(6)
   })
 
   it('el mes actual (previo) dice "este mes" con ícono y para lectores de pantalla "este mes, antes del sistema"; los otros previos no', () => {
@@ -184,7 +247,7 @@ describe('MonthStrip antes del inicio de la facturacion', () => {
 
   it('sin beforeStart (despues del inicio) no aparece la linea explicativa', () => {
     const html = renderToStaticMarkup(
-      createElement(MonthStrip, { options: BEFORE_START, selection: null, onTap: () => {}, preSystem: { ...pre, beforeStart: false, onToggle: () => {} }, coverage: null }),
+      createElement(MonthStrip, { options: BEFORE_START, selection: [], onTap: () => {}, preSystem: { ...pre, beforeStart: false, onToggle: () => {} }, coverage: null }),
     )
     expect(html).not.toContain('Las cuotas arrancan en')
   })
@@ -242,7 +305,7 @@ describe('antes del inicio, inicio a varios meses: el mes de inicio real viaja e
 
   it('MonthStrip: hideBeforeStartNote oculta la linea pero deja las celdas', () => {
     const pre = { open: true, startPeriod: '2027-01-01', overrideCents: null, onOverrideChange: () => {}, beforeStart: true, hideBeforeStartNote: true }
-    const html = renderToStaticMarkup(createElement(MonthStrip, { options: FAR_START, selection: null, onTap: () => {}, preSystem: pre, coverage: null }))
+    const html = renderToStaticMarkup(createElement(MonthStrip, { options: FAR_START, selection: [], onTap: () => {}, preSystem: pre, coverage: null }))
     expect(html).not.toContain('Las cuotas arrancan en')
     expect(cells(html)).toHaveLength(5)
   })
