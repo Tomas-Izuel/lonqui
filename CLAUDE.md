@@ -539,8 +539,9 @@ usuario ya lo pidió, para todo el repo.
 Qué agente para qué: `feature-planner` (en plan mode) antes de cualquier cambio
 no trivial, `senior-backend-engineer` para `models/`, `controllers/`,
 `services/` y `app/api/`, `frontend-react-craftsman` para `views/` y `app/`,
-`test-engineer` dueño único de `tests/`, `code-reviewer` como puerta de calidad
-antes de commitear. `ai-advisor` solo si algo genuinamente necesita un modelo
+`code-reviewer` como puerta de calidad antes de commitear. **No se escriben tests
+nuevos con agentes** (Tomás, 2026-11-24): `test-engineer` solo si Tomás lo pide; la
+suite existente la sigue corriendo el CI. `ai-advisor` solo si algo genuinamente necesita un modelo
 (hoy nada lo necesita).
 
 El hilo principal hace tres cosas, y solo tres:
@@ -574,8 +575,8 @@ docs/pipelines/2026-09-26-padron-de-socios/
 de ahí se vuelve permanente, sube a este archivo: el pipeline guarda el
 razonamiento, CLAUDE.md la conclusión.
 
-**Nada se commitea hasta que `code-reviewer` devuelve `APPROVED` y
-`test-engineer` devuelve `SUITE GREEN`.**
+**Nada se commitea hasta que `code-reviewer` devuelve `APPROVED` y typecheck y lint
+están limpios.**
 
 ### Los agentes usan las skills. Todas.
 
