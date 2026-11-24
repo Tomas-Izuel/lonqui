@@ -539,9 +539,9 @@ usuario ya lo pidió, para todo el repo.
 Qué agente para qué: `feature-planner` (en plan mode) antes de cualquier cambio
 no trivial, `senior-backend-engineer` para `models/`, `controllers/`,
 `services/` y `app/api/`, `frontend-react-craftsman` para `views/` y `app/`,
-`code-reviewer` como puerta de calidad antes de commitear. **No se escriben tests
-nuevos con agentes** (Tomás, 2026-11-24): `test-engineer` solo si Tomás lo pide; la
-suite existente la sigue corriendo el CI. `ai-advisor` solo si algo genuinamente necesita un modelo
+`code-reviewer` como puerta de calidad antes de commitear. **No se escriben tests**
+(ni el hilo principal ni los agentes; Tomás, 2026-11-24): `test-engineer` solo si Tomás lo
+pide; la suite existente la sigue corriendo el CI. `ai-advisor` solo si algo genuinamente necesita un modelo
 (hoy nada lo necesita).
 
 El hilo principal hace tres cosas, y solo tres:
