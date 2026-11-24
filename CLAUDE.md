@@ -192,15 +192,20 @@ Un solo panel, para la Comisión. URLs en español.
 | `/usuarios` | Usuarios internos y roles (solo Administrador) |
 | `/auditoria` | Registro de auditoría (solo Administrador) |
 
-El portal del socio (Fase 2) va a vivir en otro árbol (`/mi-cuenta`), con su
-propio layout y su propio rol. No lo mezcles con el panel.
+El portal del socio es **otra app, en otro repo** (`../socios-lonqui`), sobre
+esta misma base. El panel solo suma lo que la Comisión necesita para él:
+Revisión, invitaciones, cuentas vinculadas, el escáner de QR. No lo mezcles.
 
 ---
 
 ## Roles y permisos
 
-Mínimo privilegio. **Tres roles internos** en la Fase 1; `socio` llega con el
-portal en la Fase 2.
+Mínimo privilegio. **Tres roles internos.** El socio **no es un rol de
+`app_users`, nunca** (2026-11-24): ocho policies abren con
+`current_app_role() is not null`, así que cualquier fila nueva en `app_users`
+ve el padrón entero. Las cuentas de la app de socios viven en `portal_accounts`
+y leen solo por RPC `portal_*` (pipeline `2026-11-24-app-socios` en el repo del
+workspace); `tests/db/portal-lockdown.test.ts` lo hace cumplir.
 
 | Rol | Para | Puede |
 |---|---|---|
