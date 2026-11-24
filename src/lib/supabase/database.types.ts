@@ -321,15 +321,122 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"settings": {
+                },"portal_access_request_people": {
                   Row: {
-                    "billing_start_period": string | null,"club_name": string,"id": number,"updated_at": string
+                    "created_at": string,"dni": string | null,"first_name": string,"id": number,"last_name": string,"relationship": string,"request_id": number
                   }
                   Insert: {
-                    "billing_start_period"?: string | null,"club_name"?: string,"id"?: number,"updated_at"?: string
+                    "created_at"?: string,"dni"?: string | null,"first_name": string,"id"?: never,"last_name": string,"relationship": string,"request_id": number
                   }
                   Update: {
-                    "billing_start_period"?: string | null,"club_name"?: string,"id"?: number,"updated_at"?: string
+                    "created_at"?: string,"dni"?: string | null,"first_name"?: string,"id"?: never,"last_name"?: string,"relationship"?: string,"request_id"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "portal_access_request_people_request_id_fkey"
+      columns: ["request_id"]
+isOneToOne: false
+      referencedRelation: "portal_access_requests"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"portal_access_requests": {
+                  Row: {
+                    "created_at": string,"dni": string,"email": string | null,"first_name": string,"id": number,"last_name": string,"message": string | null,"phone_e164": string | null,"phone_raw": string,"resolution_note": string | null,"resolved_at": string | null,"resolved_by": string | null,"status": string,"updated_at": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"dni": string,"email"?: string | null,"first_name": string,"id"?: never,"last_name": string,"message"?: string | null,"phone_e164"?: string | null,"phone_raw": string,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"status"?: string,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"dni"?: string,"email"?: string | null,"first_name"?: string,"id"?: never,"last_name"?: string,"message"?: string | null,"phone_e164"?: string | null,"phone_raw"?: string,"resolution_note"?: string | null,"resolved_at"?: string | null,"resolved_by"?: string | null,"status"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"portal_access_tokens": {
+                  Row: {
+                    "account_id": string | null,"consumed_at": string | null,"consumed_by": string | null,"created_at": string,"created_by": string,"delivery": string,"expires_at": string,"failed_checks": number,"family_scope": boolean,"id": number,"member_id": number | null,"purpose": string,"relationship": string | null,"request_id": number | null,"requires_dni_check": boolean,"revoke_reason": string | null,"revoked_at": string | null,"revoked_by": string | null,"token_hash": string
+                  }
+                  Insert: {
+                    "account_id"?: string | null,"consumed_at"?: string | null,"consumed_by"?: string | null,"created_at"?: string,"created_by"?: string,"delivery": string,"expires_at": string,"failed_checks"?: number,"family_scope"?: boolean,"id"?: never,"member_id"?: number | null,"purpose": string,"relationship"?: string | null,"request_id"?: number | null,"requires_dni_check": boolean,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"token_hash": string
+                  }
+                  Update: {
+                    "account_id"?: string | null,"consumed_at"?: string | null,"consumed_by"?: string | null,"created_at"?: string,"created_by"?: string,"delivery"?: string,"expires_at"?: string,"failed_checks"?: number,"family_scope"?: boolean,"id"?: never,"member_id"?: number | null,"purpose"?: string,"relationship"?: string | null,"request_id"?: number | null,"requires_dni_check"?: boolean,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"token_hash"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "portal_access_tokens_account_id_fkey"
+      columns: ["account_id"]
+isOneToOne: false
+      referencedRelation: "portal_accounts"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "portal_access_tokens_member_id_fkey"
+      columns: ["member_id"]
+isOneToOne: false
+      referencedRelation: "members"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "portal_access_tokens_request_id_fkey"
+      columns: ["request_id"]
+isOneToOne: false
+      referencedRelation: "portal_access_requests"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"portal_account_members": {
+                  Row: {
+                    "account_id": string,"created_at": string,"family_scope": boolean,"id": number,"linked_by": string | null,"member_id": number,"relationship": string,"revoke_reason": string | null,"revoked_at": string | null,"revoked_by": string | null,"token_id": number | null
+                  }
+                  Insert: {
+                    "account_id": string,"created_at"?: string,"family_scope"?: boolean,"id"?: never,"linked_by"?: string | null,"member_id": number,"relationship": string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"token_id"?: number | null
+                  }
+                  Update: {
+                    "account_id"?: string,"created_at"?: string,"family_scope"?: boolean,"id"?: never,"linked_by"?: string | null,"member_id"?: number,"relationship"?: string,"revoke_reason"?: string | null,"revoked_at"?: string | null,"revoked_by"?: string | null,"token_id"?: number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "portal_account_members_account_id_fkey"
+      columns: ["account_id"]
+isOneToOne: false
+      referencedRelation: "portal_accounts"
+      referencedColumns: ["user_id"]
+    },{
+      foreignKeyName: "portal_account_members_member_id_fkey"
+      columns: ["member_id"]
+isOneToOne: false
+      referencedRelation: "members"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "portal_account_members_token_id_fkey"
+      columns: ["token_id"]
+isOneToOne: false
+      referencedRelation: "portal_access_tokens"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"portal_accounts": {
+                  Row: {
+                    "blocked_at": string | null,"blocked_by": string | null,"blocked_reason": string | null,"created_at": string,"dni": string,"email_verified_at": string | null,"first_name": string,"last_name": string,"password_set_at": string | null,"phone_e164": string | null,"status": string,"terms_accepted_at": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "blocked_at"?: string | null,"blocked_by"?: string | null,"blocked_reason"?: string | null,"created_at"?: string,"dni": string,"email_verified_at"?: string | null,"first_name": string,"last_name": string,"password_set_at"?: string | null,"phone_e164"?: string | null,"status"?: string,"terms_accepted_at": string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "blocked_at"?: string | null,"blocked_by"?: string | null,"blocked_reason"?: string | null,"created_at"?: string,"dni"?: string,"email_verified_at"?: string | null,"first_name"?: string,"last_name"?: string,"password_set_at"?: string | null,"phone_e164"?: string | null,"status"?: string,"terms_accepted_at"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"settings": {
+                  Row: {
+                    "billing_start_period": string | null,"club_name": string,"default_phone_area_code": string | null,"id": number,"updated_at": string
+                  }
+                  Insert: {
+                    "billing_start_period"?: string | null,"club_name"?: string,"default_phone_area_code"?: string | null,"id"?: number,"updated_at"?: string
+                  }
+                  Update: {
+                    "billing_start_period"?: string | null,"club_name"?: string,"default_phone_area_code"?: string | null,"id"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -402,6 +509,11 @@ isOneToOne: false
 "correct_member_joined_on":
 { Args: { "new_joined_on": string,"target_member_id": number }; Returns: undefined
                            },
+"create_portal_token":
+{ Args: { "p_account_id"?: string,"p_delivery": string,"p_family_scope"?: boolean,"p_member_id"?: number,"p_purpose": string,"p_relationship"?: string,"p_replace_pending"?: boolean,"p_request_id"?: number }; Returns: {
+              "expires_at": string,"token": string,"token_id": number
+            }[]
+                           },
 "daily_collection":
 { Args: { "target_period"?: string }; Returns: {
               "collected_cents": number,"cumulative_cents": number,"day": string
@@ -468,16 +580,52 @@ isOneToOne: false
               "amount_cents": number,"before_joined": boolean,"covered_cents": number,"is_current": boolean,"kind": string,"member_id": number,"pending_cents": number,"period": string,"priced_at_today": boolean
             }[]
                            },
+"portal_mark_password_set":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"portal_me":
+{ Args: Record<PropertyKey, never>; Returns: Json
+                           },
+"portal_request_candidates":
+{ Args: { "p_request_id": number }; Returns: {
+              "family_group_id": number,"has_account": boolean,"member_id": number,"person_id": number,"reasons": (string)[],"score": number
+            }[]
+                           },
+"portal_submit_access_request":
+{ Args: { "p_client_key": string,"p_dni": string,"p_email": string,"p_first_name": string,"p_last_name": string,"p_message": string,"p_people": Json,"p_phone_e164": string,"p_phone_raw": string }; Returns: boolean
+                           },
+"portal_token_consume":
+{ Args: { "p_check_dni"?: string,"p_first_name"?: string,"p_last_name"?: string,"p_person_dni"?: string,"p_phone_e164"?: string,"p_terms_accepted"?: boolean,"p_token": string,"p_user_id": string }; Returns: {
+              "account_id": string,"status": string
+            }[]
+                           },
+"portal_token_peek":
+{ Args: { "p_dni"?: string,"p_token": string }; Returns: {
+              "account_id": string,"family_scope": boolean,"purpose": string,"status": string,"token_id": number
+            }[]
+                           },
 "register_payment_batch":
 { Args: { "batch_id": string,"items": Json,"method": string,"notes": string,"paid_on": string,"receipt_storage_path": string }; Returns: {
               "already_registered": boolean,"amount_cents": number,"member_id": number,"opening_balance_fee_id": number,"payment_id": number
             }[]
+                           },
+"resolve_portal_request":
+{ Args: { "p_note": string,"p_request_id": number,"p_status": string }; Returns: undefined
+                           },
+"revoke_portal_link":
+{ Args: { "p_link_id": number,"p_reason": string }; Returns: undefined
+                           },
+"revoke_portal_token":
+{ Args: { "p_reason": string,"p_token_id": number }; Returns: undefined
                            },
 "set_family_payment_responsible":
 { Args: { "group_id": number,"member_id": number }; Returns: undefined
                            },
 "set_member_categories":
 { Args: { "category_ids": (number)[],"effective_on"?: string,"target_member_id": number }; Returns: undefined
+                           },
+"set_portal_account_status":
+{ Args: { "p_reason": string,"p_status": string,"p_user_id": string }; Returns: undefined
                            },
 "sponsor_summaries":
 { Args: { "target_sponsor_id"?: number,"target_year"?: number }; Returns: {

@@ -10,11 +10,36 @@ import { cn } from '@/lib/utils'
 import { getMobileNav, getNavItems } from '@/views/shell/nav-items'
 import type { NavItem } from '@/views/shell/nav-items'
 import { SPRING_INDICATOR, useMotionPreference } from '@/views/shared/motion'
-import type { AppRole } from '@/models/types'
+import type { AppRole, Permission } from '@/models/types'
 
-function isActive(pathname: string, href: string) {
+function matches(pathname: string, href: string) {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/**
+ * Un solo destino activo: el de la ruta MÁS específica. Sin esto, estando en
+ * `/socios/revision` quedarían activos Socios y Revisión a la vez.
+ */
+function isActive(pathname: string, href: string, allHrefs: readonly string[]) {
+  if (!matches(pathname, href)) return false
+  return !allHrefs.some((other) => other.length > href.length && matches(pathname, other))
+}
+
+/** Conteo de pendientes de Revisión: un número en el ítem, con el texto para lector de pantalla. */
+function PendingBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <>
+      <span
+        aria-hidden
+        className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground tabular-nums"
+      >
+        {count > 99 ? '99+' : count}
+      </span>
+      <span className="sr-only">, {count} pendiente{count === 1 ? '' : 's'}</span>
+    </>
+  )
 }
 
 /**
@@ -38,15 +63,24 @@ function isActive(pathname: string, href: string) {
  * `prefers-reduced-motion`, la misma transición baja a `duration: 0` — el
  * resultado es el mismo color, sin el desplazamiento espacial.
  */
-export function DesktopNavList({ role }: { role: AppRole }) {
+export function DesktopNavList({
+  role,
+  permissions,
+  pendingReviewCount = 0,
+}: {
+  role: AppRole
+  permissions: Permission[]
+  pendingReviewCount?: number
+}) {
   const pathname = usePathname()
-  const items = getNavItems(role)
+  const items = getNavItems(role, permissions)
+  const hrefs = items.map((item) => item.href)
   const { reduced } = useMotionPreference()
 
   return (
     <nav aria-label="Navegación principal" className="flex flex-col gap-0.5 px-2">
       {items.map((item) => {
-        const active = isActive(pathname, item.href)
+        const active = isActive(pathname, item.href, hrefs)
         const Icon = item.icon
         return (
           <Link
@@ -67,6 +101,7 @@ export function DesktopNavList({ role }: { role: AppRole }) {
             ) : null}
             <Icon aria-hidden className={cn('relative z-[1] size-5 shrink-0', active && 'text-brand')} />
             <span className="relative z-[1]">{item.label}</span>
+            {item.showsPendingReview ? <PendingBadge count={pendingReviewCount} /> : null}
           </Link>
         )
       })}
@@ -74,7 +109,7 @@ export function DesktopNavList({ role }: { role: AppRole }) {
   )
 }
 
-function BottomNavLink({ item, active, onClick }: { item: NavItem; active: boolean; onClick?: () => void }) {
+function BottomNavLink({ item, active, onClick, pendingCount = 0 }: { item: NavItem; active: boolean; onClick?: () => void; pendingCount?: number }) {
   const Icon = item.icon
   const { reduced } = useMotionPreference()
 
@@ -99,15 +134,27 @@ function BottomNavLink({ item, active, onClick }: { item: NavItem; active: boole
         <Icon aria-hidden className={cn('relative z-[1] size-5', active && 'text-brand')} />
       </span>
       <span className={cn(active && 'font-semibold text-foreground')}>{item.label}</span>
+      {item.showsPendingReview ? <PendingBadge count={pendingCount} /> : null}
     </Link>
   )
 }
 
-export function MobileBottomNav({ role }: { role: AppRole }) {
+export function MobileBottomNav({
+  role,
+  permissions,
+  pendingReviewCount = 0,
+}: {
+  role: AppRole
+  permissions: Permission[]
+  pendingReviewCount?: number
+}) {
   const pathname = usePathname()
-  const { visible, overflow } = getMobileNav(role)
+  const { visible, overflow } = getMobileNav(role, permissions)
+  const hrefs = [...visible, ...overflow].map((item) => item.href)
   const [moreOpen, setMoreOpen] = useState(false)
-  const overflowActive = overflow.some((item) => isActive(pathname, item.href))
+  const overflowActive = overflow.some((item) => isActive(pathname, item.href, hrefs))
+  // El badge de Revisión vive en "Más" cuando el destino cae ahí: el conteo se ve igual en el botón.
+  const overflowPending = overflow.some((item) => item.showsPendingReview) ? pendingReviewCount : 0
 
   return (
     <>
@@ -137,11 +184,12 @@ export function MobileBottomNav({ role }: { role: AppRole }) {
               <MoreHorizontal aria-hidden className={cn('size-5', overflowActive && 'text-brand')} />
             </span>
             <span className={cn(overflowActive && 'font-semibold text-foreground')}>Más</span>
+            <PendingBadge count={overflowPending} />
           </button>
         ) : null}
 
         {visible.map((item) => (
-          <BottomNavLink key={item.href} item={item} active={isActive(pathname, item.href)} />
+          <BottomNavLink key={item.href} item={item} active={isActive(pathname, item.href, hrefs)} pendingCount={pendingReviewCount} />
         ))}
       </nav>
 
@@ -153,7 +201,7 @@ export function MobileBottomNav({ role }: { role: AppRole }) {
             </SheetHeader>
             <nav aria-label="Más destinos" className="flex flex-col gap-1 px-4 pb-4">
               {overflow.map((item) => {
-                const active = isActive(pathname, item.href)
+                const active = isActive(pathname, item.href, hrefs)
                 const Icon = item.icon
                 return (
                   <Link
@@ -168,6 +216,7 @@ export function MobileBottomNav({ role }: { role: AppRole }) {
                   >
                     <Icon aria-hidden className={cn('size-5 shrink-0', active && 'text-brand')} />
                     {item.label}
+                    {item.showsPendingReview ? <PendingBadge count={pendingReviewCount} /> : null}
                   </Link>
                 )
               })}

@@ -17,6 +17,7 @@ import { MemberAccountSection } from '@/views/members/member-account-section'
 import { MemberPeriodStrip } from '@/views/members/member-period-strip'
 import { MemberFeeStatement } from '@/views/members/member-fee-statement'
 import { MemberPaymentsList } from '@/views/members/member-payments-list'
+import { PortalAccessSection, type PortalSectionProps } from '@/views/portal/portal-access-section'
 import type { DisciplineWithCategories, MemberPageData, Permission } from '@/models/types'
 
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -42,10 +43,13 @@ export function MemberDetailView({
   data,
   disciplines,
   permissions,
+  portal,
 }: {
   data: MemberPageData
   disciplines: DisciplineWithCategories[]
   permissions: Permission[]
+  /** Solo con `portal.invite` o `portal.review`: la sección "App de socios". */
+  portal?: Pick<PortalSectionProps, 'accessPromise' | 'autoInvite'>
 }) {
   const { member, account, billing } = data
   const canEdit = permissions.includes('members.write')
@@ -136,6 +140,17 @@ export function MemberDetailView({
           </Panel>
 
           <FamilyGroupSection familyGroup={member.familyGroup} currentMemberId={member.id} canManage={canEdit} />
+
+          {portal ? (
+            <PortalAccessSection
+              accessPromise={portal.accessPromise}
+              autoInvite={portal.autoInvite}
+              memberId={member.id}
+              familyGroupId={member.familyGroupId}
+              defaultRelationship={member.isMinor ? 'guardian' : 'self'}
+              permissions={permissions}
+            />
+          ) : null}
 
           <MedicalClearanceSection
             memberId={member.id}

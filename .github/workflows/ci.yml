@@ -18,6 +18,7 @@ env:
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
   SUPABASE_SECRET_KEY: ci-placeholder-secret-key
   NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  PORTAL_APP_URL: http://localhost:3001
 
 jobs:
   build:

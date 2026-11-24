@@ -78,6 +78,11 @@ export type Permission =
   | 'income.register'
   | 'income.void'
   | 'sponsors.deactivate'
+  // App de socios (pipeline 2026-11-24-app-socios, workspace).
+  | 'portal.review'
+  | 'portal.invite'
+  /** Solo admin: quien emite un enlace de ingreso puede abrirlo. */
+  | 'portal.login_link'
 
 export type SessionInfo = {
   userId: string
@@ -840,3 +845,137 @@ export type ExportListing =
   | 'month_payments'
   | 'audit'
   | 'other_income'
+
+// -----------------------------------------------------------------------------
+// App de socios: cuentas, invitaciones y Revisión (pipeline 2026-11-24-app-socios)
+//
+// Una CUENTA es la persona que entra a la app (muchas veces un padre que no es
+// socio). Ve socios por VÍNCULOS: directo (self | guardian) o, con
+// family_scope, todo el grupo familiar del socio ancla, derivado en el momento.
+// Nada de esto toca app_users: el socio nunca es un rol interno.
+// -----------------------------------------------------------------------------
+
+export type PortalRelationship = 'self' | 'guardian'
+export type PortalTokenPurpose = 'invite' | 'login'
+export type PortalTokenDelivery = 'whatsapp' | 'qr'
+export type PortalAccountStatus = 'active' | 'blocked'
+export type PortalRequestStatus = 'pending' | 'invited' | 'completed' | 'rejected'
+
+/** Estado derivado de un token, para la ficha. */
+export type PortalTokenState = 'pending' | 'consumed' | 'revoked' | 'expired' | 'locked'
+
+/**
+ * Lo que devuelve emitir un token. `url` lleva el token en el FRAGMENTO
+ * (`/entrar#t=…`) y existe solo en esta respuesta: no se persiste ni se loguea.
+ */
+export type IssuedPortalToken = {
+  tokenId: number
+  url: string
+  expiresAt: ISODateTime
+  /** Solo para entrega por WhatsApp: enlace `wa.me` con el mensaje prearmado. */
+  whatsappUrl: string | null
+}
+
+export type PortalTokenSummary = {
+  id: number
+  purpose: PortalTokenPurpose
+  delivery: PortalTokenDelivery
+  familyScope: boolean
+  relationship: PortalRelationship | null
+  state: PortalTokenState
+  createdAt: ISODateTime
+  createdByName: string | null
+  expiresAt: ISODateTime
+  consumedAt: ISODateTime | null
+}
+
+export type PortalLinkedAccount = {
+  linkId: number
+  accountId: string
+  firstName: string
+  lastName: string
+  relationship: PortalRelationship
+  familyScope: boolean
+  accountStatus: PortalAccountStatus
+  linkedAt: ISODateTime
+  linkedByName: string | null
+  /** Último enlace de ingreso emitido por la Comisión, si hubo (00 §4.A.7). */
+  lastLoginLink: { createdAt: ISODateTime; createdByName: string | null; consumedAt: ISODateTime | null } | null
+}
+
+export type PortalRequestPerson = {
+  id: number
+  firstName: string
+  lastName: string
+  dni: string | null
+  relationship: PortalRelationship
+}
+
+export type PortalCandidateReason = 'dni' | 'phone' | 'payer_phone' | 'email' | 'name'
+
+export type PortalCandidate = {
+  personId: number
+  memberId: number
+  memberName: string
+  score: number
+  reasons: PortalCandidateReason[]
+  familyGroupId: number | null
+  hasAccount: boolean
+}
+
+export type PortalAccessRequest = {
+  id: number
+  firstName: string
+  lastName: string
+  dni: string
+  phoneRaw: string
+  phoneE164: string | null
+  email: string | null
+  message: string | null
+  status: PortalRequestStatus
+  createdAt: ISODateTime
+  resolvedAt: ISODateTime | null
+  resolvedByName: string | null
+  resolutionNote: string | null
+  people: PortalRequestPerson[]
+  /**
+   * Solo para `invited`: `true` si queda una invitación vigente, `false` si todas
+   * vencieron o se revocaron sin canjearse (vuelve a la cola: reinvitar o rechazar).
+   * `null` en cualquier otro estado.
+   */
+  invitationLive: boolean | null
+}
+
+export type PortalRequestDetail = {
+  request: PortalAccessRequest
+  candidates: PortalCandidate[]
+}
+
+/** Lo que la ficha del socio (o del grupo) muestra de la app. */
+export type PortalAccessOverview = {
+  accounts: PortalLinkedAccount[]
+  /** Invitaciones y enlaces de ingreso, vigentes primero. */
+  tokens: PortalTokenSummary[]
+  /** Si hay un teléfono en el padrón para mandar por WhatsApp. */
+  hasPhoneOnFile: boolean
+}
+
+/** Una fila de "Invitar por categoría": un grupo (o un socio sin grupo) sin cuenta. */
+export type PortalInviteTarget = {
+  familyGroupId: number | null
+  /** Socio ancla de la invitación (el responsable de pago si hay, si no el primero). */
+  anchorMemberId: number
+  label: string
+  memberNames: string[]
+  hasPhoneOnFile: boolean
+}
+
+/** Precarga de la ficha de ingreso desde un pedido de acceso. */
+export type PortalRequestPrefill = {
+  requestId: number
+  firstName: string
+  lastName: string
+  dni: string | null
+  phone: string | null
+  email: string | null
+}

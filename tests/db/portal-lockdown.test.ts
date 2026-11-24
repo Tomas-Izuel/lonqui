@@ -6,15 +6,14 @@ import {
   actAs,
   actAsSuperuser,
   createAuthUser,
-  createCategory,
-  createDiscipline,
   createFamilyGroup,
   createMember,
   createUserWithRole,
   isDbAvailable,
-  openMemberCategory,
   withRollback,
 } from './helpers'
+import { consumeToken, createPortalAuthUser, fakeDni, issueToken, linkNewAccount, peekToken } from './portal-fixtures'
+import { seedClub, type Seeds } from './seed-club'
 
 /**
  * App de socios, S1-T2 (`docs/pipelines/2026-11-24-app-socios/`, `00-architecture.md` §4.D):
@@ -70,9 +69,10 @@ import {
  *      invariante real es "NINGUNA cuenta de socio tiene fila en `app_users`".
  *      Un socio al que se le diera una fila con un rol del panel
  *      (`role = 'consulta'`, por ejemplo) abre el padrón igual y esta guarda no
- *      lo ve. Hoy no hay cuentas de socio que probar; ver el TODO de S2-T4 más
- *      abajo: después de canjear una invitación, `app_users` no cambia y
- *      `private.current_app_role()` es `null` para esa cuenta. La DEMOSTRACIÓN
+ *      lo ve. Desde S2-T4 SÍ hay cuentas de socio que probar (último bloque del
+ *      archivo): después de canjear una invitación, `app_users` no cambia y
+ *      `private.current_app_role()` es `null` para esa cuenta, y el actor
+ *      "cuenta de la app vinculada" recorre todo el cierre. La DEMOSTRACIÓN
  *      lista a mano las siete tablas con `current_app_role() is not null`: si
  *      alguien las endurece (por ejemplo a un `is_staff()`), se pone roja por
  *      una MEJORA; en ese caso actualizá la lista, no el CHECK.
@@ -94,10 +94,10 @@ if (!dbAvailable) {
 // ---------------------------------------------------------------------------
 
 /**
- * Prefijo reservado para las RPC del portal (S2+). Se EXCLUYEN de `scanFunctions` para todos los actores,
- * a propósito: son SECURITY DEFINER y sus reglas (cuenta de portal, tokens, funciones solo de servicio) se
- * prueban en el archivo de S2. Ver el TODO de S2-T4 al final del archivo: el huérfano y `anon` tampoco tienen
- * cuenta de portal, así que ahí se afirma que no obtienen nada de ninguna `portal_*`.
+ * Prefijo de las RPC del portal (S2). El recorrido 'panel' de `scanFunctions` las EXCLUYE a propósito (son
+ * SECURITY DEFINER y una cuenta de la app legítimamente obtiene datos de ellas): se recorren aparte con
+ * `scope = 'portal'` para el huérfano y `anon` (que no obtienen nada), y sus reglas (tokens, permisos, funciones
+ * solo de servicio) se prueban en `portal-accounts`, `portal-tokens` y `portal-requests`.
  */
 const PORTAL_PREFIX = 'portal_'
 
@@ -138,86 +138,25 @@ const FUNCTION_EXCEPTIONS: Record<string, FunctionException> = {
   },
 }
 
+/**
+ * Lo mismo para las `portal_*` (S2-T4). Un usuario sin cuenta de la app y `anon` tienen que fallar con 42501 en todas;
+ * la única que puede EJECUTAR sin error para un huérfano es `portal_me()` (authenticated sí la tiene), y devuelve NULL.
+ * `portal_mark_password_set()` tira 42501 desde el cuerpo. Las tres de servicio ni siquiera son ejecutables (42501 por
+ * falta de EXECUTE).
+ */
+const PORTAL_FUNCTION_EXCEPTIONS: Record<string, FunctionException> = {
+  portal_me: {
+    why: 'para una sesión sin cuenta activa de la app devuelve NULL (jsonb), nunca datos',
+    allowedRows: (rows) => rows.length === 1 && Object.values(rows[0])[0] === null,
+  },
+}
+
 // ---------------------------------------------------------------------------
 // Seed (invented data only)
 // ---------------------------------------------------------------------------
 
-type Seeds = {
-  memberId: number
-  withdrawnMemberId: number
-  creditMemberId: number
-  groupId: number
-  sponsorId: number
-  storageObjectName: string
-}
-
 /** Tablas de una sola fila que crea la migración (no el seed): tienen filas sin que `seedClub()` inserte nada. */
 const SINGLETON_FROM_MIGRATION = ['settings']
-
-/** Un socio con grupo, categoría, cuota, pago, caja, apto, baja y un objeto en CADA bucket de storage. Todo inventado. */
-async function seedClub(client: ClientBase): Promise<Seeds> {
-  await actAsSuperuser(client)
-  const tag = randomUUID().slice(0, 8)
-
-  const groupId = await createFamilyGroup(client, { name: `Grupo Ficticio ${tag}` })
-  const disciplineId = await createDiscipline(client, { name: `Disciplina Ficticia ${tag}` })
-  const categoryId = await createCategory(client, { disciplineId, name: `Categoria Ficticia ${tag}` })
-  const memberId = await createMember(client, {
-    firstName: 'Ficticia',
-    lastName: `Prueba${tag}`,
-    dni: '00000000',
-    familyGroupId: groupId,
-    joinedOn: '2026-01-01',
-  })
-  await openMemberCategory(client, { memberId, categoryId, joinedOn: '2026-01-01' })
-
-  const withdrawnMemberId = await createMember(client, { firstName: 'Ficticio', lastName: `Baja${tag}`, joinedOn: '2026-01-01' })
-  await client.query(
-    `insert into public.member_status_events (member_id, event_type, effective_on, reason) values ($1, 'withdrawal', '2026-03-01', 'Motivo ficticio de baja')`,
-    [withdrawnMemberId],
-  )
-  // Un pago sin cuotas: queda entero como saldo a favor y asegura una fila en `payment_credit` con crédito.
-  const creditMemberId = await createMember(client, { firstName: 'Ficticio', lastName: `Credito${tag}`, joinedOn: '2026-01-01' })
-  await client.query(
-    `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 50000, '2026-02-12', 'transfer', $2)`,
-    [creditMemberId, randomUUID()],
-  )
-
-  await client.query(`insert into public.fee_prices (scope, amount_cents, valid_from) values ('default', 1000000, '2090-01-01')`)
-  await client.query(
-    `insert into public.fees (member_id, period, kind, amount_cents, description) values ($1, '2026-02-01', 'monthly', 1000000, 'fixture')`,
-    [memberId],
-  )
-  await client.query(
-    `insert into public.payments (member_id, amount_cents, paid_on, method, batch_id) values ($1, 400000, '2026-02-10', 'cash', $2)`,
-    [memberId, randomUUID()],
-  )
-  await client.query(
-    `insert into public.medical_clearances (member_id, expires_on, storage_path, original_filename) values ($1, '2027-01-01', $2, 'apto-ficticio.pdf')`,
-    [memberId, `medical-clearances/${memberId}/apto-ficticio.pdf`],
-  )
-  await client.query(`insert into public.billing_runs (period, trigger, status, fees_created) values ('2026-02-01', 'manual', 'ok', 1)`)
-  const concept = await client.query<{ id: string }>(`insert into public.cash_concepts (name) values ($1) returning id`, [`Concepto Ficticio ${tag}`])
-  const sponsor = await client.query<{ id: string }>(`insert into public.sponsors (name) values ($1) returning id`, [`Sponsor Ficticio ${tag}`])
-  await client.query(
-    `insert into public.cash_movements (concept_id, sponsor_id, amount_cents, occurred_on, method, batch_id)
-     values ($1, $2, 250000, '2026-02-11', 'cash', $3)`,
-    [concept.rows[0].id, sponsor.rows[0].id, randomUUID()],
-  )
-  // Alguien con rol del panel: también hace que `app_users` y `audit_log` tengan filas propias.
-  await createUserWithRole(client, 'admin', { displayName: 'Admin Ficticio' })
-
-  // Un objeto en cada bucket (los del catálogo, no una lista fija). `storage.objects` lo escribe `postgres`, como Storage.
-  const buckets = await client.query<{ id: string }>(`select id from storage.buckets order by id`)
-  let storageObjectName = ''
-  for (const b of buckets.rows) {
-    const name = b.id === 'attachments' ? `medical-clearances/${memberId}/apto-ficticio-${tag}.pdf` : `fixture/${tag}.bin`
-    if (b.id === 'attachments') storageObjectName = name
-    await client.query(`insert into storage.objects (bucket_id, name, owner_id) values ($1, $2, null)`, [b.id, name])
-  }
-
-  return { memberId, withdrawnMemberId, creditMemberId, groupId, sponsorId: Number(sponsor.rows[0].id), storageObjectName }
-}
 
 // ---------------------------------------------------------------------------
 // Probes
@@ -287,8 +226,14 @@ async function discoverFunctions(client: ClientBase): Promise<Fn[]> {
                        'type', format_type(t.oid, null),
                        'composite', t.typtype = 'c',
                        'tname', t.typname,
-                       -- los nombres solo se alinean con los tipos si la función no tiene OUT/INOUT
-                       'name', case when p.proargmodes is null then p.proargnames[u.ord::int] end
+                       -- el n-ésimo argumento de ENTRADA (proargnames incluye también las columnas OUT/TABLE: se filtran por modo)
+                       'name', case when p.proargnames is null then null else (
+                         select x.nm
+                           from unnest(p.proargnames, coalesce(p.proargmodes, array_fill('i'::"char", array[cardinality(p.proargnames)]))) with ordinality as x(nm, md, i)
+                          where x.md in ('i', 'b', 'v')
+                          order by x.i
+                         offset (u.ord::int - 1) limit 1
+                       ) end
                      ) order by u.ord)
                 from unnest(string_to_array(nullif(p.proargtypes::text, ''), ' ')::oid[]) with ordinality as u(oid, ord)
                 join pg_type t on t.oid = u.oid
@@ -321,6 +266,10 @@ function argValue(arg: FnArg, seeds: Seeds, composite: string | null): string | 
     case 'bigint':
       if (arg.name && /group/i.test(arg.name)) return String(seeds.groupId)
       if (arg.name && /sponsor/i.test(arg.name)) return String(seeds.sponsorId)
+      // S2: las RPC del portal buscan el objeto ANTES o DESPUÉS del permiso según el caso; con ids reales llegan al chequeo de permiso.
+      if (arg.name && /token/i.test(arg.name)) return String(seeds.pendingTokenId)
+      if (arg.name && /link/i.test(arg.name)) return String(seeds.portalLinkId)
+      if (arg.name && /request/i.test(arg.name)) return String(seeds.requestId)
       return String(seeds.memberId)
     case 'integer':
       return '12'
@@ -333,6 +282,12 @@ function argValue(arg: FnArg, seeds: Seeds, composite: string | null): string | 
     case 'integer[]':
       return '{1}'
     case 'text':
+      // S2: vocabularios cerrados de las RPC del portal. Con 'cash' fallarían por argumento inválido (23514) ANTES de
+      // llegar al chequeo de permiso, y el recorrido no probaría el permiso.
+      if (arg.name === 'p_purpose') return 'invite'
+      if (arg.name === 'p_delivery') return 'whatsapp'
+      if (arg.name === 'p_relationship') return 'guardian'
+      if (arg.name === 'p_status') return 'blocked'
       return 'cash'
     case 'text[]':
       return '{cash}'
@@ -343,6 +298,8 @@ function argValue(arg: FnArg, seeds: Seeds, composite: string | null): string | 
     case 'timestamp without time zone':
       return '2026-02-01 12:00:00'
     case 'uuid':
+      // La cuenta de la app sembrada (para llegar más hondo con el admin); el resto, un uuid cualquiera.
+      if (arg.name === 'p_account_id') return seeds.portalAccountId
       return randomUUID()
     case 'uuid[]':
       return `{${randomUUID()}}`
@@ -358,9 +315,12 @@ function argValue(arg: FnArg, seeds: Seeds, composite: string | null): string | 
 
 type Call = { name: string; label: string; sql: string; params: string[] }
 
-/** Arma una llamada por función (sin las `portal_*`) con argumentos reales; lo que no se pueda armar queda en `problems`. Superusuario. */
-async function buildCalls(client: ClientBase, seeds: Seeds): Promise<{ calls: Call[]; problems: string[] }> {
-  const fns = (await discoverFunctions(client)).filter((f) => !f.name.startsWith(PORTAL_PREFIX))
+/** 'panel' = toda función de public SIN prefijo portal_; 'portal' = las portal_* (S2). */
+type FnScope = 'panel' | 'portal'
+
+/** Arma una llamada por función (las `portal_*` o las que no lo son, según `scope`) con argumentos reales; lo que no se pueda armar queda en `problems`. Superusuario. */
+async function buildCalls(client: ClientBase, seeds: Seeds, scope: FnScope = 'panel'): Promise<{ calls: Call[]; problems: string[] }> {
+  const fns = (await discoverFunctions(client)).filter((f) => f.name.startsWith(PORTAL_PREFIX) === (scope === 'portal'))
   const composites = new Map<string, string | null>()
   const calls: Call[] = []
   const problems: string[] = []
@@ -541,9 +501,10 @@ async function scanWrites(client: ClientBase, actor: Actor): Promise<string[]> {
  * (SQLSTATE o resultado exacto, con motivo). Toda llamada que NO falla se mide: si cambió el contenido de cualquier tabla
  * de public/private/storage/auth, es fuga aunque devuelva `void`, `null`, `0` o `false`.
  */
-async function scanFunctions(client: ClientBase, actor: Actor, seeds: Seeds): Promise<string[]> {
+async function scanFunctions(client: ClientBase, actor: Actor, seeds: Seeds, scope: FnScope = 'panel'): Promise<string[]> {
   await actAsSuperuser(client)
-  const { calls, problems } = await buildCalls(client, seeds)
+  const { calls, problems } = await buildCalls(client, seeds, scope)
+  const exceptions = scope === 'portal' ? PORTAL_FUNCTION_EXCEPTIONS : FUNCTION_EXCEPTIONS
   const effectTables = await discoverEffectTables(client)
   let before = await snapshotEffects(client, effectTables)
 
@@ -551,7 +512,7 @@ async function scanFunctions(client: ClientBase, actor: Actor, seeds: Seeds): Pr
   await becomeActor(client, actor)
   for (const call of calls) {
     const res = await probe(client, call.sql, call.params)
-    const exception = FUNCTION_EXCEPTIONS[call.name]
+    const exception = exceptions[call.name]
 
     if (!res.ok) {
       if (res.code === '42501') continue
@@ -803,17 +764,33 @@ describe.skipIf(!dbAvailable)('cierre dinámico: el catálogo se recorre solo y 
   })
 })
 
-const ACTORS: Array<{ label: string; canCallPrivate: boolean; build: (client: ClientBase) => Promise<Actor> }> = [
+const ACTORS: Array<{ kind: 'orphan' | 'anon' | 'portal'; label: string; canCallPrivate: boolean; build: (client: ClientBase) => Promise<Actor> }> = [
   {
+    kind: 'orphan',
     label: 'usuario de Auth sin fila en app_users (el socio-por-venir)',
     canCallPrivate: true,
     build: async (client) => ({ label: 'auth sin app_users', pgRole: 'authenticated', userId: await createOrphanAuthUser(client) }),
   },
   {
+    kind: 'anon',
     label: 'anon (la publishable key sin sesión)',
     // anon ni siquiera tiene USAGE sobre el schema private: es una defensa más, la prueba el recorrido de abajo.
     canCallPrivate: false,
     build: async () => ({ label: 'anon', pgRole: 'anon', userId: randomUUID() }),
+  },
+  {
+    // S2-T4: el socio REAL. Una cuenta de la app con un vínculo con family_scope a un socio con grupo: ve lo suyo por
+    // portal_me() y por NADA más. Es el actor que justifica todo el archivo: antes de S2 no existía y el huérfano era un modelo.
+    kind: 'portal',
+    label: 'cuenta de la app de socios, vinculada a un socio y a su grupo familiar',
+    canCallPrivate: true,
+    build: async (client) => {
+      const admin = await createUserWithRole(client, 'admin')
+      const groupId = await createFamilyGroup(client)
+      const memberId = await createMember(client, { firstName: 'Vinculado', lastName: 'Inventado', dni: fakeDni(), familyGroupId: groupId })
+      const account = await linkNewAccount(client, { adminId: admin.userId, memberId, relationship: 'guardian', familyScope: true })
+      return { label: 'cuenta de la app', pgRole: 'authenticated', userId: account.userId }
+    },
   },
 ]
 
@@ -1034,6 +1011,11 @@ describe.skipIf(!dbAvailable)('el detector detecta: tabla, policy, función y bu
       expect(fns.some((l) => l.startsWith('FUNCTION zz_valida(bigint)') && l.includes('P0001')), fns.join(' | ')).toBe(true)
       expect(fns.some((l) => l.startsWith('FUNCTION zz_tipo(interval)') && l.includes('no hay valor de prueba')), fns.join(' | ')).toBe(true)
       expect(fns.some((l) => l.includes('portal_zz_ok'))).toBe(false)
+      // ... que el recorrido de las portal_* (S2-T4) SÍ atrapa: una portal_* nueva abierta para un huérfano devuelve datos.
+      const portalFns = await scanFunctions(client, actor, seeds, 'portal')
+      expect(portalFns.some((l) => l.startsWith('FUNCTION portal_zz_ok()')), portalFns.join(' | ')).toBe(true)
+      const unclassified = await classifyPortalFunctions(client)
+      expect(unclassified.some((l) => l.includes('portal_zz_ok')), unclassified.join(' | ')).toBe(true)
 
       // Mutación 7 (M2): un bucket nuevo y PÚBLICO, con un objeto y una policy de lectura abierta.
       await client.query(`insert into storage.buckets (id, name, public) values ('zz-publico', 'zz-publico', true)`)
@@ -1046,16 +1028,177 @@ describe.skipIf(!dbAvailable)('el detector detecta: tabla, policy, función y bu
   })
 })
 
-describe.skipIf(!dbAvailable)('portal_*: excluidas de este recorrido a propósito (ver S2)', () => {
-  // TODO S2-T4: cuando exista la migración `portal_accounts` aplicada, este bloque afirma, con el MISMO recorrido por catálogo
-  // (prefijo `portal_`), que un usuario de Auth SIN cuenta de portal y `anon` no obtienen nada de ninguna `portal_*`
-  // (falla con 42501, o devuelve vacío sin modificar datos), con las excepciones declaradas que canjean un token.
-  it.todo('S2-T4: huérfano y anon: toda portal_* falla con 42501 o devuelve vacío sin modificar datos (reusar buildCalls/snapshotEffects)')
-  it.todo(
-    'S2-T4: portal_token_peek, portal_token_consume y portal_submit_access_request son SOLO de servicio: authenticated y anon no pueden ejecutarlas (EXECUTE solo para service_role)',
+// ---------------------------------------------------------------------------
+// S2-T4: las portal_*
+// ---------------------------------------------------------------------------
+
+/** Las portal_* que el socio (o cualquier sesión) puede llamar. Cada una resuelve la cuenta desde auth.uid() en el cuerpo. */
+const PORTAL_SESSION_FUNCTIONS = ['portal_me', 'portal_mark_password_set']
+/** portal_* para el PANEL: ejecutables por authenticated, pero el cuerpo exige portal.review. */
+const PORTAL_PANEL_FUNCTIONS = ['portal_request_candidates']
+/** portal_* SOLO de servicio (las llama /api/v1 con la secret key): ni anon ni authenticated. */
+const PORTAL_SERVICE_ONLY_FUNCTIONS = ['portal_token_peek', 'portal_token_consume', 'portal_submit_access_request']
+
+type PortalFnPrivilege = { name: string; sig: string; anon: boolean; authenticated: boolean; service: boolean }
+
+/** EXECUTE efectivo (incluye PUBLIC) de cada portal_* para anon, authenticated y service_role. Superusuario. */
+async function portalFunctionPrivileges(client: ClientBase): Promise<PortalFnPrivilege[]> {
+  const res = await client.query<PortalFnPrivilege>(
+    `select p.proname as name, p.oid::regprocedure::text as sig,
+            has_function_privilege('anon', p.oid, 'execute') as anon,
+            has_function_privilege('authenticated', p.oid, 'execute') as authenticated,
+            has_function_privilege('service_role', p.oid, 'execute') as service
+       from pg_proc p
+      where p.pronamespace = 'public'::regnamespace
+        and left(p.proname, 7) = 'portal_'
+        and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+      order by p.proname, p.oid`,
   )
-  it.todo(
-    'S2-T4: después de canjear una invitación, app_users no cambió y private.current_app_role() es null para la cuenta del socio (la invariante real detrás de la bomba)',
-  )
-  it.todo('S2-T4: extender seedClub() (tablas portal_* nuevas) y argValue() (tipos de argumento nuevos) en la misma tanda que la migración')
+  return res.rows
+}
+
+/**
+ * Toda portal_* tiene que estar clasificada (sesión / panel / servicio) y tener EXACTAMENTE el EXECUTE de su clase:
+ * anon nunca; authenticated solo si no es de servicio; service_role siempre. Una portal_* nueva sin clasificar es un
+ * problema (el prefijo no es una excusa: es SECURITY DEFINER). Devuelve los problemas ([] = ok).
+ */
+async function classifyPortalFunctions(client: ClientBase): Promise<string[]> {
+  await actAsSuperuser(client)
+  const problems: string[] = []
+  for (const fn of await portalFunctionPrivileges(client)) {
+    const serviceOnly = PORTAL_SERVICE_ONLY_FUNCTIONS.includes(fn.name)
+    const known = serviceOnly || PORTAL_SESSION_FUNCTIONS.includes(fn.name) || PORTAL_PANEL_FUNCTIONS.includes(fn.name)
+    if (!known) {
+      problems.push(`${fn.sig}: portal_* sin clasificar: agregala a PORTAL_SESSION_FUNCTIONS, PORTAL_PANEL_FUNCTIONS o PORTAL_SERVICE_ONLY_FUNCTIONS`)
+      continue
+    }
+    if (fn.anon) problems.push(`${fn.sig}: anon puede ejecutarla`)
+    if (serviceOnly && fn.authenticated) problems.push(`${fn.sig}: es de servicio y authenticated puede ejecutarla`)
+    if (!serviceOnly && !fn.authenticated) problems.push(`${fn.sig}: authenticated no puede ejecutarla (la usa el panel / el socio)`)
+    // service_role solo tiene que poder las de servicio: las del socio y del panel resuelven a la persona desde auth.uid(), que con la secret key es null.
+    if (serviceOnly && !fn.service) problems.push(`${fn.sig}: service_role no puede ejecutarla`)
+  }
+  return problems
+}
+
+describe.skipIf(!dbAvailable)('portal_*: el catálogo clasificado y cerrado (S2-T4)', () => {
+  it('toda portal_* está clasificada y tiene el EXECUTE exacto de su clase: anon ninguna, de servicio solo service_role', async () => {
+    await withRollback(async (client) => {
+      expect(await classifyPortalFunctions(client)).toEqual([])
+      // La lista no es decorativa: las ocho que escribió la migración existen.
+      const names = (await portalFunctionPrivileges(client)).map((f) => f.name)
+      for (const expected of [...PORTAL_SESSION_FUNCTIONS, ...PORTAL_PANEL_FUNCTIONS, ...PORTAL_SERVICE_ONLY_FUNCTIONS]) {
+        expect(names, `la clasificación nombra "${expected}" y ya no existe: actualizá la lista`).toContain(expected)
+      }
+    })
+  })
+
+  it('las tres de servicio no se pueden ejecutar de verdad: authenticated (incluso un admin) y anon reciben 42501, y la base no cambia', async () => {
+    await withRollback(async (client) => {
+      const seeds = await seedClub(client)
+      const issued = await issueToken(client, seeds.adminId, { memberId: seeds.creditMemberId, delivery: 'qr', replacePending: true })
+      const accountUser = await createPortalAuthUser(client)
+      const orphanId = await createOrphanAuthUser(client)
+      const effectTables = await discoverEffectTables(client)
+      const before = await snapshotEffects(client, effectTables)
+
+      const calls: Array<{ label: string; sql: string; params: unknown[] }> = [
+        { label: 'portal_token_peek', sql: `select * from public.portal_token_peek($1::text, null)`, params: [issued.token] },
+        {
+          label: 'portal_token_consume',
+          sql: `select * from public.portal_token_consume($1::text, $2::uuid, null, 'Ficticia', 'Inventada', $3::text, null, true)`,
+          params: [issued.token, accountUser, fakeDni()],
+        },
+        {
+          label: 'portal_submit_access_request',
+          sql: `select public.portal_submit_access_request('Ficticia', 'Inventada', $1::text, '3511234567', null, null, null, '[{"first_name":"Hijo","last_name":"Inventado","relationship":"guardian"}]'::jsonb, 'ip-ficticia')`,
+          params: [fakeDni()],
+        },
+      ]
+      const actors: Array<{ label: string; pgRole: 'authenticated' | 'anon'; userId: string }> = [
+        { label: 'admin del panel', pgRole: 'authenticated', userId: seeds.adminId },
+        { label: 'cuenta de la app', pgRole: 'authenticated', userId: seeds.portalAccountId },
+        { label: 'huérfano', pgRole: 'authenticated', userId: orphanId },
+        { label: 'anon', pgRole: 'anon', userId: randomUUID() },
+      ]
+      for (const actor of actors) {
+        for (const call of calls) {
+          await actAs(client, actor.userId, { pgRole: actor.pgRole })
+          const res = await probe(client, call.sql, call.params)
+          expect(res.ok, `${actor.label} pudo ejecutar ${call.label}`).toBe(false)
+          if (!res.ok) expect(res.code, `${actor.label} / ${call.label}: ${res.message}`).toBe('42501')
+        }
+      }
+      await actAsSuperuser(client)
+      const after = await snapshotEffects(client, effectTables)
+      expect(changedTables(before, after), 'ningún intento denegado puede dejar rastro').toEqual([])
+
+      // Contraparte: service_role SÍ las ejecuta (si no, el 42501 de arriba sería un grant roto para todos).
+      const peek = await peekToken(client, issued.token)
+      expect(peek.status).toBe('ok')
+    })
+  })
+
+  for (const actorSpec of ACTORS.filter((a) => a.kind !== 'portal')) {
+    it(`como ${actorSpec.label}: toda portal_* falla con 42501 o devuelve NULL sin modificar nada (misma exigencia que el resto de public)`, async () => {
+      await withRollback(async (client) => {
+        const seeds = await seedClub(client)
+        const actor = await actorSpec.build(client)
+        const { calls, problems } = await buildCalls(client, seeds, 'portal')
+        expect(problems).toEqual([])
+        expect(calls.map((c) => c.name).sort(), 'el recorrido tiene que cubrir todas las portal_*').toEqual(
+          [...PORTAL_SESSION_FUNCTIONS, ...PORTAL_PANEL_FUNCTIONS, ...PORTAL_SERVICE_ONLY_FUNCTIONS].sort(),
+        )
+        expect(await scanFunctions(client, actor, seeds, 'portal')).toEqual([])
+      })
+    })
+  }
+
+  it('contraparte: la cuenta vinculada SÍ obtiene datos de portal_me() (el NULL del huérfano no es un portal_me roto)', async () => {
+    await withRollback(async (client) => {
+      const seeds = await seedClub(client)
+      await actAs(client, seeds.portalAccountId)
+      const me = await client.query(`select public.portal_me() as me`)
+      const members = (me.rows[0].me?.members ?? []) as Array<{ member_id: number }>
+      expect(members.map((m) => m.member_id)).toContain(seeds.memberId)
+    })
+  })
+
+  it('el seed cubre también private.portal_rate_limits (el límite de pedidos dejó su rastro)', async () => {
+    await withRollback(async (client) => {
+      const before = await client.query(`select count(*)::int as n from private.portal_rate_limits`)
+      await seedClub(client)
+      const after = await client.query(`select count(*)::int as n from private.portal_rate_limits`)
+      expect(after.rows[0].n).toBeGreaterThan(before.rows[0].n)
+    })
+  })
+
+  it('canjear una invitación NO toca app_users y la cuenta nueva no tiene rol del panel: current_app_role() es null y el padrón sigue cerrado (la invariante real detrás de la bomba)', async () => {
+    await withRollback(async (client) => {
+      const seeds = await seedClub(client)
+      const userId = await createPortalAuthUser(client)
+
+      const snapshot = async () => (await snapshotEffects(client, ['public.app_users'])).get('public.app_users')
+      const before = await snapshot()
+      const issued = await issueToken(client, seeds.adminId, { memberId: seeds.memberId, delivery: 'qr', familyScope: true, replacePending: false })
+      const consumed = await consumeToken(client, issued.token, userId, { personDni: fakeDni() })
+      expect(consumed.status).toBe('ok')
+      expect(await snapshot(), 'canjear una invitación no puede agregar ni cambiar filas de app_users').toBe(before)
+      await expectNoStaffRow(client, userId)
+
+      await actAs(client, userId)
+      const role = await client.query('select private.current_app_role() as role')
+      expect(role.rows[0].role).toBeNull()
+      const perms = await client.query(`select public.my_permissions() as p`)
+      expect(perms.rows[0].p).toEqual([])
+      // Y el padrón, cerrado: es una cuenta REAL con vínculo a un socio con grupo, no un huérfano.
+      const members = await probe(client, `select count(*)::int as n from public.members`)
+      expect(members.ok && Number(members.rows[0].n)).toBe(0)
+      const groups = await probe(client, `select count(*)::int as n from public.family_groups`)
+      expect(groups.ok && Number(groups.rows[0].n)).toBe(0)
+      // ... y portal_me() sí le muestra lo suyo.
+      const me = await client.query(`select public.portal_me() as me`)
+      expect((me.rows[0].me.members as Array<{ member_id: number }>).some((m) => m.member_id === seeds.memberId)).toBe(true)
+    })
+  })
 })
