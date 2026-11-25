@@ -44,6 +44,8 @@ describe.skipIf(!dbAvailable)('Permisos: private.can / my_permissions (T12, §6.
           'billing.configure', 'settings.manage', 'users.manage', 'audit.read',
           'reports.read', 'reports.export',
           'income.read', 'income.register', 'income.void', 'sponsors.deactivate',
+          // App de socios (S2, 20261124130000): Revisión, invitaciones y enlaces de ingreso (este último, solo admin).
+          'portal.review', 'portal.invite', 'portal.login_link',
         ]),
       )
 
@@ -53,8 +55,10 @@ describe.skipIf(!dbAvailable)('Permisos: private.can / my_permissions (T12, §6.
         new Set([
           'members.read', 'members.write', 'payments.read', 'payments.register', 'reports.read', 'reports.export',
           'income.read', 'income.register',
+          'portal.review', 'portal.invite',
         ]),
       )
+      expect(editor.rows[0].my_permissions).not.toContain('portal.login_link')
       expect(editor.rows[0].my_permissions).not.toContain('payments.void')
       expect(editor.rows[0].my_permissions).not.toContain('income.void')
       expect(editor.rows[0].my_permissions).not.toContain('sponsors.deactivate')

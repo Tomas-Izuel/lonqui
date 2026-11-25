@@ -12,6 +12,8 @@ export type AppShellSession = {
   displayName: string
   role: AppRole
   permissions: Permission[]
+  /** Pedidos de Revisión pendientes, para el badge de la navegación (0 sin `portal.review`). */
+  pendingReviewCount?: number
 }
 
 /**
@@ -66,7 +68,7 @@ export function AppShell({ session, children }: { session: AppShellSession; chil
             <span className="truncate font-heading text-sm font-semibold">Lonqui</span>
           </div>
           <div className="flex min-h-0 flex-1 flex-col py-2">
-            <DesktopNavList role={session.role} />
+            <DesktopNavList role={session.role} permissions={session.permissions} pendingReviewCount={session.pendingReviewCount} />
           </div>
           <div className="shrink-0 border-t border-border p-2">
             <UserMenu displayName={session.displayName} role={session.role} />
@@ -119,7 +121,7 @@ export function AppShell({ session, children }: { session: AppShellSession; chil
             </div>
           </main>
 
-          <MobileBottomNav role={session.role} />
+          <MobileBottomNav role={session.role} permissions={session.permissions} pendingReviewCount={session.pendingReviewCount} />
         </div>
       </div>
 

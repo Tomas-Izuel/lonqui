@@ -17,6 +17,22 @@ const serverSchema = z.object({
   NEXT_PUBLIC_SITE_URL: z.url(),
 
   /**
+   * Origen de la app de socios (sin barra final). Con esto se arman los
+   * enlaces de invitación e ingreso: `<origen>/entrar#t=<token>`.
+   * Opcional A PROPÓSITO: si faltara en Vercel y fuera obligatoria, serverEnv()
+   * tiraría en cada request y se caería el panel entero. Sin ella solo falla
+   * emitir enlaces, con un mensaje claro (lo resuelve portal.controller).
+   */
+  // Vacía cuenta como ausente: `PORTAL_APP_URL=` en Vercel no puede tirar el panel.
+  PORTAL_APP_URL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z
+      .url({ protocol: /^https?$/ })
+      .transform((url) => url.replace(/\/+$/, ''))
+      .optional(),
+  ),
+
+  /**
    * Resend. Opcionales: en la Fase 1 la app no manda mails propios (los de
    * Auth salen por el SMTP que se configura en Supabase, no desde acá). Quedan
    * declaradas para cuando un adapter las necesite.

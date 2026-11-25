@@ -1,7 +1,7 @@
 /**
  * Sesiones inventadas por rol para los tests de controllers. El catálogo de
- * permisos replica `private.permissions_for_role` (migraciones 20260927125000
- * y 20261013120000): si cambia allá, `tests/db/billing.test.ts` y
+ * permisos replica `private.permissions_for_role` (migraciones 20260927125000,
+ * 20261013120000 y 20261124130000 —app de socios—): si cambia allá, `tests/db/billing.test.ts` y
  * `tests/db/grants-and-lockdown.test.ts` fallan contra la base real, y hay que
  * actualizarlo acá. Así los tests de actions corren el guard REAL de
  * `session.controller` (no un mock que siempre deja pasar).
@@ -15,12 +15,14 @@ export const PERMISSIONS_BY_ROLE: Record<TestRole, string[]> = {
     'billing.configure', 'settings.manage', 'users.manage', 'audit.read',
     'reports.read', 'reports.export',
     'income.read', 'income.register', 'income.void', 'sponsors.deactivate',
+    'portal.review', 'portal.invite', 'portal.login_link',
   ],
   editor: [
     'members.read', 'members.write',
     'payments.read', 'payments.register',
     'reports.read', 'reports.export',
     'income.read', 'income.register',
+    'portal.review', 'portal.invite',
   ],
   consulta: ['members.read', 'payments.read', 'reports.read', 'reports.export', 'income.read'],
 }

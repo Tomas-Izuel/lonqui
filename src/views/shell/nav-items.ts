@@ -1,12 +1,17 @@
 import type { LucideIcon } from 'lucide-react'
-import { Banknote, Home, ScrollText, Settings, UserCog, Users } from 'lucide-react'
-import type { AppRole } from '@/models/types'
+import { Banknote, Home, ScrollText, Settings, UserCheck, UserCog, Users } from 'lucide-react'
+import type { AppRole, Permission } from '@/models/types'
 
 export type NavItem = {
   href: string
   label: string
   icon: LucideIcon
+  /** Este destino muestra el conteo de pedidos de Revisión pendientes. */
+  showsPendingReview?: boolean
 }
+
+/** Destino de Revisión (App de socios): lo usa la navegación para el badge. */
+export const REVIEW_HREF = '/socios/revision'
 
 // `/caja` ya existe (F1): se prende acá, la única línea que F3 toca de
 // `views/shell/**` — el algoritmo de abajo (escritorio y barra inferior) no
@@ -24,10 +29,21 @@ type NavDestination = NavItem & {
   rank: number
   /** Sin `roles`: visible para cualquier rol autenticado. */
   roles?: AppRole[]
+  /**
+   * Visible solo con este permiso. Se evalúa únicamente cuando quien llama
+   * pasa los permisos de la sesión: sin ellos, un destino con `permission` no
+   * se muestra (nunca se asume).
+   */
+  permission?: Permission
+  /** Posición en la barra inferior móvil, si debe ser distinta de `rank` (que manda en escritorio). */
+  mobileRank?: number
 }
 
 const REGISTRY: NavDestination[] = [
   { href: '/socios', label: 'Socios', icon: Users, rank: 0 },
+  // Revisión vive "debajo" de Socios en escritorio, pero en el celular es el destino menos
+  // frecuente (la hace sobre todo una persona, en la compu): no le saca un lugar a la barra.
+  { href: REVIEW_HREF, label: 'Revisión', icon: UserCheck, rank: 0.5, mobileRank: 100, permission: 'portal.review', showsPendingReview: true },
   ...(CAJA_ENABLED ? [{ href: '/caja', label: 'Caja', icon: Banknote, rank: 1 }] : []),
   { href: '/', label: 'Inicio', icon: Home, rank: 2 },
   { href: '/usuarios', label: 'Usuarios', icon: UserCog, rank: 3, roles: ['admin'] },
@@ -35,13 +51,15 @@ const REGISTRY: NavDestination[] = [
   { href: '/auditoria', label: 'Auditoría', icon: ScrollText, rank: 5, roles: ['admin'] },
 ]
 
-function destinationsForRole(role: AppRole): NavDestination[] {
-  return REGISTRY.filter((item) => !item.roles || item.roles.includes(role)).sort((a, b) => a.rank - b.rank)
+function destinationsForRole(role: AppRole, permissions?: Permission[], mobile = false): NavDestination[] {
+  const rankOf = (item: NavDestination) => (mobile ? (item.mobileRank ?? item.rank) : item.rank)
+  return REGISTRY.filter((item) => (!item.roles || item.roles.includes(role)) && (!item.permission || permissions?.includes(item.permission)))
+    .sort((a, b) => rankOf(a) - rankOf(b))
 }
 
 /** Barra lateral de escritorio (T6): todo visible, de más a menos importante — Socios arriba. */
-export function getNavItems(role: AppRole): NavItem[] {
-  return destinationsForRole(role)
+export function getNavItems(role: AppRole, permissions?: Permission[]): NavItem[] {
+  return destinationsForRole(role, permissions)
 }
 
 /** Cuántos espacios tiene la barra inferior, contando "Más" cuando hace falta. */
@@ -68,8 +86,8 @@ export type MobileNav = {
  * Genérico sobre `rank`, no une caso por rol: agregar un destino nuevo o
  * prender Cobranza solo cambia `REGISTRY`, este algoritmo no se toca.
  */
-export function getMobileNav(role: AppRole): MobileNav {
-  const destinations = destinationsForRole(role)
+export function getMobileNav(role: AppRole, permissions?: Permission[]): MobileNav {
+  const destinations = destinationsForRole(role, permissions, true)
 
   if (destinations.length <= MOBILE_MAX_SLOTS) {
     return { visible: destinations.slice().reverse(), overflow: [] }

@@ -16,7 +16,7 @@ import { BIRTH_DATE_TOO_OLD_MESSAGE, MIN_BIRTH_DATE, formatPeriod, toClubDate } 
 import { CategorySelector } from '@/views/members/category-selector'
 import { FamilyGroupCombobox, NO_GROUP, NEW_GROUP } from '@/views/members/family-group-combobox'
 import { createFamilyGroup, createMember, setMemberCategories, updateMember } from '@/controllers/members.actions'
-import type { BillingStatus, DisciplineWithCategories, FamilyGroupSummary, MemberDetail } from '@/models/types'
+import type { BillingStatus, DisciplineWithCategories, FamilyGroupSummary, MemberDetail, PortalRequestPrefill } from '@/models/types'
 
 /** Mismo `categoryId` elegido, sin importar el orden: alta y baja de deportes son un cambio de conjunto, no de secuencia. */
 function sameCategorySet(a: number[], b: number[]): boolean {
@@ -202,7 +202,15 @@ function describeCategoryChanges(
 }
 
 export type MemberFormProps =
-  | { mode: 'create'; member?: undefined; billing?: undefined; disciplines: DisciplineWithCategories[]; familyGroups: FamilyGroupSummary[] }
+  | {
+      mode: 'create'
+      member?: undefined
+      billing?: undefined
+      disciplines: DisciplineWithCategories[]
+      familyGroups: FamilyGroupSummary[]
+      /** Desde Revisión (`/socios/nuevo?pedido=`): datos que declaró la persona. Al guardar se ofrece "Invitar a la app". */
+      prefill?: PortalRequestPrefill
+    }
   | {
       mode: 'edit'
       member: MemberDetail
@@ -210,6 +218,7 @@ export type MemberFormProps =
       familyGroups: FamilyGroupSummary[]
       /** Solo edición: decide si la nota de cuotas por mover el alta es cierta. */
       billing?: Pick<BillingStatus, 'active' | 'startPeriod'>
+      prefill?: undefined
     }
 
 /**
@@ -225,7 +234,7 @@ export type MemberFormProps =
  * queda guardado igual — se avisa y se vuelve a la ficha, mismo criterio que
  * el residual aceptado y documentado del alta (B3, dev log).
  */
-export function MemberForm({ mode, member, disciplines, familyGroups, billing }: MemberFormProps) {
+export function MemberForm({ mode, member, disciplines, familyGroups, billing, prefill }: MemberFormProps) {
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(null)
 
@@ -237,14 +246,14 @@ export function MemberForm({ mode, member, disciplines, familyGroups, billing }:
     mode: 'onBlur',
     reValidateMode: 'onChange',
     defaultValues: {
-      firstName: member?.firstName ?? '',
-      lastName: member?.lastName ?? '',
-      dni: member?.dni ?? '',
+      firstName: member?.firstName ?? prefill?.firstName ?? '',
+      lastName: member?.lastName ?? prefill?.lastName ?? '',
+      dni: member?.dni ?? prefill?.dni ?? '',
       dniPending: member ? member.dni == null : false,
       birthDate: member?.birthDate ?? '',
       address: member?.address ?? '',
-      phone: member?.phone ?? '',
-      email: member?.email ?? '',
+      phone: member?.phone ?? prefill?.phone ?? '',
+      email: member?.email ?? prefill?.email ?? '',
       categoryIds: initialCategoryIds,
       effectiveOn: mode === 'edit' ? toClubDate() : '',
       familyGroupChoice: defaultFamilyChoice,
@@ -332,7 +341,8 @@ export function MemberForm({ mode, member, disciplines, familyGroups, billing }:
         return
       }
       toast.success('Ficha creada')
-      router.push(`/socios/${result.data.id}`)
+      // Con un pedido de acceso de origen, la ficha abre con "Invitar a la app" lista.
+      router.push(prefill ? `/socios/${result.data.id}?invitar=${prefill.requestId}` : `/socios/${result.data.id}`)
       return
     }
 
@@ -406,6 +416,12 @@ export function MemberForm({ mode, member, disciplines, familyGroups, billing }:
       <h1 className="font-heading text-xl font-semibold text-balance sm:text-2xl">
         {mode === 'create' ? 'Ficha de ingreso' : `Editar a ${member!.fullName}`}
       </h1>
+
+      {mode === 'create' && prefill ? (
+        <p role="note" className="rounded-lg bg-muted px-3 py-2 text-sm">
+          Datos precargados desde un pedido de acceso a la app. Revisalos antes de guardar: al terminar vas a poder invitar a la persona.
+        </p>
+      ) : null}
 
       {mode === 'edit' ? (
         <p className="text-sm text-muted-foreground">
